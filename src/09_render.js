@@ -126,6 +126,36 @@ function drawFighter(f, alpha) {
   const rx = lerp(f.px, f.x, alpha);
   const ry = lerp(f.py, f.y, alpha);
 
+  /* Contact shadow on the deck below. It tracks the fighter's own feet rather
+     than a fixed offset, so it stays glued to a tilted surface, and it shrinks
+     and fades with height — which is most of what sells a jump. */
+  {
+    let sy = null;
+    if (f.grounded) sy = f.feetY;
+    else {
+      // nearest surface under him, so the shadow still reads mid-jump
+      const feet = ry + ch.size.h / 2;
+      for (const s of Stage.segs) {
+        const y = Stage.surfaceY(s, rx);
+        if (y != null && y >= feet - 4 && (sy === null || y < sy)) sy = y;
+      }
+    }
+    if (sy != null && isFinite(sy)) {
+      const drop = clamp((sy - (ry + ch.size.h / 2)) / 160, 0, 1);
+      const k = 1 - drop;
+      if (k > 0.05) {
+        g.save();
+        g.globalAlpha = 0.34 * k;
+        g.fillStyle = "#000000";
+        g.beginPath();
+        g.ellipse(rx, sy - 1, ch.size.w * 0.48 * (0.55 + k * 0.45),
+                  4.5 * (0.5 + k * 0.5), 0, 0, 7);
+        g.fill();
+        g.restore();
+      }
+    }
+  }
+
   // afterimage trail
   if (f.trail.length) {
     g.save(); g.globalCompositeOperation = "lighter";

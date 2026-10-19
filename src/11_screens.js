@@ -215,7 +215,8 @@ const Game = {
 
       // full-size fighter art
       g.save();
-      g.translate(x + cw / 2, cy + 128);
+      // y places the fighter's feet just clear of the name plate below
+      g.translate(x + cw / 2, cy + 100);
       const s = hov ? 2.1 : 1.95;
       g.scale(s, s);
       c.draw(g, { time: this.titleT * 0 + performance.now() / 16, runPhase: 0, running: false,
