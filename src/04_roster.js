@@ -223,8 +223,8 @@ const ROSTER = [
 
   /* A piston, so the effect is a straight thrust: a narrow wedge punched
      forward along the arm, not a sweep. */
-  light: { name: "Piston Jab", startup: 4, active: 4, recovery: 9,
-    dmg: 4.5, base: 2.2, scale: 0.55, angle: 42, ox: 42, oy: -6, r: 28,
+  light: { name: "Piston Jab", startup: 4, active: 3, recovery: 11,
+    dmg: 4.5, base: 2.2, scale: 0.55, angle: 42, ox: 42, oy: -6, r: 24,
     vfx(f) {
       const p = hbAt(f, this), ang = faceAng(f);
       FX.blade(f.x + f.facing * 14, f.y - 6, ang, 26, 62, 0.52, f.ch.color, { w: 15, life: 11 });
@@ -235,8 +235,8 @@ const ROSTER = [
 
   /* A full-body smash, so the effect is the widest arc in the game, plus the
      ground giving way under it. */
-  heavy: { name: "Seismic Swing", startup: 14, active: 5, recovery: 23,
-    dmg: 18, base: 5.2, scale: 1.14, angle: 32, ox: 58, oy: -2, r: 44,
+  heavy: { name: "Seismic Swing", startup: 16, active: 4, recovery: 30,
+    dmg: 18, base: 5.2, scale: 1.14, angle: 32, ox: 58, oy: -2, r: 37,
     onStart(f) { Snd.whoosh(1.6); },
     vfx(f) {
       const ang = faceAng(f);
@@ -278,8 +278,8 @@ const ROSTER = [
 
   super: { name: "Tectonic Verdict",
     desc: "Rears up and splits the stage. Two shockwaves run the whole deck and the pivot takes everything.",
-    startup: 22, active: 26, recovery: 28,
-    dmg: 26, base: 7.5, scale: 1.5, angle: 50, ox: 0, oy: 26, r: 120,
+    startup: 24, active: 26, recovery: 40,
+    dmg: 17, base: 5.8, scale: 1.12, angle: 50, ox: 0, oy: 26, r: 104,
     onStart(f) { f.vy = -9; Snd.superCharge(); FX.flash("#ff2e88", 0.35); },
     tick(f, a) {
       const m = a.data;
@@ -420,8 +420,8 @@ const ROSTER = [
   /* Three fast taps instead of one poke — and each tap gets its own small arc
      at a different angle, so the flurry reads as three distinct strikes rather
      than one effect flickering. */
-  light: { name: "Spark Flurry", startup: 2, active: 12, recovery: 7,
-    dmg: 2.4, base: 1.1, scale: 0.26, angle: 52, ox: 32, oy: -8, r: 23,
+  light: { name: "Spark Flurry", startup: 3, active: 12, recovery: 10,
+    dmg: 2.4, base: 1.1, scale: 0.26, angle: 52, ox: 32, oy: -8, r: 20,
     hits: 3, hitGap: 4,
     vfx(f, a) { this.vfxRehit(f, a); },
     vfxRehit(f, a) {
@@ -437,8 +437,8 @@ const ROSTER = [
     } },
 
   /* A lance: one long narrow spike along the dash, not a sweep. */
-  heavy: { name: "Volt Lance", startup: 9, active: 5, recovery: 18,
-    dmg: 12, base: 3.6, scale: 0.98, angle: 38, ox: 52, oy: -6, r: 30,
+  heavy: { name: "Volt Lance", startup: 11, active: 4, recovery: 24,
+    dmg: 12, base: 3.6, scale: 0.98, angle: 38, ox: 52, oy: -6, r: 26,
     onStart(f) { f.vx += f.facing * 5.5; Snd.whoosh(1.2); },
     vfx(f) {
       const ang = faceAng(f);
@@ -485,8 +485,8 @@ const ROSTER = [
 
   super: { name: "Lightspeed Gauntlet",
     desc: "Becomes a line of afterimages. Eight strikes on whoever is closest, then a launcher.",
-    startup: 12, active: 56, recovery: 20,
-    dmg: 4.2, base: 1.2, scale: 0.24, angle: 60, ox: 0, oy: -6, r: 40,
+    startup: 14, active: 42, recovery: 32,
+    dmg: 2.5, base: 1.0, scale: 0.20, angle: 60, ox: 0, oy: -6, r: 36,
     onStart(f) { Snd.superCharge(); FX.flash("#00e5ff", 0.3); f.vy = -3; },
     tick(f, a) {
       const m = a.data;
@@ -516,7 +516,7 @@ const ROSTER = [
       }
       f.vx = 0; f.vy = 0;                    // frozen mid-super
       if (step === m.active - 1) {           // the finisher
-        a.data = Object.assign({}, m, { dmg: 16, base: 5.5, scale: 1.25, angle: 48, r: 70 });
+        a.data = Object.assign({}, m, { dmg: 10, base: 4.4, scale: 0.95, angle: 48, r: 62 });
         a.hitIds = null;
         Snd.superHit(); FX.shake(22); FX.hitPause(12);
         FX.ring(f.x, f.y, 14, 300, "#ffffff", 4);
@@ -648,8 +648,8 @@ const ROSTER = [
 
   /* Everything Orbit does is circular, so its attacks are rings and ellipses
      where the others get crescents. */
-  light: { name: "Ring Cut", startup: 3, active: 4, recovery: 7,
-    dmg: 3.8, base: 1.8, scale: 0.44, angle: 46, ox: 38, oy: -8, r: 27,
+  light: { name: "Ring Cut", startup: 3, active: 3, recovery: 9,
+    dmg: 3.8, base: 1.8, scale: 0.44, angle: 46, ox: 38, oy: -8, r: 23,
     vfx(f) {
       const p = hbAt(f, this);
       // a closed ring rather than a slash
@@ -661,8 +661,8 @@ const ROSTER = [
 
   /* An overhead orbital drop: the arc comes down from above and a bead falls
      in with it. */
-  heavy: { name: "Satellite Slam", startup: 12, active: 4, recovery: 20,
-    dmg: 15.5, base: 4.4, scale: 1.06, angle: 70, ox: 40, oy: -14, r: 38,
+  heavy: { name: "Satellite Slam", startup: 14, active: 3, recovery: 27,
+    dmg: 15.5, base: 4.4, scale: 1.06, angle: 70, ox: 40, oy: -14, r: 32,
     onStart(f) { Snd.whoosh(1.3); },
     vfx(f) {
       const p = hbAt(f, this), ang = faceAng(f);
@@ -709,8 +709,8 @@ const ROSTER = [
 
   super: { name: "Event Horizon",
     desc: "Opens a well that drags every fighter in, holds them there, then collapses.",
-    startup: 16, active: 74, recovery: 24,
-    dmg: 30, base: 8, scale: 1.4, angle: 62, ox: 0, oy: 0, r: 0,
+    startup: 18, active: 74, recovery: 36,
+    dmg: 19, base: 6.0, scale: 1.05, angle: 62, ox: 0, oy: 0, r: 0,
     onStart(f) { Snd.superCharge(); FX.flash("#b6ff3b", 0.3); },
     tick(f, a) {
       const m = a.data;
@@ -855,8 +855,8 @@ const ROSTER = [
   specialCooldown: 110,
 
   /* A fan, so the effect is three thin leaves opening at once. */
-  light: { name: "Fan Slice", startup: 3, active: 3, recovery: 6,
-    dmg: 3.2, base: 1.6, scale: 0.4, angle: 48, ox: 36, oy: -8, r: 25,
+  light: { name: "Fan Slice", startup: 3, active: 3, recovery: 9,
+    dmg: 3.2, base: 1.6, scale: 0.4, angle: 48, ox: 36, oy: -8, r: 22,
     vfx(f) {
       const ang = faceAng(f);
       for (let i = 0; i < 3; i++) {
@@ -868,8 +868,8 @@ const ROSTER = [
 
   /* Hitting with this also shoves the pivot, so her neutral feeds her gimmick —
      and the effect says so: a crescent plus a balance stamped on the victim. */
-  heavy: { name: "Scale Breaker", startup: 11, active: 5, recovery: 20,
-    dmg: 13.5, base: 4.0, scale: 1.0, angle: 44, ox: 48, oy: -8, r: 34,
+  heavy: { name: "Scale Breaker", startup: 13, active: 4, recovery: 26,
+    dmg: 13.5, base: 4.0, scale: 1.0, angle: 44, ox: 48, oy: -8, r: 29,
     vfx(f) {
       const ang = faceAng(f);
       FX.blade(f.x + f.facing * 6, f.y - 8, ang - 0.85 * f.facing, 46, 82, 1.8, f.ch.color,
@@ -912,8 +912,8 @@ const ROSTER = [
 
   super: { name: "Full Tilt",
     desc: "Seizes the pivot outright and forces a Snap-Back. She is the only one bolted down for it.",
-    startup: 14, active: 54, recovery: 22,
-    dmg: 18, base: 5.5, scale: 1.1, angle: 72, ox: 0, oy: 0, r: 90,
+    startup: 16, active: 54, recovery: 34,
+    dmg: 12, base: 4.4, scale: 0.9, angle: 72, ox: 0, oy: 0, r: 82,
     onStart(f) { Snd.superCharge(); FX.flash("#ffc83d", 0.3); },
     tick(f, a) {
       const m = a.data;

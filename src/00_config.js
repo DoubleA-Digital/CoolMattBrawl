@@ -67,13 +67,34 @@ const CFG = {
   matchSeconds:  180,
 
   // ---- SUPER METER ----
+  /* ---- SUPER METER ----
+     Tuned down from the first pass, where a super arrived roughly every 80
+     damage dealt and the passive trickle alone filled the bar in under two
+     minutes — so supers landed constantly and decided matches on their own.
+     They are now something you earn by actually fighting. */
   meter: {
     max:          100,
-    onDeal:       1.25,   // per point of damage dealt
-    onTake:       0.75,   // per point taken (comebacks)
-    onSnapback:   18,     // for causing a Snap-Back
-    passive:      0.016,  // trickle per frame so supers always eventually come
-    superArmor:   true,   // supers ignore knockback during their active window
+    onDeal:       0.80,   // per point of damage dealt (was 1.25)
+    onTake:       0.50,   // per point taken (comebacks) (was 0.75)
+    onSnapback:   12,     // for causing a Snap-Back (was 18)
+    passive:      0.004,  // a safety net, not a source (was 0.016)
+    superArmor:   true,   // supers resist knockback during their active window
+    superArmorHp: 16,     // ...but that armour BREAKS above this much damage,
+                          //    so a committed super can be contested
+  },
+
+  /* ---- SKILL ----
+     Levers that reward precision and variety over mashing one good button. */
+  skill: {
+    // Repeating a move makes it weaker; rotating keeps your damage up.
+    staleSteps:  [1.0, 0.90, 0.82, 0.75, 0.70],
+    staleWindow: 6,      // how many recent connects are remembered
+    staleRefresh: 600,   // frames before a stale entry freshens again
+    // Connecting with the outer edge of a hitbox pays more than hugging.
+    tipBonus:    1.16,
+    tipZone:     0.60,   // fraction of hitbox radius that counts as the tip
+    // A clean hit refunds some endlag; a whiff pays it all.
+    hitConfirmCut: 0.25,
   },
 
   /* ---- CAMERA ----

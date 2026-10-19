@@ -214,9 +214,6 @@ const Game = {
     outlineText(g, "COOL MATT BRAWL", W / 2, 196 + bob, lg, 12);
     g.shadowBlur = 0;
 
-    g.font = `700 16px ${FONT_MONO}`;
-    g.fillStyle = "#b6ff3b";
-    g.fillText("THE STAGE IS ON A PIVOT. SO IS YOUR LIFE.", W / 2, 236);
     g.restore();
 
     const bx = W / 2 - 130;
@@ -707,28 +704,35 @@ const Game = {
       ["b", "Big hits shove the pivot too. Watch the BALANCE BAR across the top of the screen."],
       ["w", "If the stage tips past its limit it SNAPS BACK and launches everyone riding it. Weaponise that."],
       ["", ""],
+      ["h3", "SKILL"],
+      ["b", "TIP — connect with the outer edge of your swing and it hits harder. Spacing pays."],
+      ["b", "STALE — repeating one move makes it weaker. Rotate your attacks to keep your damage up."],
+      ["b", "Landing a hit refunds some of your recovery; whiffing pays all of it, so you stay open."],
+      ["", ""],
       ["h3", "SUPERS"],
-      ["b", "Dealing and taking damage fills your super meter — the bar under your damage %."],
-      ["b", "At full, your Super button fires a move only your fighter has. You have armour while it runs."],
+      ["b", "Dealing and taking damage fills your super meter — the bar across the foot of your card."],
+      ["b", "At full, your Super button fires a move only your fighter has. You have armour while it runs,"],
+      ["w", "but that armour BREAKS under enough damage. A super can be contested, not just dodged."],
       ["", ""],
       ["h4", "STAGES"],
-      ["b", "Four maps, and they are not reskins. The Foundry swings like a wrecking ball over a short drop."],
-      ["b", "The Drift rights itself almost instantly and is very hard to die on. The Vault leans much further"],
-      ["b", "before it lets go, and its walls are close enough to kill you at low percent."],
+      ["b", "Four maps, not reskins — and their platforms do things. The Yard's side ledges drift in and out."],
+      ["b", "The Foundry's shelves go red-hot on a cycle and burn you; they flicker before they do."],
+      ["b", "The Drift's cloud islands sag and dissolve under your weight, then reform. Don't camp them."],
+      ["b", "The Vault's one shelf retracts on a timer, leaving the rails empty and nowhere to land."],
     ];
-    let y = 136;
+    let y = 112;
     g.save();
     g.textAlign = "left";
     for (const [k, t] of lines) {
-      if (!t) { y += 10; continue; }
-      if (k === "b") { g.font = `400 14px ${FONT_MONO}`; g.fillStyle = "#b7b4d4"; }
-      else if (k === "w") { g.font = `700 14px ${FONT_MONO}`; g.fillStyle = "#ff2e88"; }
+      if (!t) { y += 8; continue; }
+      if (k === "b") { g.font = `400 13px ${FONT_MONO}`; g.fillStyle = "#b7b4d4"; }
+      else if (k === "w") { g.font = `700 13px ${FONT_MONO}`; g.fillStyle = "#ff2e88"; }
       else {
-        g.font = `700 17px ${FONT_MONO}`;
+        g.font = `700 16px ${FONT_MONO}`;
         g.fillStyle = k === "h" ? "#ffffff" : k === "h2" ? "#b6ff3b" : k === "h3" ? "#ffc83d" : "#00e5ff";
       }
       g.fillText(t, 150, y);
-      y += (k === "b" || k === "w") ? 23 : 28;
+      y += (k === "b" || k === "w") ? 20 : 24;
     }
     g.restore();
 

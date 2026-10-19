@@ -30,8 +30,10 @@ const STAGES = [
            seq: [0, -1, 2, -1, 4, -1, 2, 3, 0, -1, 5, -1, 4, 2, -1, -1] },
   layout: [
     { x1: -310, y1: 0,    x2: 310,  y2: 0,    solid: true,  main: true,  thick: 26 },
-    { x1: -322, y1: -186, x2: -150, y2: -186, solid: false, thick: 12 },
-    { x1:  150, y1: -186, x2:  322, y2: -186, solid: false, thick: 12 },
+    { x1: -322, y1: -186, x2: -150, y2: -186, solid: false, thick: 12,
+      drift: { range: 54, speed: 0.011 }, phase: 0 },
+    { x1:  150, y1: -186, x2:  322, y2: -186, solid: false, thick: 12,
+      drift: { range: 54, speed: 0.011 }, phase: 286 },
     { x1:  -82, y1: -316, x2:   82, y2: -316, solid: false, thick: 12 },
   ],
 
@@ -144,8 +146,10 @@ const STAGES = [
   layout: [
     // narrower main beam, and the side platforms are high and short
     { x1: -258, y1: 0,    x2: 258,  y2: 0,    solid: true,  main: true, thick: 30 },
-    { x1: -300, y1: -162, x2: -186, y2: -162, solid: false, thick: 11 },
-    { x1:  186, y1: -162, x2:  300, y2: -162, solid: false, thick: 11 },
+    { x1: -300, y1: -162, x2: -186, y2: -162, solid: false, thick: 11,
+      hot: { period: 320, on: 110, warn: 55, dmg: 1.8 }, phase: 0 },
+    { x1:  186, y1: -162, x2:  300, y2: -162, solid: false, thick: 11,
+      hot: { period: 320, on: 110, warn: 55, dmg: 1.8 }, phase: 160 },
   ],
 
   drawBg(g, t) {
@@ -297,7 +301,10 @@ const STAGES = [
   blurb: "Dawn above the cloud deck. The platform rights itself almost instantly, so tilts are jabs, not leans.",
   pivot: { x: 800, y: 600 },
   // open sky: still the most forgiving map, but not so wide it stalemates
-  blast: { left: -500, right: 2100, top: -660, bottom: 1380 },
+  // Tightened again: with damage output down across the board (stale moves,
+  // smaller hitboxes, nerfed supers) the most forgiving stage started running
+  // to the clock -- 3 of 12 test matches timed out at 106s average.
+  blast: { left: -430, right: 2030, top: -640, bottom: 1300 },
   tilt: Object.assign({}, TILT_BASE, {
     torque: 0.0000030,
     spring: 0.0138,      // snaps level fast
@@ -314,8 +321,10 @@ const STAGES = [
   layout: [
     // wide deck with far-out islands — lots of stage, few blast zones
     { x1: -340, y1: 0,    x2: 340,  y2: 0,    solid: true,  main: true, thick: 24 },
-    { x1: -430, y1: -150, x2: -266, y2: -150, solid: false, thick: 12 },
-    { x1:  266, y1: -150, x2:  430, y2: -150, solid: false, thick: 12 },
+    { x1: -430, y1: -150, x2: -266, y2: -150, solid: false, thick: 12,
+      crumble: { delay: 54, gone: 150 } },
+    { x1:  266, y1: -150, x2:  430, y2: -150, solid: false, thick: 12,
+      crumble: { delay: 54, gone: 150 } },
     { x1: -110, y1: -284, x2:  110, y2: -284, solid: false, thick: 12 },
   ],
 
@@ -471,7 +480,8 @@ const STAGES = [
   layout: [
     // short deck, one high centre platform, nothing to run to
     { x1: -210, y1: 0,    x2: 210,  y2: 0,    solid: true,  main: true, thick: 26 },
-    { x1:  -96, y1: -168, x2:   96, y2: -168, solid: false, thick: 11 },
+    { x1:  -96, y1: -168, x2:   96, y2: -168, solid: false, thick: 11,
+      retract: { period: 420, on: 260 } },
   ],
 
   drawBg(g, t) {
@@ -593,6 +603,7 @@ const Stage = {
   anchorTimer: 0, snapFlash: 0, snapCount: 0, snapCooldown: 0,
   lastPusher: null,
   segs: [],
+  pfx: [], platT: 0,
   forcing: 0,
 
   get cfg() { return this.def.tilt; },
@@ -607,6 +618,7 @@ const Stage = {
   },
   reset() {
     this.tilt = 0; this.prevTilt = 0; this.angVel = 0;
+    this.resetPlatforms();
     this.anchorTimer = 0; this.snapFlash = 0; this.snapCount = 0; this.snapCooldown = 0;
     this.lastPusher = null; this.forcing = 0;
     this.rebuild();
@@ -617,14 +629,103 @@ const Stage = {
     return { x: this.pivot.x + lx * c - ly * s, y: this.pivot.y + lx * s + ly * c };
   },
 
+  /* ---------------------------------------------------- platform state ----
+     The side platforms are no longer inert scenery. Each stage gives its own
+     a behaviour, and the live state of each one lives in pfx[i], parallel to
+     def.layout. Absent platforms are simply left out of segs, so collision,
+     combat's ground test and the contact shadows all respect them without
+     any of those three needing to know this system exists. */
+  resetPlatforms() {
+    this.platT = 0;
+    this.pfx = this.def.layout.map(() => ({
+      dx: 0, present: true, heat: 0, stood: 0, gone: 0, alpha: 1,
+    }));
+  },
+
+  platformTick(fighters) {
+    this.platT++;
+    const T = this.platT;
+
+    this.def.layout.forEach((p, i) => {
+      const s = this.pfx[i];
+      if (p.main) return;                       // the deck itself never changes
+      const ph = p.phase || 0;
+
+      if (p.drift) {
+        s.dx = Math.sin((T + ph) * p.drift.speed) * p.drift.range;
+      }
+
+      if (p.hot) {
+        // cold → a warning flicker → hot. The warning is what makes it fair.
+        const cyc = (T + ph) % p.hot.period;
+        if (cyc < p.hot.on) s.heat = 1;
+        else if (cyc < p.hot.on + p.hot.warn) s.heat = 0;
+        else s.heat = (cyc > p.hot.period - p.hot.warn) ? 0.5 : 0;
+      }
+
+      if (p.crumble) {
+        if (s.gone > 0) {
+          s.gone--;
+          s.present = false;
+          s.alpha = s.gone < 20 ? 1 - s.gone / 20 : 0;   // fades back in
+          if (s.gone === 0) { s.present = true; s.stood = 0; s.alpha = 1; }
+        } else {
+          const loaded = fighters.some(f =>
+            f.alive && f.grounded && f.groundSeg && f.groundSeg.local === p);
+          s.stood = loaded ? s.stood + 1 : Math.max(0, s.stood - 1);
+          s.alpha = 1 - (s.stood / p.crumble.delay) * 0.55;
+          if (s.stood >= p.crumble.delay) {
+            s.gone = p.crumble.gone;
+            s.present = false; s.alpha = 0;
+            const a = this.toWorld(p.x1 + s.dx, p.y1), b = this.toWorld(p.x2 + s.dx, p.y2);
+            FX.burst((a.x + b.x) / 2, (a.y + b.y) / 2, 18, this.pal.soft, 5);
+            Snd.noise(0.25, 0.2, 700, 0.9);
+          }
+        }
+      }
+
+      if (p.retract) {
+        const cyc = (T + ph) % p.retract.period;
+        const open = cyc < p.retract.on;
+        if (open !== s.present) {
+          const a = this.toWorld(p.x1, p.y1), b = this.toWorld(p.x2, p.y2);
+          FX.ring((a.x + b.x) / 2, (a.y + b.y) / 2, 8, 60, this.pal.platEdge, 2);
+          Snd.tone(open ? 220 : 160, 0.14, "square", 0.1, open ? 420 : 90);
+        }
+        s.present = open;
+        // the last 40 frames before it pulls back are telegraphed
+        s.alpha = open ? (cyc > p.retract.on - 40 ? 0.45 + 0.4 * Math.abs(Math.sin(T * 0.4)) : 1) : 0;
+      }
+    });
+  },
+
+  /** Burn anyone standing on a hot platform. Called after collision resolves. */
+  platformDamage(fighters) {
+    this.def.layout.forEach((p, i) => {
+      if (!p.hot || this.pfx[i].heat < 1) return;
+      for (const f of fighters) {
+        if (!f.alive || !f.grounded || !f.groundSeg || f.groundSeg.local !== p) continue;
+        if (f.invuln > 0 || f.hotTick > 0) continue;
+        f.hotTick = 14;
+        f.applyKnockback(0, -5.5, p.hot.dmg || 1.6, 4, null);
+        FX.burst(f.x, f.feetY, 8, "#ff8a1f", 4);
+        Snd.tone(300, 0.06, "sawtooth", 0.09, 120);
+      }
+    });
+  },
+
   rebuild() {
-    this.segs = this.def.layout.map(p => {
-      const a = this.toWorld(p.x1, p.y1), b = this.toWorld(p.x2, p.y2);
-      return {
+    this.segs = [];
+    this.def.layout.forEach((p, i) => {
+      const s = this.pfx[i];
+      if (s && !s.present) return;              // retracted / crumbled away
+      const dx = s ? s.dx : 0;
+      const a = this.toWorld(p.x1 + dx, p.y1), b = this.toWorld(p.x2 + dx, p.y2);
+      this.segs.push({
         ax: a.x, ay: a.y, bx: b.x, by: b.y,
         solid: !!p.solid, main: !!p.main, thick: p.thick,
-        angle: Math.atan2(b.y - a.y, b.x - a.x), local: p,
-      };
+        angle: Math.atan2(b.y - a.y, b.x - a.x), local: p, fx: s,
+      });
     });
   },
 
@@ -660,7 +761,9 @@ const Stage = {
       this.anchorTimer--;
       this.tilt += (0 - this.tilt) * 0.22;
       this.angVel = 0;
+      this.platformTick(fighters);
       this.rebuild();
+      this.platformDamage(fighters);
       if (this.snapFlash > 0) this.snapFlash--;
       return;
     }
@@ -688,7 +791,9 @@ const Stage = {
       } else this.snapBack(fighters);
     }
     if (this.snapFlash > 0) this.snapFlash--;
+    this.platformTick(fighters);
     this.rebuild();
+    this.platformDamage(fighters);
   },
 
   snapBack(fighters) {

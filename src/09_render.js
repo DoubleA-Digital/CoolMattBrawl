@@ -200,16 +200,42 @@ function drawStage(alpha) {
   /* ---- the support column, built differently per stage ---- */
   drawPivotColumn(P, kind, pal, anch, bgT);
 
-  for (const p of def.layout) {
-    const a = toW(p.x1, p.y1), b = toW(p.x2, p.y2);
+  def.layout.forEach((p, pi) => {
+    /* Live platform state: drifting offset, how hot it is, and how solid it
+       currently is. A platform that has crumbled or retracted draws nothing,
+       matching the fact that it is also absent from Stage.segs. */
+    const st = Stage.pfx[pi] || { dx: 0, present: true, heat: 0, alpha: 1 };
+    const hidden = !st.present && st.alpha <= 0.02;
+    if (hidden && !p.retract) return;
+    if (hidden) {
+      /* A retracted shelf still shows its empty rails, so the gap reads as
+         "the platform is away" rather than "there was never one here". */
+      const ra = toW(p.x1, p.y1), rb = toW(p.x2, p.y2);
+      g.save();
+      g.translate(ra.x, ra.y);
+      g.rotate(Math.atan2(rb.y - ra.y, rb.x - ra.x));
+      const rl = Math.hypot(rb.x - ra.x, rb.y - ra.y);
+      g.globalAlpha = 0.35; g.strokeStyle = hexA(pal.platEdge, 0.6); g.lineWidth = 2;
+      g.setLineDash([5, 6]);
+      g.beginPath(); g.moveTo(-18, 0); g.lineTo(rl + 18, 0); g.stroke();
+      g.setLineDash([]);
+      g.restore();
+      return;
+    }
+
+    const a = toW(p.x1 + st.dx, p.y1), b = toW(p.x2 + st.dx, p.y2);
     const dx = b.x - a.x, dy = b.y - a.y;
     const len = Math.hypot(dx, dy);
     const th = p.thick, main = !!p.main;
-    const edge = main
+    let edge = main
       ? (snap ? "#ffffff" : near > 0.8 ? "#ff2e88" : anch ? "#b6ff3b" : pal.platEdge)
       : pal.soft;
+    // a heating shelf shifts toward molten, and flashes while it warns
+    if (st.heat >= 1) edge = "#ff5a19";
+    else if (st.heat > 0) edge = Math.floor(bgT * 10) % 2 ? "#ffb347" : pal.soft;
 
     g.save();
+    g.globalAlpha = clamp(st.alpha, 0, 1);
     g.translate(a.x, a.y);
     g.rotate(Math.atan2(dy, dx));
 
@@ -269,8 +295,42 @@ function drawStage(alpha) {
         g.restore();
       }
     }
+
+    /* ---- the platform's own state, drawn on top of its body ---- */
+    if (st.heat > 0) {
+      // molten glow rising off a hot shelf
+      g.save();
+      g.globalCompositeOperation = "lighter";
+      const q = g.createLinearGradient(0, top - 22, 0, top + 6);
+      const k = st.heat >= 1 ? 0.75 : 0.3;
+      q.addColorStop(0, hexA("#ff5a19", 0)); q.addColorStop(1, hexA("#ffb347", k));
+      g.fillStyle = q; g.fillRect(0, top - 22, len, 28);
+      if (st.heat >= 1 && Math.random() < 0.5)
+        FX.spark(a.x + Math.random() * dx, a.y - 4 + Math.random() * dy, "#ff8a1f");
+      g.restore();
+    }
+    if (p.crumble && st.present && st.stood > 0) {
+      // stress cracks appear as a cloud shelf takes weight
+      g.save();
+      g.globalAlpha = Math.min(0.8, st.stood / p.crumble.delay);
+      g.strokeStyle = "#6b5a85"; g.lineWidth = 1.6; g.lineCap = "round";
+      for (let i = 1; i < 5; i++) {
+        const cx2 = (len * i) / 5;
+        g.beginPath(); g.moveTo(cx2, top + 1); g.lineTo(cx2 + 5, top + th + 3); g.stroke();
+      }
+      g.restore();
+    }
+    if (p.retract) {
+      // guide rails the shelf slides back into
+      g.save();
+      g.globalAlpha = 0.5; g.strokeStyle = hexA(pal.platEdge, 0.5); g.lineWidth = 2;
+      g.setLineDash([5, 6]);
+      g.beginPath(); g.moveTo(-18, top + th / 2); g.lineTo(len + 18, top + th / 2); g.stroke();
+      g.setLineDash([]);
+      g.restore();
+    }
     g.restore();
-  }
+  });
 
   /* ---- pivot hub ---- */
   g.save();

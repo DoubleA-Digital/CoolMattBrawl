@@ -42,6 +42,9 @@ class Fighter {
     this.anchorGlow = 0; this.flipGlow = 0;
     this.specialCD = 0;
     this.pinned = false;
+    this.hotTick = 0;         // cooldown between burns from a hot platform
+    this.moveLog = [];        // recent connects, for stale-move negation
+    this.armorDamage = 0;     // damage absorbed by the current super's armour
     this.trail = [];
     this.alive = true; this.respawnTimer = 0;
     this.squatHeld = false; this.hitFlash = 0;
@@ -57,6 +60,25 @@ class Fighter {
   get inSuper() { return this.attack && this.attack.kind === "super"; }
 
   addMeter(v) { this.meter = clamp(this.meter + v, 0, CFG.meter.max); }
+
+  /* ---------------------------------------------------- stale moves ----
+     Every connect is remembered for a while. The more of the recent window a
+     move occupies, the less it does — so leaning on one strong button costs
+     you damage and mixing your options is worth something. Only connects
+     count: whiffing a move never stales it. */
+  recordMove(move) {
+    if (!move || !move.name) return;
+    this.moveLog.push({ name: move.name, at: this.animTime });
+    if (this.moveLog.length > CFG.skill.staleWindow) this.moveLog.shift();
+  }
+  staleMul(move) {
+    if (!move || !move.name) return 1;
+    const K = CFG.skill;
+    // entries older than the refresh window have freshened and no longer count
+    const recent = this.moveLog.filter(e => this.animTime - e.at < K.staleRefresh);
+    const n = recent.filter(e => e.name === move.name).length;
+    return K.staleSteps[Math.min(n, K.staleSteps.length - 1)];
+  }
   setState(s, t = 0) { this.state = s; this.stateTimer = t; }
   canAct() { return [ST.IDLE, ST.RUN, ST.AIR].includes(this.state); }
 
@@ -81,6 +103,7 @@ class Fighter {
     if (this.hitFlash > 0) this.hitFlash--;
     if (this.heavyStomp > 0) this.heavyStomp--;
     if (this.specialCD > 0) this.specialCD--;
+    if (this.hotTick > 0) this.hotTick--;
     if (this.anchorGlow > 0) this.anchorGlow--;
     if (this.flipGlow > 0) this.flipGlow--;
     this.crankDir = 0;
@@ -265,6 +288,7 @@ class Fighter {
   startSuper() {
     const m = this.ch.super;
     this.meter = 0;
+    this.armorDamage = 0;
     this.stats.supers++;
     this.attack = {
       kind: "super", data: Object.assign({}, m), t: 0,
@@ -415,12 +439,27 @@ class Fighter {
   }
 
   applyKnockback(vx, vy, dmg, mag, from) {
-    // Supers have armour during their active window so they can't be poked out.
+    /* Supers have armour during their active window, but it is no longer
+       unconditional: enough damage breaks through and interrupts the super.
+       Unbreakable armour meant a super, once started, could never be
+       contested — the opponent's only option was to run. */
     if (CFG.meter.superArmor && this.inSuper && this.attack.t > this.attack.data.startup) {
-      this.percent = Math.min(999, this.percent + dmg * 0.5);
-      this.hitFlash = 4;
-      this.addMeter(dmg * CFG.meter.onTake);
-      return;
+      this.armorDamage = (this.armorDamage || 0) + dmg;
+      if (this.armorDamage < CFG.meter.superArmorHp) {
+        this.percent = Math.min(999, this.percent + dmg * 0.5);
+        this.hitFlash = 4;
+        this.addMeter(dmg * CFG.meter.onTake);
+        FX.ring(this.x, this.y, 8, this.ch.hurt * 2, "#ffffff", 2);
+        return;
+      }
+      // armour broken: the super is cancelled and the hit lands in full
+      this.attack = null;
+      this.pinned = false;
+      this.armorDamage = 0;
+      FX.banner("ARMOUR BREAK", "#ffffff");
+      FX.burst(this.x, this.y, 22, "#ffffff", 8);
+      FX.shake(14);
+      Snd.shieldBreak();
     }
     if (this.pinned) { this.percent += dmg * 0.4; this.hitFlash = 4; return; }
 
@@ -522,6 +561,7 @@ class Fighter {
     this.respawnTimer = CFG.respawnFrames;
     this.percent = 0; this.vx = 0; this.vy = 0;
     this.lastHitBy = null; this.pinned = false; this.attack = null;
+    this.moveLog = []; this.armorDamage = 0;
     if (this.grabTarget) this.releaseGrab();
     if (this.grabbedBy) this.grabbedBy.releaseGrab();
     match.onKO(this);

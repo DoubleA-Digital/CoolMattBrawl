@@ -149,10 +149,12 @@ const FX = {
   },
 
   hitmark(x, y, dmg) { this.marks.push({ x, y, life: 11, max: 11, size: 14 + dmg * 2.6 }); },
-  /** Floating damage number at the point of impact. */
+  /** Floating text at the point of impact — a damage number, or a short label
+      like TIP/STALE when something modified that number. */
   damageText(x, y, dmg, color) {
-    this.texts.push({ x, y, vy: -1.2, life: 42, max: 42,
-      text: Math.round(dmg).toString(), color });
+    const text = typeof dmg === "number" ? Math.round(dmg).toString() : String(dmg);
+    this.texts.push({ x, y, vy: -1.2, life: 42, max: 42, text, color,
+                      small: typeof dmg !== "number" });
   },
 
   /* ------------------------------------------------------------- update */
@@ -414,8 +416,9 @@ const FX = {
     for (const t of this.texts) {
       const a = Math.min(1, t.life / t.max * 1.8);
       g.globalAlpha = a;
-      g.font = `900 ${20 + (1 - t.life / t.max) * 6}px ${FONT_DISPLAY}`;
-      outlineText(g, t.text, t.x, t.y, t.color, 5);
+      g.font = t.small ? `900 12px ${FONT_MONO}`
+                       : `900 ${20 + (1 - t.life / t.max) * 6}px ${FONT_DISPLAY}`;
+      outlineText(g, t.text, t.x, t.y, t.color, t.small ? 4 : 5);
     }
     g.restore();
   },

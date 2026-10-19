@@ -186,21 +186,35 @@ const Combat = {
 
         a.hitIds = a.hitIds || [];
         a.hitIds.push(def.slot);
-        this.land(atk, def, a.data, hb.x, hb.y);
+        this.land(atk, def, a.data, hb.x, hb.y, hb.r);
       }
     }
   },
 
-  land(atk, def, move, hx, hy) {
+  land(atk, def, move, hx, hy, hbR) {
     const dirX = def.x >= atk.x ? 1 : -1;
     const isSuper = move === (atk.ch.super) || (atk.attack && atk.attack.kind === "super" && atk.attack.data === move);
+    const K = CFG.skill;
+
+    /* ---- skill modifiers, applied before anything reads move.dmg ----
+       Spacing: connecting with the outer edge of the hitbox pays a bonus, so
+       there is a reason to measure a strike instead of walking into the
+       opponent. Staleness: repeating the same move weakens it, so the strong
+       button is not simply the best button. Neither applies to throws. */
+    let tip = false, staleMul = 1;
+    if (hbR) {
+      const d = dist(hx, hy, def.x, def.y);
+      tip = d > hbR * K.tipZone;
+    }
+    staleMul = atk.staleMul(move);
+    const dmg = move.dmg * staleMul * (tip ? K.tipBonus : 1);
 
     // ---------------- shield ----------------
     if (def.shielding() && !isSuper) {
       const facingHit = (def.facing === -dirX) || Math.abs(def.x - atk.x) < 8;
       if (facingHit) {
-        def.shield -= move.dmg * CFG.shieldDamageMul + 4;
-        def.vx += dirX * move.dmg * 0.12;
+        def.shield -= dmg * CFG.shieldDamageMul + 4;
+        def.vx += dirX * dmg * 0.12;
         Snd.shield();
         FX.ring(def.x, def.y, 10, def.ch.hurt * 2.2, "#7fd9ff", 2);
         FX.hitPause(3); FX.shake(3);
@@ -211,30 +225,50 @@ const Combat = {
 
     // ---------------- knockback ----------------
     const base = move.base || 2, scale = move.scale || 0.5;
-    const kb = CFG.kbBase + base + move.dmg * CFG.kbDamageScale
+    const kb = CFG.kbBase + base + dmg * CFG.kbDamageScale
              + def.percent * CFG.kbPercentScale * scale * 1.9;
     const mag = kb * ((CFG.kbWeightRef + 0.55) / (def.ch.weight + 0.55));
     const rad = (move.angle != null ? move.angle : 45) * Math.PI / 180;
 
-    def.applyKnockback(Math.cos(rad) * mag * dirX, -Math.sin(rad) * mag, move.dmg, mag, atk);
-    atk.stats.damageDealt += move.dmg;
-    atk.addMeter(move.dmg * CFG.meter.onDeal);
+    def.applyKnockback(Math.cos(rad) * mag * dirX, -Math.sin(rad) * mag, dmg, mag, atk);
+    atk.stats.damageDealt += dmg;
+    atk.addMeter(dmg * CFG.meter.onDeal);
+    atk.recordMove(move);
     if (move.onHit) move.onHit(atk, def);
+
+    /* Hit confirm: a clean connect refunds part of the remaining endlag, so
+       landing a commital move leaves you safer than whiffing it. Multi-hit
+       moves and supers are excluded — cutting their recovery would truncate
+       the move itself. */
+    const a2 = atk.attack;
+    if (a2 && a2.kind !== "super" && !(move.hits > 1)) {
+      const left = a2.total - a2.t;
+      if (left > 0) a2.t += Math.round(left * K.hitConfirmCut);
+    }
 
     // the pivot feels every hit
     Stage.nudge(clamp((def.x - Stage.pivot.x) / 310, -1, 1) * mag * Stage.cfg.hitNudge);
     Stage.lastPusher = atk;
 
     // ---------------- feel ----------------
-    const pause = Math.round(CFG.hitPauseBase + move.dmg * CFG.hitPausePerDmg);
+    const pause = Math.round(CFG.hitPauseBase + dmg * CFG.hitPausePerDmg);
     FX.hitPause(pause);
-    FX.shake(3 + move.dmg * 0.85);
-    FX.burst(hx, hy, Math.round(6 + move.dmg * 1.1), atk.ch.color, 3 + move.dmg * 0.35);
-    FX.ring(hx, hy, 6, 30 + move.dmg * 5, "#ffffff", 2);
-    FX.hitmark(hx, hy, move.dmg);
-    FX.damageText(hx, hy - 24, move.dmg, atk.ch.accent);
-    Snd.hit(move.dmg);
-    if (move.dmg >= 13) { Snd.bigHit(); FX.flash(atk.ch.color, 0.12); }
+    FX.shake(3 + dmg * 0.85);
+    FX.burst(hx, hy, Math.round(6 + dmg * 1.1), atk.ch.color, 3 + dmg * 0.35);
+    FX.ring(hx, hy, 6, 30 + dmg * 5, "#ffffff", 2);
+    FX.hitmark(hx, hy, dmg);
+    FX.damageText(hx, hy - 24, dmg, tip ? "#ffffff" : atk.ch.accent);
+    Snd.hit(dmg);
+    if (dmg >= 13) { Snd.bigHit(); FX.flash(atk.ch.color, 0.12); }
+
+    /* Tell the player why the number was what it was — a skill mechanic the
+       player cannot see is just inconsistency. */
+    if (tip) {
+      FX.ring(hx, hy, 4, 44, "#ffffff", 3);
+      FX.damageText(hx, hy - 44, "TIP", "#ffffff");
+      Snd.tone(1500, 0.05, "square", 0.09, 2300);
+    }
+    if (staleMul < 0.95) FX.damageText(hx, hy - 44, "STALE", "#8f8cb5");
   },
 };
 
