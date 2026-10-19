@@ -285,10 +285,21 @@ class Fighter {
 
     if (a.data.tick) a.data.tick(this, a, inp);
 
-    // multi-hit: re-arm the hitbox every hitGap frames
     const m = a.data;
+
+    /* Signature effects. vfx fires once, on the frame the hitbox opens, so the
+       flourish and the hit are the same event; vfxTick runs every active frame
+       for moves that need a continuous effect. */
+    if (m.vfx && a.t === m.startup + 1) m.vfx(this, a);
+    if (m.vfxTick && this.hitboxActive()) m.vfxTick(this, a);
+
+    // multi-hit: re-arm the hitbox every hitGap frames
     if (m.hits && m.hits > 1 && this.hitboxActive()) {
-      if (a.t - a.lastHitFrame >= (m.hitGap || 4)) { a.hitIds = null; a.lastHitFrame = a.t; }
+      if (a.t - a.lastHitFrame >= (m.hitGap || 4)) {
+        a.hitIds = null; a.lastHitFrame = a.t;
+        a.hitIndex = (a.hitIndex || 0) + 1;
+        if (m.vfxRehit) m.vfxRehit(this, a);
+      }
     }
 
     if (this.grounded) this.vx *= 0.86;

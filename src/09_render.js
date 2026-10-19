@@ -371,6 +371,12 @@ function drawFighter(f, alpha) {
     flash: f.hitFlash > 0,
     atkPhase: (atk && atk.data.r) ? clamp(atk.t / Math.max(1, atk.total), 0, 1) : -1,
     atkKind: atk ? atk.kind : null,
+    // real frame data, so swing() can line the pose up with the hitbox
+    atkT: atk ? atk.t : 0,
+    atkStartup: atk ? atk.data.startup : 0,
+    atkActive: atk ? atk.data.active : 0,
+    atkTotal: atk ? atk.total : 0,
+    move: atk ? atk.data : null,
   };
 
   g.save();

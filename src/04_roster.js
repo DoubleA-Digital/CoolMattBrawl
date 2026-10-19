@@ -162,14 +162,51 @@ function aura(g, x, y, r, col, a) {
   g.restore();
 }
 
-/* Reach of a swing arm, eased so attacks snap out and drift back. */
+/* Reach of a swing arm.
+
+   This is keyed to the move's real frame data, not to its total duration. The
+   old version split the swing at fixed fractions (0.3 / 0.5) of the whole
+   animation, so a jab with 4 startup frames out of 17 reached full extension
+   at a different moment than a smash with 14 out of 42 — on most moves the arm
+   was still travelling while the hitbox was already live, and had started
+   coming back before the hitbox closed. Now the arm is fully out on the exact
+   frame the hitbox opens and holds there until it shuts, which is what makes
+   the hit land where the eye expects it. */
 function swing(A, back, out) {
   if (A.atkPhase < 0) return 0;
-  const p = A.atkPhase;
-  return p < 0.3 ? lerp(0, back, easeOut(p / 0.3))
-       : p < 0.5 ? lerp(back, out, easeOut((p - 0.3) / 0.2))
-       : lerp(out, 0, easeIn((p - 0.5) / 0.5));
+  const su = A.atkStartup || 1, ac = A.atkActive || 1;
+  const tot = A.atkTotal || (su + ac), t = A.atkT || 0;
+
+  if (t <= su) return lerp(0, back, easeOut(t / su));          // wind up
+
+  if (t <= su + ac) {
+    /* A multi-hit move pumps instead of extending once and holding: the arm is
+       furthest out on each tap and draws back slightly between them, so a
+       three-hit flurry looks like three strikes rather than one long reach. */
+    const mv = A.move;
+    if (mv && mv.hits > 1) {
+      const gap = mv.hitGap || 4;
+      const local = ((t - su - 1) % gap) / gap;
+      return out * (1 - 0.4 * Math.sin(local * Math.PI));
+    }
+    // otherwise: snap out within a couple of frames, then hold for the hitbox
+    const k = Math.min(1, (t - su) / Math.max(1, Math.min(ac, 2)));
+    return lerp(back, out, easeOut(k));
+  }
+  const k = clamp((t - su - ac) / Math.max(1, tot - su - ac), 0, 1);
+  return lerp(out, 0, ease(k));                                // follow through
 }
+
+/* ---------- attack VFX helpers, shared by every move ---------- */
+
+/** Where a move's hitbox actually sits in the world. Effects are drawn there
+    rather than at a hand-tuned offset, so they can never drift out of sync
+    with what the move actually hits. */
+function hbAt(f, m) {
+  return { x: f.x + (m.ox || 0) * f.facing, y: f.y + (m.oy || 0) };
+}
+/** Forward direction as an angle, for arcs that sweep away from the fighter. */
+function faceAng(f) { return f.facing > 0 ? 0 : Math.PI; }
 
 const ROSTER = [
 
@@ -184,12 +221,37 @@ const ROSTER = [
   size: { w: 46, h: 60 }, hurt: 31,
   specialCooldown: 70,
 
+  /* A piston, so the effect is a straight thrust: a narrow wedge punched
+     forward along the arm, not a sweep. */
   light: { name: "Piston Jab", startup: 4, active: 4, recovery: 9,
-    dmg: 4.5, base: 2.2, scale: 0.55, angle: 42, ox: 42, oy: -6, r: 28 },
+    dmg: 4.5, base: 2.2, scale: 0.55, angle: 42, ox: 42, oy: -6, r: 28,
+    vfx(f) {
+      const p = hbAt(f, this), ang = faceAng(f);
+      FX.blade(f.x + f.facing * 14, f.y - 6, ang, 26, 62, 0.52, f.ch.color, { w: 15, life: 11 });
+      FX.glyph(p.x + f.facing * 6, p.y, "wedge", 11, f.ch.accent, 12);
+      for (let i = 0; i < 3; i++) FX.spark(p.x + rnd(-8, 8), p.y + rnd(-8, 8), f.ch.accent);
+      Snd.tone(150, 0.05, "square", 0.08, 90);
+    } },
 
+  /* A full-body smash, so the effect is the widest arc in the game, plus the
+     ground giving way under it. */
   heavy: { name: "Seismic Swing", startup: 14, active: 5, recovery: 23,
     dmg: 18, base: 5.2, scale: 1.14, angle: 32, ox: 58, oy: -2, r: 44,
-    onStart(f) { Snd.whoosh(1.6); } },
+    onStart(f) { Snd.whoosh(1.6); },
+    vfx(f) {
+      const ang = faceAng(f);
+      // the arc sweeps from overhead down and forward
+      FX.blade(f.x, f.y - 4, ang - 0.95 * f.facing, 54, 88, 1.9, f.ch.color,
+               { w: 21, life: 17, spin: f.facing * 0.075 });
+      FX.blade(f.x, f.y - 4, ang - 0.8 * f.facing, 50, 80, 1.6, "#ffffff",
+               { w: 7, life: 11, core: false, spin: f.facing * 0.075 });
+      FX.shake(7);
+      if (f.grounded) {
+        FX.dustLine(f.x + f.facing * 30, f.feetY, 120, f.ch.color2);
+        FX.crack(f.x + f.facing * 26, f.feetY - 2, f.facing, 34, f.ch.color, 3);
+      }
+      Snd.tone(80, 0.18, "sawtooth", 0.16, 44, 0, 0.4);
+    } },
 
   special: { name: "Quake Drop", startup: 8, active: 10, recovery: 20,
     dmg: 13, base: 4.0, scale: 0.86, angle: 78, ox: 0, oy: 30, r: 76,
@@ -204,6 +266,10 @@ const ROSTER = [
         FX.ring(f.x, f.feetY, 14, 200, f.ch.color, 3);
         FX.burst(f.x, f.feetY, 24, f.ch.color, 7);
         FX.dustLine(f.x, f.feetY, 220, f.ch.color);
+        // the deck splits away from him in both directions
+        FX.crack(f.x, f.feetY - 2, 1, 46, f.ch.color, 4);
+        FX.crack(f.x, f.feetY - 2, -1, 46, f.ch.color, 4);
+        FX.blade(f.x, f.feetY - 6, 0, 30, 130, 6.2, f.ch.color, { w: 9, life: 14, core: false });
         Stage.nudge(Math.sign(f.x - Stage.pivot.x || 1) * 0.034 * f.ch.weight);
         Stage.lastPusher = f;
         f.vy = -4;
@@ -229,6 +295,10 @@ const ROSTER = [
           FX.ring(f.x, f.feetY, 20, 520, "#ffffff", 5);
           FX.ring(f.x, f.feetY, 10, 340, f.ch.color, 4);
           FX.burst(f.x, f.feetY, 46, f.ch.color, 13);
+          FX.crack(f.x, f.feetY - 2, 1, 90, "#ffffff", 5);
+          FX.crack(f.x, f.feetY - 2, -1, 90, "#ffffff", 5);
+          FX.blade(f.x, f.feetY - 10, 0, 40, 260, 6.28, "#ffffff", { w: 16, life: 20 });
+          FX.glyph(f.x, f.feetY - 60, "wedge", 44, f.ch.accent, 26);
           Entities.shockwave(f, f.x, f.feetY, -1, m);
           Entities.shockwave(f, f.x, f.feetY, 1, m);
           Stage.nudge(Math.sign(f.x - Stage.pivot.x || 1) * 0.055);
@@ -347,14 +417,41 @@ const ROSTER = [
   size: { w: 30, h: 50 }, hurt: 24,
   specialCooldown: 60,
 
-  // three fast taps instead of one poke
+  /* Three fast taps instead of one poke — and each tap gets its own small arc
+     at a different angle, so the flurry reads as three distinct strikes rather
+     than one effect flickering. */
   light: { name: "Spark Flurry", startup: 2, active: 12, recovery: 7,
     dmg: 2.4, base: 1.1, scale: 0.26, angle: 52, ox: 32, oy: -8, r: 23,
-    hits: 3, hitGap: 4 },
+    hits: 3, hitGap: 4,
+    vfx(f, a) { this.vfxRehit(f, a); },
+    vfxRehit(f, a) {
+      const n = a.hitIndex || 0;
+      const p = hbAt(f, this), ang = faceAng(f);
+      const tilt = [-0.5, 0.15, -0.2][n % 3];
+      FX.blade(f.x + f.facing * 8, f.y - 8, ang + tilt, 26, 46, 1.0, f.ch.color,
+               { w: 7.5, life: 9 });
+      FX.bolt(f.x + f.facing * 12, f.y - 8, p.x + f.facing * 10, p.y + tilt * 20,
+              f.ch.color, { segs: 4, jag: 7, life: 6, w: 2 });
+      FX.spark(p.x, p.y, f.ch.accent);
+      Snd.tone(760 + n * 160, 0.04, "square", 0.08, 1500);
+    } },
 
+  /* A lance: one long narrow spike along the dash, not a sweep. */
   heavy: { name: "Volt Lance", startup: 9, active: 5, recovery: 18,
     dmg: 12, base: 3.6, scale: 0.98, angle: 38, ox: 52, oy: -6, r: 30,
-    onStart(f) { f.vx += f.facing * 5.5; Snd.whoosh(1.2); } },
+    onStart(f) { f.vx += f.facing * 5.5; Snd.whoosh(1.2); },
+    vfx(f) {
+      const ang = faceAng(f);
+      FX.blade(f.x + f.facing * 10, f.y - 6, ang, 36, 104, 0.34, f.ch.color,
+               { w: 34, life: 13 });
+      FX.bolt(f.x + f.facing * 10, f.y - 6, f.x + f.facing * 104, f.y - 6,
+              f.ch.accent, { segs: 7, jag: 7, life: 10, w: 3.4 });
+      FX.bolt(f.x + f.facing * 10, f.y - 6, f.x + f.facing * 70, f.y - 22,
+              f.ch.accent, { segs: 5, jag: 9, life: 8, w: 2 });
+      FX.glyph(f.x + f.facing * 54, f.y - 6, "bolt", 15, f.ch.accent, 14);
+      FX.shake(4);
+      Snd.tone(1200, 0.1, "sawtooth", 0.1, 260);
+    } },
 
   special: { name: "Polarity Flip", startup: 4, active: 12, recovery: 12,
     dmg: 7, base: 2.6, scale: 0.6, angle: 58, ox: 24, oy: -6, r: 28,
@@ -372,6 +469,15 @@ const ROSTER = [
         Stage.flip(); Stage.lastPusher = f;
         f.flipGlow = 30; Snd.tone(300, 0.22, "square", 0.17, 1200);
         FX.ring(Stage.pivot.x, Stage.pivot.y, 30, 440, f.ch.color, 3);
+        // two arcs chasing opposite ways: the tilt reversing, made visible
+        FX.blade(Stage.pivot.x, Stage.pivot.y, 0, 50, 180, 2.8, f.ch.color,
+                 { w: 13, life: 20, spin: 0.07 });
+        FX.blade(Stage.pivot.x, Stage.pivot.y, Math.PI, 50, 180, 2.8, f.ch.accent,
+                 { w: 13, life: 20, spin: -0.07 });
+        for (let i = 0; i < 5; i++)
+          FX.bolt(Stage.pivot.x, Stage.pivot.y,
+                  Stage.pivot.x + rnd(-240, 240), Stage.pivot.y + rnd(-60, 40),
+                  f.ch.color, { segs: 5, jag: 16, life: 11, w: 2.4 });
         FX.banner("POLARITY FLIP", f.ch.color);
         FX.shake(9);
       }
@@ -402,6 +508,9 @@ const ROSTER = [
         a.hitIds = null;                     // each blink is a fresh hit
         FX.streak(f.x, f.y, tgt.x, tgt.y, f.ch.color);
         FX.burst(f.x, f.y, 6, f.ch.color, 4);
+        // a cut at the target from whatever angle she arrived at
+        FX.blade(tgt.x, tgt.y, ang + Math.PI, 16, 52, 1.5, f.ch.color, { w: 9, life: 9 });
+        FX.bolt(f.x, f.y, tgt.x, tgt.y, f.ch.accent, { segs: 4, jag: 10, life: 5, w: 2 });
         Snd.tone(900 + n * 90, 0.05, "square", 0.12, 400);
         FX.hitPause(2);
       }
@@ -537,12 +646,36 @@ const ROSTER = [
   size: { w: 36, h: 54 }, hurt: 27,
   specialCooldown: 480,
 
+  /* Everything Orbit does is circular, so its attacks are rings and ellipses
+     where the others get crescents. */
   light: { name: "Ring Cut", startup: 3, active: 4, recovery: 7,
-    dmg: 3.8, base: 1.8, scale: 0.44, angle: 46, ox: 38, oy: -8, r: 27 },
+    dmg: 3.8, base: 1.8, scale: 0.44, angle: 46, ox: 38, oy: -8, r: 27,
+    vfx(f) {
+      const p = hbAt(f, this);
+      // a closed ring rather than a slash
+      FX.blade(p.x, p.y, 0, 12, 34, 6.28, f.ch.color, { w: 5, life: 12, spin: 0.09 });
+      FX.ring(p.x, p.y, 8, 40, f.ch.accent, 2);
+      FX.glyph(p.x, p.y, "orbit", 15, f.ch.accent, 13);
+      Snd.tone(900, 0.05, "sine", 0.07, 1500);
+    } },
 
+  /* An overhead orbital drop: the arc comes down from above and a bead falls
+     in with it. */
   heavy: { name: "Satellite Slam", startup: 12, active: 4, recovery: 20,
     dmg: 15.5, base: 4.4, scale: 1.06, angle: 70, ox: 40, oy: -14, r: 38,
-    onStart(f) { Snd.whoosh(1.3); } },
+    onStart(f) { Snd.whoosh(1.3); },
+    vfx(f) {
+      const p = hbAt(f, this), ang = faceAng(f);
+      FX.blade(f.x, f.y - 10, ang - 1.25 * f.facing, 42, 78, 1.7, f.ch.color,
+               { w: 16, life: 15, spin: f.facing * 0.065 });
+      FX.ring(p.x, p.y, 10, 66, f.ch.color, 3);
+      FX.glyph(p.x, p.y, "orbit", 26, f.ch.accent, 18);
+      // the satellite itself, streaking in
+      FX.streak(f.x + f.facing * 10, f.y - 70, p.x, p.y, f.ch.accent);
+      FX.burst(p.x, p.y, 10, f.ch.accent, 5);
+      FX.shake(5);
+      Snd.tone(300, 0.14, "triangle", 0.12, 110);
+    } },
 
   special: { name: "Keel Anchor", startup: 7, active: 6, recovery: 16,
     dmg: 6, base: 2.4, scale: 0.5, angle: 20, ox: 34, oy: -10, r: 24,
@@ -559,6 +692,16 @@ const ROSTER = [
           Snd.tone(120, 0.5, "sine", 0.2, 90); Snd.tone(240, 0.4, "triangle", 0.1, 180);
           FX.ring(Stage.pivot.x, Stage.pivot.y, 20, 380, f.ch.color, 3);
           FX.banner("KEEL ANCHOR", f.ch.color);
+          /* A horizon snapping into place: straight lines out along the level.
+             A narrow arc at that radius just rendered as a blob at each end of
+             the deck, because a blade's thickness is radial. */
+          for (const d of [-1, 1]) {
+            FX.streak(Stage.pivot.x, Stage.pivot.y,
+                      Stage.pivot.x + d * 340, Stage.pivot.y, f.ch.color);
+            FX.streak(Stage.pivot.x, Stage.pivot.y - 3,
+                      Stage.pivot.x + d * 300, Stage.pivot.y - 3, f.ch.accent);
+          }
+          FX.glyph(Stage.pivot.x, Stage.pivot.y - 40, "orbit", 40, f.ch.accent, 30);
         }
         Entities.orb(f, f.x + f.facing * 30, f.y - 10, f.facing * 11, -1.2, m);
       }
@@ -711,16 +854,36 @@ const ROSTER = [
   size: { w: 34, h: 52 }, hurt: 26,
   specialCooldown: 110,
 
+  /* A fan, so the effect is three thin leaves opening at once. */
   light: { name: "Fan Slice", startup: 3, active: 3, recovery: 6,
-    dmg: 3.2, base: 1.6, scale: 0.4, angle: 48, ox: 36, oy: -8, r: 25 },
+    dmg: 3.2, base: 1.6, scale: 0.4, angle: 48, ox: 36, oy: -8, r: 25,
+    vfx(f) {
+      const ang = faceAng(f);
+      for (let i = 0; i < 3; i++) {
+        FX.blade(f.x + f.facing * 8, f.y - 8, ang + (i - 1) * 0.5 * f.facing, 22, 58 - i * 4, 0.8,
+                 i === 1 ? f.ch.accent : f.ch.color, { w: 6.5, life: 10 + i, core: i === 1 });
+      }
+      Snd.tone(1100, 0.04, "triangle", 0.07, 1700);
+    } },
 
-  // hitting with this also shoves the pivot, so her neutral feeds her gimmick
+  /* Hitting with this also shoves the pivot, so her neutral feeds her gimmick —
+     and the effect says so: a crescent plus a balance stamped on the victim. */
   heavy: { name: "Scale Breaker", startup: 11, active: 5, recovery: 20,
     dmg: 13.5, base: 4.0, scale: 1.0, angle: 44, ox: 48, oy: -8, r: 34,
+    vfx(f) {
+      const ang = faceAng(f);
+      FX.blade(f.x + f.facing * 6, f.y - 8, ang - 0.85 * f.facing, 46, 82, 1.8, f.ch.color,
+               { w: 15, life: 15, spin: f.facing * 0.07 });
+      FX.blade(f.x + f.facing * 6, f.y - 8, ang - 0.7 * f.facing, 42, 74, 1.5, f.ch.accent,
+               { w: 5, life: 10, core: false, spin: f.facing * 0.07 });
+      FX.shake(4);
+      Snd.tone(420, 0.1, "triangle", 0.11, 180);
+    },
     onHit(f, def) {
       Stage.nudge(Math.sign(def.x - Stage.pivot.x || 1) * 0.016);
       Stage.lastPusher = f;
       FX.ring(def.x, def.y, 8, 90, f.ch.color, 2);
+      FX.glyph(def.x, def.y - 16, "scale", 20, f.ch.accent, 22);
     } },
 
   special: { name: "Hand on the Scale", startup: 5, active: 40, recovery: 14,
@@ -734,6 +897,15 @@ const ROSTER = [
         Stage.lastPusher = f;
         f.vx *= 0.6; f.vy *= 0.8;
         if (a.t % 3 === 0) FX.spark(f.x + lean * 26, f.y - 10, f.ch.color);
+        /* A lever arm cranking the deck — drawn from her toward the pivot, so
+           you can see which way she is forcing it. */
+        if (a.t % 7 === 0) {
+          FX.streak(Stage.pivot.x, Stage.pivot.y,
+                    Stage.pivot.x + lean * 230, Stage.pivot.y - 10, f.ch.color);
+          FX.streak(Stage.pivot.x, Stage.pivot.y,
+                    Stage.pivot.x + lean * 180, Stage.pivot.y + 6, f.ch.accent);
+          FX.glyph(f.x + lean * 34, f.y - 14, "scale", 15, f.ch.accent, 14);
+        }
         if (!inp.held("special")) a.t = m.startup + m.active + 1;
       }
     } },
@@ -764,6 +936,13 @@ const ROSTER = [
         if (a.t % 4 === 0) {
           FX.spark(Stage.pivot.x + rnd(-300, 300), Stage.pivot.y + rnd(-10, 20), f.ch.color);
           FX.ring(Stage.pivot.x, Stage.pivot.y, 10, 160, f.ch.color, 2);
+        }
+        if (a.t % 9 === 0) {
+          FX.streak(Stage.pivot.x, Stage.pivot.y,
+                    Stage.pivot.x + dir * 330, Stage.pivot.y - 16, f.ch.color);
+          FX.streak(Stage.pivot.x, Stage.pivot.y,
+                    Stage.pivot.x + dir * 280, Stage.pivot.y + 10, f.ch.accent);
+          FX.glyph(Stage.pivot.x, Stage.pivot.y - 90, "scale", 34, f.ch.accent, 18);
         }
         FX.shake(4);
       }

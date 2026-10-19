@@ -10,6 +10,7 @@
 
 const FX = {
   parts: [], rings: [], marks: [], streaks: [], texts: [],
+  blades: [], bolts: [], cracks: [], glyphs: [],
   shakeMag: 0, shakeX: 0, shakeY: 0,
   pause: 0,
   flashCol: null, flashAmt: 0,
@@ -24,6 +25,8 @@ const FX = {
   reset() {
     this.parts.length = 0; this.rings.length = 0; this.marks.length = 0;
     this.streaks.length = 0; this.texts.length = 0;
+    this.blades.length = 0; this.bolts.length = 0;
+    this.cracks.length = 0; this.glyphs.length = 0;
     this.shakeMag = 0; this.pause = 0; this.bannerTimer = 0;
     this.flashAmt = 0;
     const c = this.cam;
@@ -80,6 +83,71 @@ const FX = {
   streak(x1, y1, x2, y2, color) {
     this.streaks.push({ x1, y1, x2, y2, color, life: 10, max: 10 });
   },
+  /* ------------------------------------------------- attack primitives
+
+     These exist so each move can have a signature rather than every attack
+     producing the same puff of sparks. A blade is the workhorse: a crescent
+     that sweeps outward and thins as it goes, which is what reads as "a thing
+     was swung through here".
+
+       rot     centre angle of the arc, radians, 0 = +x
+       spread  how much of a circle it covers
+       r0,r1   radius at birth and death — the sweep
+       w       half-thickness at the middle of the crescent  */
+  blade(x, y, rot, r0, r1, spread, color, opts) {
+    if (this.density <= 0) return;
+    const o = opts || {};
+    this.blades.push({
+      x, y, rot, r0, r1, spread, color,
+      w: o.w || 10, life: o.life || 14, max: o.life || 14,
+      spin: o.spin || 0, follow: o.follow || null,
+      core: o.core !== false,
+    });
+  },
+
+  /** Jagged lightning between two points. The zigzag is generated once and
+      kept, so it reads as a bolt holding still rather than static noise. */
+  bolt(x1, y1, x2, y2, color, opts) {
+    if (this.density <= 0) return;
+    const o = opts || {};
+    const segs = o.segs || 6, jag = o.jag || 14;
+    const pts = [];
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      const px = lerp(x1, x2, t), py = lerp(y1, y2, t);
+      const off = (i === 0 || i === segs) ? 0 : rnd(-jag, jag);
+      const nx = -(y2 - y1), ny = (x2 - x1);
+      const nl = Math.hypot(nx, ny) || 1;
+      pts.push({ x: px + (nx / nl) * off, y: py + (ny / nl) * off });
+    }
+    this.bolts.push({ pts, color, life: o.life || 9, max: o.life || 9, w: o.w || 3,
+                      branch: o.branch !== false });
+  },
+
+  /** Cracks radiating along a surface from an impact. */
+  crack(x, y, dir, len, color, n) {
+    if (this.density <= 0) return;
+    n = n || 3;
+    const steps = 4;
+    for (let i = 0; i < n; i++) {
+      const pts = [{ x, y }];
+      for (let s = 0; s < steps; s++) {
+        const prev = pts[pts.length - 1];
+        pts.push({
+          x: prev.x + dir * (len / steps) * (0.6 + Math.random() * 0.7),
+          y: prev.y + rnd(-5, 5),
+        });
+      }
+      this.cracks.push({ pts, color, life: 26, max: 26, w: 2.6 - i * 0.5 });
+    }
+  },
+
+  /** A brief symbol stamped in the world — scale marks, orbit rings, etc. */
+  glyph(x, y, kind, size, color, life) {
+    if (this.density <= 0) return;
+    this.glyphs.push({ x, y, kind, size, color, life: life || 20, max: life || 20, rot: 0 });
+  },
+
   hitmark(x, y, dmg) { this.marks.push({ x, y, life: 11, max: 11, size: 14 + dmg * 2.6 }); },
   /** Floating damage number at the point of impact. */
   damageText(x, y, dmg, color) {
@@ -98,6 +166,20 @@ const FX = {
       const r = this.rings[i];
       r.cur = r.r + (r.r1 - r.r) * easeOut(1 - r.life / r.max);
       if (--r.life <= 0) this.rings.splice(i, 1);
+    }
+    for (let i = this.blades.length - 1; i >= 0; i--) {
+      const b = this.blades[i];
+      b.rot += b.spin;
+      // a blade attached to a fighter tracks them, so a swing stays on the arm
+      if (b.follow) { b.x = b.follow.x; b.y = b.follow.y + (b.follow.oy || 0); }
+      if (--b.life <= 0) this.blades.splice(i, 1);
+    }
+    for (let i = this.bolts.length - 1; i >= 0; i--) if (--this.bolts[i].life <= 0) this.bolts.splice(i, 1);
+    for (let i = this.cracks.length - 1; i >= 0; i--) if (--this.cracks[i].life <= 0) this.cracks.splice(i, 1);
+    for (let i = this.glyphs.length - 1; i >= 0; i--) {
+      const gl = this.glyphs[i];
+      gl.rot += 0.04;
+      if (--gl.life <= 0) this.glyphs.splice(i, 1);
     }
     for (let i = this.marks.length - 1; i >= 0; i--) if (--this.marks[i].life <= 0) this.marks.splice(i, 1);
     for (let i = this.streaks.length - 1; i >= 0; i--) if (--this.streaks[i].life <= 0) this.streaks.splice(i, 1);
@@ -181,9 +263,63 @@ const FX = {
   },
 
   /* ------------------------------------------------------------ drawing */
+  /** Crescent path: thickest in the middle, pointed at both tips. Canvas can't
+      taper a stroke, so the arc is built as a polygon instead. */
+  _bladePath(g, b, r, w) {
+    const N = 14, a0 = b.rot - b.spread / 2;
+    g.beginPath();
+    for (let i = 0; i <= N; i++) {
+      const t = i / N, a = a0 + b.spread * t;
+      const th = w * Math.sin(Math.PI * t);
+      g.lineTo(b.x + Math.cos(a) * (r + th), b.y + Math.sin(a) * (r + th));
+    }
+    for (let i = N; i >= 0; i--) {
+      const t = i / N, a = a0 + b.spread * t;
+      const th = w * Math.sin(Math.PI * t);
+      g.lineTo(b.x + Math.cos(a) * (r - th), b.y + Math.sin(a) * (r - th));
+    }
+    g.closePath();
+  },
+
   drawWorld(g) {
     g.save();
     g.globalCompositeOperation = "lighter";
+
+    /* ---- swept blades: the signature of a melee swing ---- */
+    for (const b of this.blades) {
+      const k = 1 - b.life / b.max;              // 0 at birth, 1 at death
+      const a = b.life / b.max;
+      const r = lerp(b.r0, b.r1, easeOut(k));
+      const w = b.w * (1 - k * 0.72);
+      /* Hold near full brightness for the first half of the life, then fade.
+         Squaring the alpha instead made the arc dimmest exactly when it was
+         widest, so a swing read as a faint expanding ring rather than a swipe. */
+      g.globalAlpha = Math.min(1, a * 1.9) * 0.9;
+      g.fillStyle = b.color;
+      this._bladePath(g, b, r, w);
+      g.fill();
+      if (b.core) {                               // hot inner edge
+        g.globalAlpha = Math.min(1, a * 1.6) * 0.95;
+        g.fillStyle = "#ffffff";
+        this._bladePath(g, b, r, w * 0.32);
+        g.fill();
+      }
+    }
+
+    /* ---- lightning ---- */
+    for (const b of this.bolts) {
+      const a = b.life / b.max;
+      g.globalAlpha = a;
+      g.lineCap = "round"; g.lineJoin = "round";
+      for (const pass of [[b.w * 2.4, b.color, 0.5], [b.w, "#ffffff", 1]]) {
+        g.lineWidth = pass[0]; g.strokeStyle = pass[1];
+        g.globalAlpha = a * pass[2];
+        g.beginPath();
+        g.moveTo(b.pts[0].x, b.pts[0].y);
+        for (let i = 1; i < b.pts.length; i++) g.lineTo(b.pts[i].x, b.pts[i].y);
+        g.stroke();
+      }
+    }
 
     for (const s of this.streaks) {
       const a = s.life / s.max;
@@ -214,6 +350,61 @@ const FX = {
         g.lineTo(Math.cos(ang) * rr, Math.sin(ang) * rr);
       }
       g.closePath(); g.fill(); g.restore();
+    }
+
+    /* ---- stamped glyphs: a move's identity, left briefly in the world ---- */
+    for (const gl of this.glyphs) {
+      const a = gl.life / gl.max;
+      const s = gl.size * (0.8 + (1 - a) * 0.5);
+      g.save();
+      g.translate(gl.x, gl.y);
+      g.globalAlpha = a * 0.8;
+      g.strokeStyle = gl.color; g.lineWidth = 2.4; g.lineCap = "round";
+      if (gl.kind === "scale") {
+        // Pivot: a tipping balance
+        g.rotate(Math.sin(gl.rot * 2) * 0.3);
+        g.beginPath(); g.moveTo(-s, 0); g.lineTo(s, 0); g.stroke();
+        g.beginPath(); g.moveTo(0, -s * 0.5); g.lineTo(0, s * 0.3); g.stroke();
+        g.beginPath(); g.arc(-s, s * 0.3, s * 0.3, 0, Math.PI); g.stroke();
+        g.beginPath(); g.arc(s, s * 0.3, s * 0.3, 0, Math.PI); g.stroke();
+      } else if (gl.kind === "orbit") {
+        // Orbit: concentric rings at a tilt
+        g.rotate(gl.rot);
+        g.beginPath(); g.ellipse(0, 0, s, s * 0.38, 0, 0, 7); g.stroke();
+        g.beginPath(); g.ellipse(0, 0, s * 0.6, s * 0.22, 0, 0, 7); g.stroke();
+      } else if (gl.kind === "bolt") {
+        // Zip: a chevron stack
+        for (let i = 0; i < 3; i++) {
+          g.globalAlpha = a * (0.8 - i * 0.2);
+          g.beginPath();
+          g.moveTo(-s * 0.6, -s * 0.4 + i * s * 0.4);
+          g.lineTo(0, i * s * 0.4);
+          g.lineTo(-s * 0.6, s * 0.4 + i * s * 0.4);
+          g.stroke();
+        }
+      } else {
+        // Bolder: an impact wedge
+        g.beginPath();
+        g.moveTo(-s, -s * 0.5); g.lineTo(s * 0.4, 0); g.lineTo(-s, s * 0.5);
+        g.stroke();
+      }
+      g.restore();
+    }
+    g.restore();
+
+    /* ---- cracks draw normally: they are in the surface, not glowing ---- */
+    g.save();
+    for (const c of this.cracks) {
+      const a = c.life / c.max;
+      g.globalAlpha = a * 0.75;
+      g.lineCap = "round"; g.lineJoin = "round";
+      g.strokeStyle = "#07050f"; g.lineWidth = c.w + 1.8;
+      g.beginPath();
+      g.moveTo(c.pts[0].x, c.pts[0].y);
+      for (let i = 1; i < c.pts.length; i++) g.lineTo(c.pts[i].x, c.pts[i].y);
+      g.stroke();
+      g.strokeStyle = c.color; g.lineWidth = c.w;
+      g.stroke();
     }
     g.restore();
 
