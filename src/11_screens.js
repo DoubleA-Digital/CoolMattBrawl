@@ -95,6 +95,7 @@ const Game = {
   rebind: null,           // { player, action } while capturing a key
   stageIndex: 0,
   hoverAction: null,
+  joinEntry: null,        // the code being typed on the online screen
 
   slots: [
     { charId: "BOLDER", mode: "human" },
@@ -106,6 +107,8 @@ const Game = {
 
   start() {
     if (this.slots.filter(s => s.mode !== "off").length < 2) return;
+    if (Net.active && Net.isHost) { Net.startMatch(); Snd.uiBig(); return; }
+    if (Net.active && Net.isGuest) return;          // only the host may start
     this.match = new Match(this.slots, STAGES[this.stageIndex]);
     this.screen = "match";
     Snd.uiBig();
@@ -126,6 +129,12 @@ const Game = {
 
   /* ------------------------------------------------------------- update */
   update() {
+    /* A guest can be told to start at any moment, from any screen it is
+       sitting on, so the check lives outside the screen switch. */
+    if (Net.isGuest && Net.pendingStart) {
+      const p = Net.pendingStart; Net.pendingStart = null;
+      Net.beginLocal(p);
+    }
     switch (this.screen) {
       case "title":    this.updateTitle(); break;
       case "select":   if (Keys.pressed["Escape"]) { this.screen = "title"; Snd.ui(); }
@@ -137,9 +146,16 @@ const Game = {
       case "controls": if (Keys.pressed["Escape"] && !this.rebind) { this.screen = this.returnTo; Snd.ui(); } break;
       case "settings": if (Keys.pressed["Escape"]) { this.screen = this.returnTo; Snd.ui(); } break;
       case "howto":    if (Keys.pressed["Escape"] || Keys.pressed["Enter"]) { this.screen = "title"; Snd.ui(); } break;
+      case "online":   this.updateOnline(); break;
       case "match":
-        if (Keys.pressed["Escape"]) { this.screen = "pause"; Snd.ui(); break; }
-        this.match.update();
+        /* Online play pauses nobody: the other player is still fighting, so
+           Escape leaves the match instead of freezing a fight they can see. */
+        if (Keys.pressed["Escape"]) {
+          if (Net.active) { Net.reset(); this.match = null; this.screen = "title"; Snd.ui(); }
+          else { this.screen = "pause"; Snd.ui(); }
+          break;
+        }
+        if (Net.active) Net.update(); else this.match.update();
         break;
       case "pause":    if (Keys.pressed["Escape"]) { this.screen = "match"; Snd.ui(); } break;
       case "results":
@@ -157,6 +173,7 @@ const Game = {
       case "controls": this.drawControls(); break;
       case "settings": this.drawSettings(); break;
       case "howto":    this.drawHowto(); break;
+      case "online":   this.drawOnline(); break;
       case "match":    this.match.draw(alpha); break;
       case "pause":    this.match.draw(alpha); this.drawPause(); break;
       case "results":  this.drawResults(); break;
@@ -217,19 +234,21 @@ const Game = {
     g.restore();
 
     const bx = W / 2 - 130;
-    if (btn(bx, 282, 260, 50, "START BRAWL", { color: "#b6ff3b", font: `700 19px ${FONT_MONO}` }))
+    if (btn(bx, 266, 260, 50, "START BRAWL", { color: "#b6ff3b", font: `700 19px ${FONT_MONO}` }))
       { this.screen = "select"; Snd.uiBig(); }
-    if (btn(bx, 342, 260, 42, "CONTROLS", { color: "#00e5ff" }))
+    if (btn(bx, 324, 260, 46, "PLAY ONLINE", { color: "#ff2e88", font: `700 17px ${FONT_MONO}` }))
+      { Net.reset(); this.joinEntry = null; this.screen = "online"; Snd.uiBig(); }
+    if (btn(bx, 378, 260, 40, "CONTROLS", { color: "#00e5ff" }))
       { this.returnTo = "title"; this.screen = "controls"; Snd.ui(); }
-    if (btn(bx, 392, 260, 42, "SETTINGS", { color: "#ffc83d" }))
+    if (btn(bx, 424, 260, 40, "SETTINGS", { color: "#ffc83d" }))
       { this.returnTo = "title"; this.screen = "settings"; Snd.ui(); }
-    if (btn(bx, 442, 260, 42, "HOW TO PLAY", { color: "#8a7fff" }))
+    if (btn(bx, 470, 260, 40, "HOW TO PLAY", { color: "#8a7fff" }))
       { this.screen = "howto"; Snd.ui(); }
 
     g.save();
     g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`;
     g.fillStyle = "#6b6a85";
-    g.fillText("PRESS ENTER  ·  2-4 PLAYERS LOCAL  ·  GAMEPADS SUPPORTED", W / 2, 508);
+    g.fillText("2-4 PLAYERS LOCAL  ·  2 PLAYERS ONLINE  ·  GAMEPADS SUPPORTED", W / 2, 524);
     g.restore();
   },
 
@@ -739,6 +758,130 @@ const Game = {
     if (btn(W / 2 - 210, H - 76, 190, 44, "CONTROLS", { color: "#00e5ff" }))
       { this.returnTo = "howto"; this.screen = "controls"; Snd.ui(); }
     if (btn(W / 2 + 20, H - 76, 190, 44, "BACK", { color: "#ff2e88" })) { this.screen = "title"; Snd.ui(); }
+  },
+
+  /* =============================================================== ONLINE */
+  updateOnline() {
+    if (Keys.pressed["Escape"]) { Net.reset(); this.screen = "title"; Snd.ui(); return; }
+    // typing a room code to join
+    if (this.joinEntry !== null) {
+      for (const k in Keys.pressed) {
+        if (/^Key[A-Z]$/.test(k) && this.joinEntry.length < 4) this.joinEntry += k.slice(3);
+        else if (/^Digit[2-9]$/.test(k) && this.joinEntry.length < 4) this.joinEntry += k.slice(5);
+        else if (k === "Backspace") this.joinEntry = this.joinEntry.slice(0, -1);
+        else if (k === "Enter" && this.joinEntry.length === 4) {
+          Net.join(this.joinEntry); this.joinEntry = null; Snd.uiBig();
+        }
+      }
+    }
+    // host: once a guest is connected and has picked, go set the match up
+    if (Net.isHost && Net.active && Net.guestPick && !Net.hostReady) {
+      Net.hostReady = true;
+      this.slots = [
+        { charId: this.slots[0].charId, mode: "human" },
+        { charId: Net.guestPick, mode: "human" },
+        { charId: "ORBIT", mode: "off" },
+        { charId: "PIVOT", mode: "off" },
+      ];
+      this.selIndex = 0;
+      this.screen = "select";
+      Snd.uiBig();
+    }
+  },
+
+  drawOnline() {
+    Stage.def = STAGES[0];
+    drawBackground();
+    g.save(); g.fillStyle = "rgba(5,4,12,.86)"; g.fillRect(0, 0, W, H); g.restore();
+    screenTitleBar("COOL MATT GAMES", "PLAY ONLINE");
+
+    const cx = W / 2;
+    g.save();
+    g.textAlign = "center";
+
+    if (Net.mode === "off") {
+      g.font = `400 14px ${FONT_MONO}`; g.fillStyle = UI.dim;
+      g.fillText("One of you hosts and reads out the code. The other joins with it.",
+                 cx, 152);
+      g.fillText("Host plays Player 1, the one who joins plays Player 2.", cx, 174);
+      g.restore();
+
+      if (this.joinEntry === null) {
+        if (btn(cx - 300, 220, 280, 64, "HOST A GAME", { color: "#b6ff3b", font: `700 18px ${FONT_MONO}` }))
+          { Net.host(); Snd.uiBig(); }
+        if (btn(cx + 20, 220, 280, 64, "JOIN A GAME", { color: "#00e5ff", font: `700 18px ${FONT_MONO}` }))
+          { this.joinEntry = ""; Snd.ui(); }
+      } else {
+        g.save(); g.textAlign = "center";
+        g.font = `700 13px ${FONT_MONO}`; g.fillStyle = UI.dim;
+        g.fillText("TYPE THE 4-CHARACTER CODE, THEN PRESS ENTER", cx, 212);
+        g.restore();
+        for (let i = 0; i < 4; i++) {
+          const bx = cx - 150 + i * 76;
+          const ch = this.joinEntry[i] || "";
+          panel(g, bx, 232, 64, 76, { cut: 10, fill: "#14112a",
+            accent: ch ? "#00e5ff" : UI.line, accentA: ch ? 0.9 : 0.5, glow: ch ? 14 : 0 });
+          g.save(); g.textAlign = "center";
+          g.font = `900 40px ${FONT_DISPLAY}`; g.fillStyle = "#ffffff";
+          g.fillText(ch, bx + 32, 285);
+          g.restore();
+        }
+        if (btn(cx - 90, 334, 180, 42, "CANCEL", { color: "#ff2e88" }))
+          { this.joinEntry = null; Snd.ui(); }
+      }
+      g.save(); g.textAlign = "center";
+      g.font = `400 12px ${FONT_MONO}`; g.fillStyle = UI.dimmer;
+      g.fillText("Runs peer-to-peer in the browser. No account, nothing to install.", cx, H - 150);
+      g.restore();
+
+    } else if (Net.mode === "error") {
+      g.font = `900 26px ${FONT_DISPLAY}`; g.fillStyle = "#ff2e88";
+      g.fillText("COULDN'T CONNECT", cx, 210);
+      g.font = `400 14px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
+      g.fillText(Net.error, cx, 244);
+      g.restore();
+      if (btn(cx - 110, 290, 220, 48, "TRY AGAIN", { color: "#00e5ff" }))
+        { Net.reset(); Snd.ui(); }
+
+    } else {
+      // hosting / joining / connected
+      if (Net.isHost && Net.code) {
+        g.font = `700 13px ${FONT_MONO}`; g.fillStyle = UI.dim;
+        g.fillText("YOUR ROOM CODE — READ THIS OUT", cx, 168);
+        g.restore();
+        for (let i = 0; i < Net.code.length; i++) {
+          const bx = cx - 152 + i * 76;
+          panel(g, bx, 186, 64, 80, { cut: 10, fill: "#14112a",
+            accent: "#b6ff3b", accentA: 0.95, glow: 18 });
+          g.save(); g.textAlign = "center";
+          g.font = `900 42px ${FONT_DISPLAY}`;
+          g.shadowColor = "#b6ff3b"; g.shadowBlur = 12; g.fillStyle = "#ffffff";
+          g.fillText(Net.code[i], bx + 32, 243);
+          g.restore();
+        }
+        g.save(); g.textAlign = "center";
+      }
+
+      const dots = ".".repeat(1 + (Math.floor(performance.now() / 400) % 3));
+      g.font = `400 15px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
+      g.fillText(Net.status + (Net.mode === "connected" ? "" : dots), cx, 310);
+
+      if (Net.mode === "connected") {
+        g.font = `700 13px ${FONT_MONO}`; g.fillStyle = "#b6ff3b";
+        g.fillText(Net.ping ? `CONNECTED  ·  ${Net.ping} ms round trip` : "CONNECTED", cx, 338);
+        if (Net.isGuest) {
+          g.font = `400 13px ${FONT_MONO}`; g.fillStyle = UI.dim;
+          g.fillText("The host picks the stage. You will drop straight into the fight.", cx, 366);
+        }
+      }
+      g.restore();
+
+      if (btn(cx - 110, H - 150, 220, 46, "CANCEL", { color: "#ff2e88" }))
+        { Net.reset(); Snd.ui(); }
+    }
+
+    if (btn(24, H - 76, 170, 44, "BACK", { color: "#8f8cb5" }))
+      { Net.reset(); this.screen = "title"; Snd.ui(); }
   },
 
   /* ================================================================ PAUSE */

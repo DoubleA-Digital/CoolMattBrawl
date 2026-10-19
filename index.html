@@ -1782,7 +1782,7 @@ const STAGES = [
   blurb: "A casting beam over an open crucible. It swings like a wrecking ball and the floor is very close.",
   pivot: { x: 800, y: 560 },
   // the crucible is right below: far less room to recover underneath
-  blast: { left: -360, right: 1960, top: -520, bottom: 1080 },
+  blast: { left: -430, right: 2030, top: -560, bottom: 1140 },
   tilt: Object.assign({}, TILT_BASE, {
     torque: 0.0000052,    // heavier beam, leans further under weight
     spring: 0.0048,       // and is slow to right itself
@@ -1797,10 +1797,10 @@ const STAGES = [
            seq: [0, -1, -1, 1, 3, -1, 0, -1, 4, -1, 3, 1, 0, -1, -1, -1] },
   layout: [
     // narrower main beam, and the side platforms are high and short
-    { x1: -258, y1: 0,    x2: 258,  y2: 0,    solid: true,  main: true, thick: 30 },
-    { x1: -300, y1: -162, x2: -186, y2: -162, solid: false, thick: 11,
+    { x1: -302, y1: 0,    x2: 302,  y2: 0,    solid: true,  main: true, thick: 30 },
+    { x1: -348, y1: -168, x2: -214, y2: -168, solid: false, thick: 11,
       hot: { period: 320, on: 110, warn: 55, dmg: 1.8 }, phase: 0 },
-    { x1:  186, y1: -162, x2:  300, y2: -162, solid: false, thick: 11,
+    { x1:  214, y1: -168, x2:  348, y2: -168, solid: false, thick: 11,
       hot: { period: 320, on: 110, warn: 55, dmg: 1.8 }, phase: 160 },
   ],
 
@@ -2116,7 +2116,7 @@ const STAGES = [
   blurb: "A sealed test chamber. Tiny deck, walls right there, and the pivot leans a long way before it lets go.",
   pivot: { x: 800, y: 560 },
   // walls are close — everything kills much earlier here
-  blast: { left: -120, right: 1720, top: -300, bottom: 1180 },
+  blast: { left: -215, right: 1815, top: -360, bottom: 1250 },
   tilt: Object.assign({}, TILT_BASE, {
     torque: 0.0000044,
     spring: 0.0052,
@@ -2131,8 +2131,8 @@ const STAGES = [
            seq: [0, 0, -1, 1, 0, -1, 2, -1, 4, -1, 2, 1, 0, -1, 3, -1] },
   layout: [
     // short deck, one high centre platform, nothing to run to
-    { x1: -210, y1: 0,    x2: 210,  y2: 0,    solid: true,  main: true, thick: 26 },
-    { x1:  -96, y1: -168, x2:   96, y2: -168, solid: false, thick: 11,
+    { x1: -256, y1: 0,    x2: 256,  y2: 0,    solid: true,  main: true, thick: 26 },
+    { x1: -118, y1: -172, x2:  118, y2: -172, solid: false, thick: 11,
       retract: { period: 420, on: 260 } },
   ],
 
@@ -5103,6 +5103,7 @@ const Game = {
   rebind: null,           // { player, action } while capturing a key
   stageIndex: 0,
   hoverAction: null,
+  joinEntry: null,        // the code being typed on the online screen
 
   slots: [
     { charId: "BOLDER", mode: "human" },
@@ -5114,6 +5115,8 @@ const Game = {
 
   start() {
     if (this.slots.filter(s => s.mode !== "off").length < 2) return;
+    if (Net.active && Net.isHost) { Net.startMatch(); Snd.uiBig(); return; }
+    if (Net.active && Net.isGuest) return;          // only the host may start
     this.match = new Match(this.slots, STAGES[this.stageIndex]);
     this.screen = "match";
     Snd.uiBig();
@@ -5134,6 +5137,12 @@ const Game = {
 
   /* ------------------------------------------------------------- update */
   update() {
+    /* A guest can be told to start at any moment, from any screen it is
+       sitting on, so the check lives outside the screen switch. */
+    if (Net.isGuest && Net.pendingStart) {
+      const p = Net.pendingStart; Net.pendingStart = null;
+      Net.beginLocal(p);
+    }
     switch (this.screen) {
       case "title":    this.updateTitle(); break;
       case "select":   if (Keys.pressed["Escape"]) { this.screen = "title"; Snd.ui(); }
@@ -5145,9 +5154,16 @@ const Game = {
       case "controls": if (Keys.pressed["Escape"] && !this.rebind) { this.screen = this.returnTo; Snd.ui(); } break;
       case "settings": if (Keys.pressed["Escape"]) { this.screen = this.returnTo; Snd.ui(); } break;
       case "howto":    if (Keys.pressed["Escape"] || Keys.pressed["Enter"]) { this.screen = "title"; Snd.ui(); } break;
+      case "online":   this.updateOnline(); break;
       case "match":
-        if (Keys.pressed["Escape"]) { this.screen = "pause"; Snd.ui(); break; }
-        this.match.update();
+        /* Online play pauses nobody: the other player is still fighting, so
+           Escape leaves the match instead of freezing a fight they can see. */
+        if (Keys.pressed["Escape"]) {
+          if (Net.active) { Net.reset(); this.match = null; this.screen = "title"; Snd.ui(); }
+          else { this.screen = "pause"; Snd.ui(); }
+          break;
+        }
+        if (Net.active) Net.update(); else this.match.update();
         break;
       case "pause":    if (Keys.pressed["Escape"]) { this.screen = "match"; Snd.ui(); } break;
       case "results":
@@ -5165,6 +5181,7 @@ const Game = {
       case "controls": this.drawControls(); break;
       case "settings": this.drawSettings(); break;
       case "howto":    this.drawHowto(); break;
+      case "online":   this.drawOnline(); break;
       case "match":    this.match.draw(alpha); break;
       case "pause":    this.match.draw(alpha); this.drawPause(); break;
       case "results":  this.drawResults(); break;
@@ -5225,19 +5242,21 @@ const Game = {
     g.restore();
 
     const bx = W / 2 - 130;
-    if (btn(bx, 282, 260, 50, "START BRAWL", { color: "#b6ff3b", font: `700 19px ${FONT_MONO}` }))
+    if (btn(bx, 266, 260, 50, "START BRAWL", { color: "#b6ff3b", font: `700 19px ${FONT_MONO}` }))
       { this.screen = "select"; Snd.uiBig(); }
-    if (btn(bx, 342, 260, 42, "CONTROLS", { color: "#00e5ff" }))
+    if (btn(bx, 324, 260, 46, "PLAY ONLINE", { color: "#ff2e88", font: `700 17px ${FONT_MONO}` }))
+      { Net.reset(); this.joinEntry = null; this.screen = "online"; Snd.uiBig(); }
+    if (btn(bx, 378, 260, 40, "CONTROLS", { color: "#00e5ff" }))
       { this.returnTo = "title"; this.screen = "controls"; Snd.ui(); }
-    if (btn(bx, 392, 260, 42, "SETTINGS", { color: "#ffc83d" }))
+    if (btn(bx, 424, 260, 40, "SETTINGS", { color: "#ffc83d" }))
       { this.returnTo = "title"; this.screen = "settings"; Snd.ui(); }
-    if (btn(bx, 442, 260, 42, "HOW TO PLAY", { color: "#8a7fff" }))
+    if (btn(bx, 470, 260, 40, "HOW TO PLAY", { color: "#8a7fff" }))
       { this.screen = "howto"; Snd.ui(); }
 
     g.save();
     g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`;
     g.fillStyle = "#6b6a85";
-    g.fillText("PRESS ENTER  ·  2-4 PLAYERS LOCAL  ·  GAMEPADS SUPPORTED", W / 2, 508);
+    g.fillText("2-4 PLAYERS LOCAL  ·  2 PLAYERS ONLINE  ·  GAMEPADS SUPPORTED", W / 2, 524);
     g.restore();
   },
 
@@ -5749,6 +5768,130 @@ const Game = {
     if (btn(W / 2 + 20, H - 76, 190, 44, "BACK", { color: "#ff2e88" })) { this.screen = "title"; Snd.ui(); }
   },
 
+  /* =============================================================== ONLINE */
+  updateOnline() {
+    if (Keys.pressed["Escape"]) { Net.reset(); this.screen = "title"; Snd.ui(); return; }
+    // typing a room code to join
+    if (this.joinEntry !== null) {
+      for (const k in Keys.pressed) {
+        if (/^Key[A-Z]$/.test(k) && this.joinEntry.length < 4) this.joinEntry += k.slice(3);
+        else if (/^Digit[2-9]$/.test(k) && this.joinEntry.length < 4) this.joinEntry += k.slice(5);
+        else if (k === "Backspace") this.joinEntry = this.joinEntry.slice(0, -1);
+        else if (k === "Enter" && this.joinEntry.length === 4) {
+          Net.join(this.joinEntry); this.joinEntry = null; Snd.uiBig();
+        }
+      }
+    }
+    // host: once a guest is connected and has picked, go set the match up
+    if (Net.isHost && Net.active && Net.guestPick && !Net.hostReady) {
+      Net.hostReady = true;
+      this.slots = [
+        { charId: this.slots[0].charId, mode: "human" },
+        { charId: Net.guestPick, mode: "human" },
+        { charId: "ORBIT", mode: "off" },
+        { charId: "PIVOT", mode: "off" },
+      ];
+      this.selIndex = 0;
+      this.screen = "select";
+      Snd.uiBig();
+    }
+  },
+
+  drawOnline() {
+    Stage.def = STAGES[0];
+    drawBackground();
+    g.save(); g.fillStyle = "rgba(5,4,12,.86)"; g.fillRect(0, 0, W, H); g.restore();
+    screenTitleBar("COOL MATT GAMES", "PLAY ONLINE");
+
+    const cx = W / 2;
+    g.save();
+    g.textAlign = "center";
+
+    if (Net.mode === "off") {
+      g.font = `400 14px ${FONT_MONO}`; g.fillStyle = UI.dim;
+      g.fillText("One of you hosts and reads out the code. The other joins with it.",
+                 cx, 152);
+      g.fillText("Host plays Player 1, the one who joins plays Player 2.", cx, 174);
+      g.restore();
+
+      if (this.joinEntry === null) {
+        if (btn(cx - 300, 220, 280, 64, "HOST A GAME", { color: "#b6ff3b", font: `700 18px ${FONT_MONO}` }))
+          { Net.host(); Snd.uiBig(); }
+        if (btn(cx + 20, 220, 280, 64, "JOIN A GAME", { color: "#00e5ff", font: `700 18px ${FONT_MONO}` }))
+          { this.joinEntry = ""; Snd.ui(); }
+      } else {
+        g.save(); g.textAlign = "center";
+        g.font = `700 13px ${FONT_MONO}`; g.fillStyle = UI.dim;
+        g.fillText("TYPE THE 4-CHARACTER CODE, THEN PRESS ENTER", cx, 212);
+        g.restore();
+        for (let i = 0; i < 4; i++) {
+          const bx = cx - 150 + i * 76;
+          const ch = this.joinEntry[i] || "";
+          panel(g, bx, 232, 64, 76, { cut: 10, fill: "#14112a",
+            accent: ch ? "#00e5ff" : UI.line, accentA: ch ? 0.9 : 0.5, glow: ch ? 14 : 0 });
+          g.save(); g.textAlign = "center";
+          g.font = `900 40px ${FONT_DISPLAY}`; g.fillStyle = "#ffffff";
+          g.fillText(ch, bx + 32, 285);
+          g.restore();
+        }
+        if (btn(cx - 90, 334, 180, 42, "CANCEL", { color: "#ff2e88" }))
+          { this.joinEntry = null; Snd.ui(); }
+      }
+      g.save(); g.textAlign = "center";
+      g.font = `400 12px ${FONT_MONO}`; g.fillStyle = UI.dimmer;
+      g.fillText("Runs peer-to-peer in the browser. No account, nothing to install.", cx, H - 150);
+      g.restore();
+
+    } else if (Net.mode === "error") {
+      g.font = `900 26px ${FONT_DISPLAY}`; g.fillStyle = "#ff2e88";
+      g.fillText("COULDN'T CONNECT", cx, 210);
+      g.font = `400 14px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
+      g.fillText(Net.error, cx, 244);
+      g.restore();
+      if (btn(cx - 110, 290, 220, 48, "TRY AGAIN", { color: "#00e5ff" }))
+        { Net.reset(); Snd.ui(); }
+
+    } else {
+      // hosting / joining / connected
+      if (Net.isHost && Net.code) {
+        g.font = `700 13px ${FONT_MONO}`; g.fillStyle = UI.dim;
+        g.fillText("YOUR ROOM CODE — READ THIS OUT", cx, 168);
+        g.restore();
+        for (let i = 0; i < Net.code.length; i++) {
+          const bx = cx - 152 + i * 76;
+          panel(g, bx, 186, 64, 80, { cut: 10, fill: "#14112a",
+            accent: "#b6ff3b", accentA: 0.95, glow: 18 });
+          g.save(); g.textAlign = "center";
+          g.font = `900 42px ${FONT_DISPLAY}`;
+          g.shadowColor = "#b6ff3b"; g.shadowBlur = 12; g.fillStyle = "#ffffff";
+          g.fillText(Net.code[i], bx + 32, 243);
+          g.restore();
+        }
+        g.save(); g.textAlign = "center";
+      }
+
+      const dots = ".".repeat(1 + (Math.floor(performance.now() / 400) % 3));
+      g.font = `400 15px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
+      g.fillText(Net.status + (Net.mode === "connected" ? "" : dots), cx, 310);
+
+      if (Net.mode === "connected") {
+        g.font = `700 13px ${FONT_MONO}`; g.fillStyle = "#b6ff3b";
+        g.fillText(Net.ping ? `CONNECTED  ·  ${Net.ping} ms round trip` : "CONNECTED", cx, 338);
+        if (Net.isGuest) {
+          g.font = `400 13px ${FONT_MONO}`; g.fillStyle = UI.dim;
+          g.fillText("The host picks the stage. You will drop straight into the fight.", cx, 366);
+        }
+      }
+      g.restore();
+
+      if (btn(cx - 110, H - 150, 220, 46, "CANCEL", { color: "#ff2e88" }))
+        { Net.reset(); Snd.ui(); }
+    }
+
+    if (btn(24, H - 76, 170, 44, "BACK", { color: "#8f8cb5" }))
+      { Net.reset(); this.screen = "title"; Snd.ui(); }
+  },
+
   /* ================================================================ PAUSE */
   drawPause() {
     g.save();
@@ -5879,6 +6022,435 @@ const Game = {
     g.textAlign = "center"; g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
     g.fillText("ENTER = REMATCH  ·  ESC = FIGHTER SELECT", W / 2, H - 16);
     g.restore();
+  },
+};
+
+
+/* ===== src/11b_net.js ===== */
+/* ==========================================================================
+   12b. NET — online play over WebRTC (PeerJS), host-authoritative
+
+   WHY THIS SHAPE
+   The obvious choice for a fighting game is lockstep: both machines run the
+   same simulation and only inputs cross the wire. This simulation is not safe
+   to run that way. Stage.toWorld calls Math.cos/Math.sin every frame, and the
+   spec does not require those to be bit-identical between JS engines, so two
+   browsers would drift apart and the fight would silently diverge. Instead:
+
+     host   runs the only real simulation and ships a state snapshot per frame
+     guest  runs no simulation at all; it applies snapshots and renders them
+
+   That costs the guest one round trip of view latency but it cannot desync,
+   which is the right trade for a game played between friends.
+
+   INPUT FAIRNESS
+   A naive host-authoritative build gives the host zero input delay and the
+   guest a full round trip, which is a real competitive advantage. The host
+   therefore delays its OWN input by netDelay frames so both players act on
+   roughly the same deadline.
+
+   EFFECTS
+   FX are not transmitted. The guest derives them from snapshot deltas — a
+   percent that went up is a hit, a stock that went down is a KO, a snapCount
+   that advanced is a Snap-Back. That keeps the protocol small and means a
+   dropped packet costs a particle burst, never desync.
+   ========================================================================== */
+
+const NET = {
+  lib: "https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js",
+  prefix: "cmbrawl-",     // namespaces our room codes on the public broker
+  netDelay: 3,            // frames the host delays its own input by
+  snapshotEvery: 1,       // send a snapshot every N simulated frames
+};
+
+/** A Pad fed by the wire instead of a keyboard. Same surface as Pad, so a
+    Fighter cannot tell the difference. */
+class NetPad {
+  constructor(slot) {
+    this.slot = slot;
+    this.cur = {}; this.prev = {};
+    BUTTONS.forEach(b => { this.cur[b] = false; this.prev[b] = false; });
+    this.ax = 0; this.ay = 0;
+    this.mask = 0;
+    this.hasGamepad = false;
+  }
+  setMask(m) { this.mask = m | 0; }
+  poll() {
+    this.prev = Object.assign({}, this.cur);
+    BUTTONS.forEach((b, i) => { this.cur[b] = !!(this.mask & (1 << i)); });
+    this.ax = (this.cur.right ? 1 : 0) - (this.cur.left ? 1 : 0);
+    this.ay = (this.cur.down ? 1 : 0) - (this.cur.up ? 1 : 0);
+  }
+  held(b) { return this.cur[b]; }
+  hit(b) { return this.cur[b] && !this.prev[b]; }
+  released(b) { return !this.cur[b] && this.prev[b]; }
+}
+
+/** Pack a Pad's current buttons into a bitmask, in BUTTONS order. */
+function maskFromPad(pad) {
+  let m = 0;
+  BUTTONS.forEach((b, i) => { if (pad.held(b)) m |= (1 << i); });
+  return m;
+}
+
+const Net = {
+  mode: "off",            // off | hosting | joining | connected | error
+  role: null,             // "host" | "guest"
+  code: "",
+  peer: null, conn: null,
+  status: "",
+  error: "",
+  ping: 0, lastPingAt: 0,
+  guestPick: null,        // character the guest chose
+  hostReady: false,
+  frame: 0,
+  /* host: its own input, delayed so the guest is not at a disadvantage */
+  delayBuf: [],
+  /* guest: the two most recent snapshots, for render interpolation */
+  snapPrev: null, snapCur: null,
+  /* guest: what the last snapshot said, so deltas can become effects */
+  lastSeen: null,
+  pendingStart: null,
+  libLoaded: false,
+
+  get active() { return this.mode === "connected"; },
+  get isHost() { return this.role === "host"; },
+  get isGuest() { return this.role === "guest"; },
+
+  /* ---------------------------------------------------------- lifecycle */
+  loadLib() {
+    if (this.libLoaded) return Promise.resolve();
+    if (window.Peer) { this.libLoaded = true; return Promise.resolve(); }
+    return new Promise((res, rej) => {
+      const s = document.createElement("script");
+      s.src = NET.lib;
+      s.onload = () => { this.libLoaded = true; res(); };
+      s.onerror = () => rej(new Error("could not load the networking library"));
+      document.head.appendChild(s);
+    });
+  },
+
+  newCode() {
+    const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";   // no look-alikes
+    let c = "";
+    for (let i = 0; i < 4; i++) c += A[(Math.random() * A.length) | 0];
+    return c;
+  },
+
+  reset() {
+    try { if (this.conn) this.conn.close(); } catch (e) {}
+    try { if (this.peer) this.peer.destroy(); } catch (e) {}
+    this.peer = null; this.conn = null;
+    this.mode = "off"; this.role = null; this.code = "";
+    this.status = ""; this.error = "";
+    this.guestPick = null; this.hostReady = false;
+    this.frame = 0; this.delayBuf = [];
+    this.snapPrev = this.snapCur = this.lastSeen = null;
+    this.pendingStart = null;
+  },
+
+  fail(msg) {
+    this.error = String(msg || "connection failed");
+    this.mode = "error";
+    this.status = "";
+  },
+
+  host() {
+    this.reset();
+    this.role = "host"; this.mode = "hosting";
+    this.code = this.newCode();
+    this.status = "starting up...";
+    this.loadLib().then(() => {
+      this.peer = new window.Peer(NET.prefix + this.code);
+      this.peer.on("open", () => { this.status = "waiting for a player to join"; });
+      this.peer.on("error", e => this.fail(
+        (e && e.type === "unavailable-id") ? "that room code is taken — try again"
+                                           : (e && e.message) || "connection error"));
+      this.peer.on("connection", c => {
+        if (this.conn) { try { c.close(); } catch (e) {} return; }  // one guest only
+        this.conn = c;
+        c.on("open", () => {
+          this.mode = "connected";
+          this.status = "player connected";
+          Snd.uiBig();
+        });
+        c.on("data", d => this.onData(d));
+        c.on("close", () => this.onPeerGone());
+        c.on("error", () => this.onPeerGone());
+      });
+    }).catch(e => this.fail(e.message));
+  },
+
+  join(code) {
+    this.reset();
+    this.role = "guest"; this.mode = "joining";
+    this.code = (code || "").toUpperCase();
+    this.status = "connecting to " + this.code + "...";
+    this.loadLib().then(() => {
+      this.peer = new window.Peer();
+      this.peer.on("error", e => this.fail(
+        (e && e.type === "peer-unavailable") ? "no game found with that code"
+                                             : (e && e.message) || "connection error"));
+      this.peer.on("open", () => {
+        const c = this.peer.connect(NET.prefix + this.code, { reliable: false });
+        this.conn = c;
+        c.on("open", () => {
+          this.mode = "connected";
+          this.status = "connected — waiting for the host";
+          Snd.uiBig();
+          this.send({ t: "pick", charId: Game.slots[0].charId });
+        });
+        c.on("data", d => this.onData(d));
+        c.on("close", () => this.onPeerGone());
+        c.on("error", () => this.onPeerGone());
+      });
+    }).catch(e => this.fail(e.message));
+  },
+
+  onPeerGone() {
+    if (this.mode === "off") return;
+    const wasPlaying = Game.screen === "match" || Game.screen === "pause";
+    this.fail("the other player disconnected");
+    if (wasPlaying) {
+      Game.match = null;
+      Game.screen = "online";
+    }
+  },
+
+  send(obj) {
+    if (!this.conn) return;
+    try { this.conn.send(obj); } catch (e) { /* a dropped frame is survivable */ }
+  },
+
+  /* ------------------------------------------------------------ messages */
+  onData(d) {
+    if (!d || typeof d !== "object") return;
+    switch (d.t) {
+      case "pick":
+        // guest told us which fighter it wants
+        if (this.isHost && typeof d.charId === "string" && CHAR_BY_ID[d.charId])
+          this.guestPick = d.charId;
+        break;
+      case "start":
+        // host is starting the match; mirror its setup exactly
+        if (this.isGuest) this.pendingStart = d;
+        break;
+      case "in":
+        // guest input for the host to apply
+        if (this.isHost && this.guestPad) this.guestPad.setMask(d.k);
+        break;
+      case "s":
+        if (this.isGuest) {
+          this.snapPrev = this.snapCur;
+          this.snapCur = d;
+        }
+        break;
+      case "end":
+        if (this.isGuest && Game.match) {
+          Game.toResults(Game.match);
+          Game.screen = "results";
+        }
+        break;
+      case "ping": this.send({ t: "pong", ts: d.ts }); break;
+      case "pong": this.ping = Math.round(performance.now() - d.ts); break;
+    }
+  },
+
+  measurePing() {
+    const now = performance.now();
+    if (now - this.lastPingAt < 1000) return;
+    this.lastPingAt = now;
+    this.send({ t: "ping", ts: now });
+  },
+
+  /* --------------------------------------------------------- match setup */
+  /** Host: announce and start. Both sides build the same Match. */
+  startMatch() {
+    const payload = {
+      t: "start",
+      slots: Game.slots.map(s => ({ charId: s.charId, mode: s.mode })),
+      stageIndex: Game.stageIndex,
+    };
+    this.send(payload);
+    this.frame = 0;
+    this.delayBuf = [];
+    this.beginLocal(payload);
+  },
+
+  /** Both roles: construct the match described by a start payload. */
+  beginLocal(payload) {
+    Game.slots = payload.slots.map(s => ({ charId: s.charId, mode: s.mode }));
+    Game.stageIndex = payload.stageIndex;
+    Game.match = new Match(Game.slots, STAGES[Game.stageIndex]);
+    Game.screen = "match";
+    this.snapPrev = this.snapCur = this.lastSeen = null;
+
+    /* Slot 0 is the host's fighter, slot 1 is the guest's. Whichever one is
+       not ours is driven by the wire rather than by a keyboard. */
+    const remoteSlot = this.isHost ? 1 : 0;
+    for (const f of Game.match.fighters) {
+      if (f.slot === remoteSlot && !f.isCPU) {
+        f.pad = new NetPad(f.slot);
+        if (this.isHost) this.guestPad = f.pad;
+      }
+    }
+    if (this.isGuest) {
+      // the guest simulates nothing, so its music/FX start but its sim never runs
+      this.localSlot = 1;
+    } else {
+      this.localSlot = 0;
+    }
+  },
+
+  /* ----------------------------------------------------------- per frame */
+  /** Called from Game.update() instead of match.update() when online. */
+  update() {
+    if (!this.active || !Game.match) return false;
+    this.measurePing();
+
+    if (this.isHost) {
+      /* Delay our own input by netDelay frames so the guest, whose input
+         needs a round trip to arrive, is not systematically late. */
+      const me = Game.match.fighters.find(f => f.slot === 0 && !f.isCPU);
+      if (me) {
+        const live = new Pad(0); live.poll();
+        this.delayBuf.push(maskFromPad(live));
+        while (this.delayBuf.length > NET.netDelay) {
+          const m = this.delayBuf.shift();
+          if (!(me.pad instanceof NetPad)) { me.pad = new NetPad(0); }
+          me.pad.setMask(m);
+        }
+      }
+      Game.match.update();
+      this.frame++;
+      if (this.frame % NET.snapshotEvery === 0) this.send(this.snapshot());
+      if (Game.match.over && Game.match.endTimer <= 1) this.send({ t: "end" });
+      return true;
+    }
+
+    // guest: no simulation at all, just present what the host sent
+    const pad = new Pad(0); pad.poll();
+    this.send({ t: "in", k: maskFromPad(pad) });
+    this.applySnapshot();
+    FX.update(Game.match.fighters);
+    return true;
+  },
+
+  /* -------------------------------------------------------- the protocol */
+  snapshot() {
+    const m = Game.match;
+    const r2 = v => Math.round(v * 100) / 100;
+    return {
+      t: "s",
+      f: this.frame,
+      // stage
+      st: [r2(Stage.tilt), r2(Stage.angVel), Stage.anchorTimer,
+           Stage.snapFlash, Stage.snapCount, Stage.platT],
+      // live platform state, only the fields that can change
+      pf: Stage.pfx.map(s => [r2(s.dx), s.present ? 1 : 0, r2(s.heat),
+                              r2(s.alpha), s.stood, s.gone]),
+      // match
+      mt: [m.countdown, m.timeLeft, m.over ? 1 : 0, m.endTimer],
+      // fighters
+      fs: m.fighters.map(f => ({
+        s: f.slot,
+        x: r2(f.x), y: r2(f.y), vx: r2(f.vx), vy: r2(f.vy),
+        fa: f.facing, st: f.state, sp: f.percent, sk: f.stocks,
+        sh: r2(f.shield), mr: r2(f.meter), hs: f.hitstun, iv: f.invuln,
+        gr: f.grounded ? 1 : 0, al: f.alive ? 1 : 0, rt: f.respawnTimer,
+        hf: f.hitFlash, cd: f.specialCD, rp: r2(f.runPhase), at: f.animTime,
+        ak: f.attack ? f.attack.kind : null,
+        an: f.attack ? f.attack.data.name : null,
+        att: f.attack ? f.attack.t : 0,
+        ato: f.attack ? f.attack.total : 0,
+      })),
+    };
+  },
+
+  /** Guest: write the newest snapshot onto the local objects, then turn any
+      meaningful change since the previous one into effects. */
+  applySnapshot() {
+    const snap = this.snapCur;
+    if (!snap || !Game.match) return;
+    const m = Game.match;
+
+    // ---- stage ----
+    Stage.prevTilt = Stage.tilt;
+    Stage.tilt = snap.st[0]; Stage.angVel = snap.st[1];
+    Stage.anchorTimer = snap.st[2]; Stage.snapFlash = snap.st[3];
+    const prevSnaps = Stage.snapCount;
+    Stage.snapCount = snap.st[4]; Stage.platT = snap.st[5];
+    if (snap.pf) snap.pf.forEach((p, i) => {
+      const s = Stage.pfx[i]; if (!s) return;
+      s.dx = p[0]; s.present = !!p[1]; s.heat = p[2];
+      s.alpha = p[3]; s.stood = p[4]; s.gone = p[5];
+    });
+    Stage.rebuild();
+
+    // ---- match ----
+    m.countdown = snap.mt[0]; m.timeLeft = snap.mt[1];
+    m.over = !!snap.mt[2]; m.endTimer = snap.mt[3];
+
+    // ---- fighters ----
+    for (const fd of snap.fs) {
+      const f = m.fighters.find(x => x.slot === fd.s);
+      if (!f) continue;
+      const before = this.lastSeen && this.lastSeen[fd.s];
+      f.px = f.x; f.py = f.y;                       // keep render interpolation
+      f.x = fd.x; f.y = fd.y; f.vx = fd.vx; f.vy = fd.vy;
+      f.facing = fd.fa; f.state = fd.st;
+      f.percent = fd.sp; f.stocks = fd.sk;
+      f.shield = fd.sh; f.meter = fd.mr;
+      f.hitstun = fd.hs; f.invuln = fd.iv;
+      f.grounded = !!fd.gr; f.alive = !!fd.al;
+      f.respawnTimer = fd.rt; f.hitFlash = fd.hf;
+      f.specialCD = fd.cd; f.runPhase = fd.rp; f.animTime = fd.at;
+
+      // rebuild just enough of the attack for the renderer to pose correctly
+      if (fd.ak) {
+        const move = fd.ak === "light" ? f.ch.light : fd.ak === "heavy" ? f.ch.heavy
+                   : fd.ak === "special" ? f.ch.special : f.ch.super;
+        f.attack = { kind: fd.ak, data: move, t: fd.att, total: fd.ato,
+                     hitIds: null, hitId: 0 };
+      } else f.attack = null;
+
+      /* ---- effects from deltas ---- */
+      if (before) {
+        const dmg = f.percent - before.sp;
+        if (dmg > 0.4) {
+          FX.hitmark(f.x, f.y, dmg);
+          FX.burst(f.x, f.y, Math.round(6 + dmg * 1.1), f.ch.color, 3 + dmg * 0.35);
+          FX.damageText(f.x, f.y - 24, dmg, f.ch.accent);
+          FX.shake(3 + dmg * 0.6);
+          Snd.hit(dmg);
+        }
+        if (f.stocks < before.sk) {
+          FX.banner(f.stocks > 0 ? "KO!" : `${f.ch.name} OUT!`, f.tint);
+          FX.burst(f.x, f.y, 26, f.tint, 9);
+          FX.flash("#ffffff", 0.25);
+          Snd.ko();
+        }
+        if (fd.ak === "super" && before.ak !== "super") {
+          FX.banner(f.ch.super.name.toUpperCase(), f.ch.color);
+          Snd.superCharge();
+        }
+      }
+      if (f.hitstun > 0 || fd.ak === "super")
+        f.trail.push({ x: f.x, y: f.y, facing: f.facing, life: 10 });
+      for (let i = f.trail.length - 1; i >= 0; i--)
+        if (--f.trail[i].life <= 0) f.trail.splice(i, 1);
+    }
+
+    if (Stage.snapCount > prevSnaps) {
+      FX.banner("SNAP-BACK!", "#ffffff");
+      FX.ring(Stage.pivot.x, Stage.pivot.y, 60, 560, "#ffffff", 5);
+      FX.shake(26); FX.flash("#ffffff", 0.25);
+      Snd.snapback();
+    }
+
+    // remember this frame so the next one can diff against it
+    this.lastSeen = {};
+    for (const fd of snap.fs) this.lastSeen[fd.s] = fd;
   },
 };
 

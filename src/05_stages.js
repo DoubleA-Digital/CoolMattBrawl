@@ -130,7 +130,7 @@ const STAGES = [
   blurb: "A casting beam over an open crucible. It swings like a wrecking ball and the floor is very close.",
   pivot: { x: 800, y: 560 },
   // the crucible is right below: far less room to recover underneath
-  blast: { left: -360, right: 1960, top: -520, bottom: 1080 },
+  blast: { left: -430, right: 2030, top: -560, bottom: 1140 },
   tilt: Object.assign({}, TILT_BASE, {
     torque: 0.0000052,    // heavier beam, leans further under weight
     spring: 0.0048,       // and is slow to right itself
@@ -145,10 +145,10 @@ const STAGES = [
            seq: [0, -1, -1, 1, 3, -1, 0, -1, 4, -1, 3, 1, 0, -1, -1, -1] },
   layout: [
     // narrower main beam, and the side platforms are high and short
-    { x1: -258, y1: 0,    x2: 258,  y2: 0,    solid: true,  main: true, thick: 30 },
-    { x1: -300, y1: -162, x2: -186, y2: -162, solid: false, thick: 11,
+    { x1: -302, y1: 0,    x2: 302,  y2: 0,    solid: true,  main: true, thick: 30 },
+    { x1: -348, y1: -168, x2: -214, y2: -168, solid: false, thick: 11,
       hot: { period: 320, on: 110, warn: 55, dmg: 1.8 }, phase: 0 },
-    { x1:  186, y1: -162, x2:  300, y2: -162, solid: false, thick: 11,
+    { x1:  214, y1: -168, x2:  348, y2: -168, solid: false, thick: 11,
       hot: { period: 320, on: 110, warn: 55, dmg: 1.8 }, phase: 160 },
   ],
 
@@ -464,7 +464,7 @@ const STAGES = [
   blurb: "A sealed test chamber. Tiny deck, walls right there, and the pivot leans a long way before it lets go.",
   pivot: { x: 800, y: 560 },
   // walls are close — everything kills much earlier here
-  blast: { left: -120, right: 1720, top: -300, bottom: 1180 },
+  blast: { left: -215, right: 1815, top: -360, bottom: 1250 },
   tilt: Object.assign({}, TILT_BASE, {
     torque: 0.0000044,
     spring: 0.0052,
@@ -479,8 +479,8 @@ const STAGES = [
            seq: [0, 0, -1, 1, 0, -1, 2, -1, 4, -1, 2, 1, 0, -1, 3, -1] },
   layout: [
     // short deck, one high centre platform, nothing to run to
-    { x1: -210, y1: 0,    x2: 210,  y2: 0,    solid: true,  main: true, thick: 26 },
-    { x1:  -96, y1: -168, x2:   96, y2: -168, solid: false, thick: 11,
+    { x1: -256, y1: 0,    x2: 256,  y2: 0,    solid: true,  main: true, thick: 26 },
+    { x1: -118, y1: -172, x2:  118, y2: -172, solid: false, thick: 11,
       retract: { period: 420, on: 260 } },
   ],
 
