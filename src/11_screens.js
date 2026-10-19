@@ -3,39 +3,86 @@
                  pause and results
    ========================================================================== */
 
-/* Immediate-mode button. Returns true on the frame it is clicked. */
+/* Immediate-mode button. Returns true on the frame it is clicked.
+   Built from the same panel() as the HUD, so menus and match share one look:
+   a stamped plate that physically presses in when hovered. */
 function btn(x, y, w, h, label, opts) {
   opts = opts || {};
   const hov = Mouse.x > x && Mouse.x < x + w && Mouse.y > y && Mouse.y < y + h;
   const col = opts.color || "#00e5ff";
   const on = opts.active;
   const dim = opts.disabled;
+  const live = (on || hov) && !dim;
+  const press = hov && Mouse.down && !dim ? 2 : 0;   // travel on click
+
   g.save();
-  g.fillStyle = on ? hexA(col, 0.22) : (hov && !dim) ? "rgba(255,255,255,.10)" : "rgba(8,6,18,.72)";
-  roundRect(g, x, y, w, h, 10); g.fill();
-  g.strokeStyle = dim ? "rgba(255,255,255,.12)" : (on || hov) ? col : "rgba(255,255,255,.22)";
-  g.lineWidth = 2;
-  if ((on || hov) && !dim) { g.shadowColor = col; g.shadowBlur = 16; }
-  roundRect(g, x, y, w, h, 10); g.stroke();
-  g.shadowBlur = 0;
-  g.fillStyle = dim ? "#55536e" : (on || hov) ? "#ffffff" : "#b7b4d4";
+  g.translate(0, press);
+  panel(g, x, y, w, h, {
+    cut: Math.min(10, h * 0.34),
+    fill: dim ? "#0d0b1a" : on ? mixColor("#14112a", col, 0.22) : "#14112a",
+    // idle buttons keep a hint of their own colour, or a menu of them all
+    // reads as one grey stack with nothing to aim at
+    accent: dim ? "#2c2745" : live ? col : mixColor(UI.line, col, 0.5),
+    accentA: live ? 0.95 : 0.6,
+    glow: live ? 16 : 0,
+    shadow: !press,
+  });
+  // a hovered button lights from inside, not just at its border
+  if (live) {
+    g.save();
+    notchPath(g, x, y, w, h, Math.min(10, h * 0.34)); g.clip();
+    const q = g.createLinearGradient(0, y, 0, y + h);
+    q.addColorStop(0, hexA(col, on ? 0.2 : 0.13));
+    q.addColorStop(1, hexA(col, 0));
+    g.fillStyle = q; g.fillRect(x, y, w, h);
+    g.restore();
+  }
+  g.fillStyle = dim ? "#55536e" : live ? "#ffffff" : "#b7b4d4";
   g.font = opts.font || `700 15px ${FONT_MONO}`;
   g.textAlign = "center"; g.textBaseline = "middle";
+  if (live) { g.shadowColor = col; g.shadowBlur = 10; }
   g.fillText(label, x + w / 2, y + h / 2 + 1);
   g.textBaseline = "alphabetic";
   g.restore();
   return hov && Mouse.click && !dim;
 }
 
+/* Screen header: a stamped banner plate rather than floating text, with the
+   Cool Matt Games mark above it and rules running out to the margins. */
 function screenTitleBar(sub, title, accent) {
+  const col = accent || "#00e5ff";
   g.save();
   g.textAlign = "center";
-  g.font = `700 12px ${FONT_MONO}`;
+
+  g.font = `900 44px ${FONT_DISPLAY}`;
+  const tw = g.measureText(title).width;
+  const bw = Math.max(360, tw + 110), bx = W / 2 - bw / 2;
+
+  // rules out to the edges, stopping clear of the plate
+  g.strokeStyle = hexA(col, 0.28); g.lineWidth = 2;
+  g.beginPath(); g.moveTo(40, 66); g.lineTo(bx - 18, 66); g.stroke();
+  g.beginPath(); g.moveTo(bx + bw + 18, 66); g.lineTo(W - 40, 66); g.stroke();
+  g.fillStyle = hexA(col, 0.5);
+  for (const dx of [-26, 26]) {
+    g.save(); g.translate(W / 2 + (dx < 0 ? bx - 18 - W / 2 : bx + bw + 18 - W / 2), 66);
+    g.rotate(Math.PI / 4); g.fillRect(-3, -3, 6, 6); g.restore();
+  }
+
+  panel(g, bx, 40, bw, 52, { cut: 16, fill: "#140f2c", accent: col, accentA: 0.8, glow: 14 });
+  g.save();
+  notchPath(g, bx, 40, bw, 52, 16); g.clip();
+  hatch(g, bx, 40, 34, 52, col, 8, 0.2);
+  hatch(g, bx + bw - 34, 40, 34, 52, col, 8, 0.2);
+  g.restore();
+
+  g.font = `900 44px ${FONT_DISPLAY}`;
+  g.shadowColor = col; g.shadowBlur = 20;
+  outlineText(g, title, W / 2, 81, "#ffffff", 7);
+  g.shadowBlur = 0;
+
+  g.font = `700 11px ${FONT_MONO}`;
   g.fillStyle = "#ff2e88";
-  g.fillText(sub, W / 2, 38);
-  g.font = `900 48px ${FONT_DISPLAY}`;
-  g.shadowColor = accent || "#00e5ff"; g.shadowBlur = 22;
-  outlineText(g, title, W / 2, 82, "#ffffff", 8);
+  g.fillText(sub, W / 2, 26);
   g.restore();
 }
 
@@ -205,13 +252,26 @@ const Game = {
       const picked = this.slots.map((s, i) => (s.mode !== "off" && s.charId === c.id) ? i : -1).filter(i => i >= 0);
 
       g.save();
-      g.fillStyle = "rgba(8,6,18,.84)";
-      roundRect(g, x, cy, cw, 284, 14); g.fill();
-      g.strokeStyle = hov ? c.color : hexA(c.color, 0.45);
-      g.lineWidth = hov ? 3 : 2;
-      g.shadowColor = c.color; g.shadowBlur = hov ? 26 : 10;
-      roundRect(g, x, cy, cw, 284, 14); g.stroke();
-      g.shadowBlur = 0;
+      g.translate(0, hov ? -4 : 0);
+      panel(g, x, cy, cw, 284, {
+        cut: 15, fill: "#110e24", accent: c.color,
+        accentA: hov ? 1 : 0.5, glow: hov ? 22 : 6,
+      });
+      // a wash of the fighter's colour rising from the card's foot
+      g.save();
+      notchPath(g, x, cy, cw, 284, 15); g.clip();
+      const wq = g.createLinearGradient(0, cy + 284, 0, cy + 120);
+      wq.addColorStop(0, hexA(c.color, hov ? 0.22 : 0.12));
+      wq.addColorStop(1, hexA(c.color, 0));
+      g.fillStyle = wq; g.fillRect(x, cy, cw, 284);
+      // The fighter's initial as a watermark, sitting high so the art covers
+      // most of it — at name height its glyph box showed as a pale block
+      // behind the lettering and muddied it.
+      g.globalAlpha = 0.055;
+      g.font = `900 190px ${FONT_DISPLAY}`; g.textAlign = "center";
+      g.fillStyle = c.color;
+      g.fillText(c.name[0], x + cw / 2, cy + 168);
+      g.restore();
 
       // full-size fighter art
       g.save();
@@ -272,13 +332,17 @@ const Game = {
       const sel = this.selIndex === i, off = s.mode === "off";
       g.save();
       g.globalAlpha = off ? 0.5 : 1;
-      g.fillStyle = sel ? "rgba(255,255,255,.08)" : "rgba(8,6,18,.82)";
-      roundRect(g, sx, sy2, sw, 104, 12); g.fill();
-      g.strokeStyle = sel ? PLAYER_TINT[i] : "rgba(255,255,255,.2)";
-      g.lineWidth = sel ? 3 : 2;
-      if (sel) { g.shadowColor = PLAYER_TINT[i]; g.shadowBlur = 20; }
-      roundRect(g, sx, sy2, sw, 104, 12); g.stroke();
-      g.shadowBlur = 0;
+      panel(g, sx, sy2, sw, 104, {
+        cut: 12, fill: sel ? mixColor("#14112a", PLAYER_TINT[i], 0.14) : "#110e22",
+        accent: PLAYER_TINT[i], accentA: sel ? 1 : 0.45, glow: sel ? 20 : 0,
+        only: { tl: 1, br: 1 },
+      });
+      // a tint strip down the left edge identifies the slot at a glance
+      g.save();
+      notchPath(g, sx, sy2, sw, 104, 12, { tl: 1, br: 1 }); g.clip();
+      g.fillStyle = hexA(PLAYER_TINT[i], off ? 0.25 : 0.7);
+      g.fillRect(sx, sy2, 4, 104);
+      g.restore();
       g.textAlign = "left";
       g.font = `700 14px ${FONT_MONO}`; g.fillStyle = PLAYER_TINT[i];
       g.fillText(`PLAYER ${i + 1}`, sx + 14, sy2 + 22);
@@ -356,18 +420,25 @@ const Game = {
       const hov = Mouse.x > x && Mouse.x < x + cw && Mouse.y > cy && Mouse.y < cy + chh;
       const sel = this.stageIndex === i;
       g.save();
-      g.fillStyle = "rgba(8,6,18,.88)";
-      roundRect(g, x, cy, cw, chh, 14); g.fill();
+      // the card as a stamped plate, lifting on hover
+      const lift = hov && !sel ? -3 : 0;
+      g.translate(0, lift);
+      panel(g, x, cy, cw, chh, {
+        cut: 15, fill: "#100d22", accent: s.pal.platEdge,
+        accentA: sel ? 1 : hov ? 0.8 : 0.42,
+        glow: sel ? 24 : hov ? 14 : 0,
+      });
 
-      // live thumbnail of the stage's own background + deck
+      // live thumbnail of the stage's own background + deck, in a recessed well
       g.save();
-      g.beginPath(); roundRect(g, x + 10, cy + 10, cw - 20, 150, 9); g.clip();
+      notchPath(g, x + 10, cy + 10, cw - 20, 150, 9); g.clip();
+      g.save();
       g.translate(x + 10, cy + 10);
       g.scale((cw - 20) / W, 150 / H * 2.0);
       g.translate(0, -H * 0.18);
       s.drawBg.call(s, g, performance.now() / 1000 + i * 7);
       g.restore();
-      // mini deck line
+      // mini deck line, drawn inside the clip so it can't escape the well
       g.save();
       g.translate(x + cw / 2, cy + 128);
       const ta = Math.sin(performance.now() / 900 + i) * 0.14;
@@ -377,18 +448,23 @@ const Game = {
       g.shadowColor = s.pal.platEdge; g.shadowBlur = 14;
       g.beginPath(); g.moveTo(-half, 0); g.lineTo(half, 0); g.stroke();
       g.restore();
-
-      g.strokeStyle = sel ? s.pal.platEdge : hov ? hexA(s.pal.platEdge, 0.7) : "rgba(255,255,255,.18)";
-      g.lineWidth = sel ? 3 : 2;
-      if (sel || hov) { g.shadowColor = s.pal.platEdge; g.shadowBlur = sel ? 26 : 14; }
-      roundRect(g, x, cy, cw, chh, 14); g.stroke();
-      g.shadowBlur = 0;
+      // a scanline wash sells it as a monitor feed rather than a picture
+      g.globalAlpha = 0.14; g.fillStyle = "#000";
+      for (let sy = cy + 10; sy < cy + 160; sy += 4) g.fillRect(x + 10, sy, cw - 20, 2);
+      g.restore();
+      notchPath(g, x + 10, cy + 10, cw - 20, 150, 9);
+      g.strokeStyle = UI.ink; g.lineWidth = 3; g.stroke();
+      screw(g, x + 19, cy + 19, 2.2, UI.line);
+      screw(g, x + cw - 19, cy + 19, 2.2, UI.line);
 
       g.textAlign = "center";
       g.font = `900 26px ${FONT_DISPLAY}`;
       outlineText(g, s.name, x + cw / 2, cy + 192, s.pal.platEdge, 6);
       g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
       g.fillText(s.tag, x + cw / 2, cy + 208);
+      // a divider rule under the title, in the stage's own colour
+      g.strokeStyle = hexA(s.pal.platEdge, 0.3); g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(x + 34, cy + 218); g.lineTo(x + cw - 34, cy + 218); g.stroke();
 
       // wrapped blurb
       g.font = `400 11px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
@@ -470,19 +546,44 @@ const Game = {
         const label = capturing ? "PRESS A KEY…" : keyLabel(code);
         const hov = Mouse.x > cx && Mouse.x < cx + colW && Mouse.y > cy && Mouse.y < cy + ch;
 
+        /* Drawn as an actual keycap: a dark well, a raised cap sitting in it
+           with a lit top face, and the cap pressing down when hovered. It
+           makes the table read as a keyboard rather than a spreadsheet. */
         g.save();
-        g.fillStyle = capturing ? hexA(PLAYER_TINT[p], 0.25)
-                    : hov ? "rgba(255,255,255,.10)" : "rgba(255,255,255,.045)";
-        roundRect(g, cx, cy, colW, ch, 6); g.fill();
-        g.strokeStyle = capturing ? PLAYER_TINT[p] : hov ? hexA(PLAYER_TINT[p], 0.7) : "rgba(255,255,255,.12)";
-        g.lineWidth = capturing ? 2 : 1;
-        if (capturing) { g.shadowColor = PLAYER_TINT[p]; g.shadowBlur = 14; }
-        roundRect(g, cx, cy, colW, ch, 6); g.stroke();
-        g.shadowBlur = 0;
+        const press2 = hov && !capturing ? 1.5 : 0;
+        const tint = PLAYER_TINT[p];
+
+        // the well the cap sits in
+        roundRect(g, cx, cy, colW, ch, 6);
+        g.fillStyle = "rgba(0,0,0,.5)"; g.fill();
+
+        const capY = cy + 1.5 + press2, capH = ch - 4;
+        const capPath = () => roundRect(g, cx + 2, capY, colW - 4, capH, 5);
+        const capBase = capturing ? mixColor("#1c1838", tint, 0.4)
+                      : hov ? mixColor("#1c1838", tint, 0.18) : "#1a1733";
+        const cq = g.createLinearGradient(0, capY, 0, capY + capH);
+        cq.addColorStop(0, shade(capBase, 0.2));
+        cq.addColorStop(1, shade(capBase, -0.3));
+        capPath();
+        g.strokeStyle = UI.ink; g.lineWidth = 2.5; g.stroke();
+        g.fillStyle = cq; g.fill();
+        // lit top face
+        g.save(); capPath(); g.clip();
+        g.fillStyle = hexA("#ffffff", press2 ? 0.07 : 0.13);
+        g.fillRect(cx + 2, capY, colW - 4, capH * 0.42);
+        g.restore();
+        // accent edge while capturing or hovered
+        if (capturing || hov) {
+          capPath();
+          g.strokeStyle = tint; g.lineWidth = capturing ? 2 : 1.4;
+          if (capturing) { g.shadowColor = tint; g.shadowBlur = 14; }
+          g.stroke(); g.shadowBlur = 0;
+        }
+
         g.textAlign = "center"; g.textBaseline = "middle";
         g.font = `700 ${capturing ? 10 : 12}px ${FONT_MONO}`;
         g.fillStyle = capturing ? "#ffffff" : code ? "#e8e6f8" : "#ff2e88";
-        g.fillText(label, cx + colW / 2, cy + ch / 2);
+        g.fillText(label, cx + colW / 2, capY + capH / 2 + 0.5);
         g.textBaseline = "alphabetic";
         g.restore();
 
@@ -640,14 +741,24 @@ const Game = {
   drawPause() {
     g.save();
     g.fillStyle = "rgba(6,5,14,.80)"; g.fillRect(0, 0, W, H);
+    // hazard bars top and bottom — this is a stopped machine, not a web modal
+    hatch(g, 0, 0, W, 16, "#ffc83d", 22, 0.3);
+    hatch(g, 0, H - 16, W, 16, "#ffc83d", 22, 0.3);
     g.textAlign = "center";
     g.font = `900 76px ${FONT_DISPLAY}`;
     g.shadowColor = "#00e5ff"; g.shadowBlur = 30;
     outlineText(g, "PAUSED", W / 2, 150, "#ffffff", 10);
     g.shadowBlur = 0;
-    g.font = `700 12px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
-    g.fillText(`${Stage.def.name}  ·  BALANCE ${(Stage.balance() * 100).toFixed(0)}%  ·  SNAP-BACKS ${Stage.snapCount}`,
-               W / 2, 182);
+    g.restore();
+
+    // live readout of the thing that matters while stopped: the pivot
+    g.save();
+    const pw = 420, px2 = W / 2 - pw / 2;
+    panel(g, px2, 164, pw, 34, { cut: 9, fill: "#120f26", accent: "#00e5ff", accentA: 0.4 });
+    g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`;
+    g.fillStyle = UI.dim;
+    g.fillText(`${Stage.def.name}   ·   BALANCE ${(Stage.balance() * 100).toFixed(0)}%   ·   SNAP-BACKS ${Stage.snapCount}`,
+               W / 2, 185);
     g.restore();
 
     const bx = W / 2 - 130;
@@ -687,7 +798,8 @@ const Game = {
       + `  ·  ${(r.frames / 60).toFixed(1)}s  ·  SNAP-BACKS ${r.snapbacks}`, W / 2, 140);
     g.restore();
 
-    const cols = [["KOs", 560], ["FALLS", 672], ["DAMAGE", 800], ["SUPERS", 920], ["SNAP-BACKS", 1046], ["STOCKS", 1160]];
+    // x positions kept inside the row plate, which ends at W-110
+    const cols = [["KOs", 556], ["FALLS", 664], ["DAMAGE", 788], ["SUPERS", 902], ["SNAP-BACKS", 1024], ["STOCKS", 1134]];
     g.save();
     g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
     g.textAlign = "left"; g.fillText("FIGHTER", 140, 182);
@@ -704,11 +816,22 @@ const Game = {
     sorted.forEach(f => {
       const win = f === wn;
       g.save();
+      // every row gets a plate; the winner's is in their colour and glows
+      panel(g, 130, y - 28, W - 240, 54, {
+        cut: 12, fill: win ? mixColor("#110e24", f.ch.color, 0.16) : "#100d20",
+        accent: f.ch.color, accentA: win ? 0.95 : 0.3,
+        glow: win ? 18 : 0, shadow: win,
+      });
       if (win) {
-        g.fillStyle = hexA(f.ch.color, 0.12);
-        roundRect(g, 130, y - 28, W - 240, 54, 10); g.fill();
-        g.strokeStyle = hexA(f.ch.color, 0.5); g.lineWidth = 2;
-        roundRect(g, 130, y - 28, W - 240, 54, 10); g.stroke();
+        g.save();
+        notchPath(g, 130, y - 28, W - 240, 54, 12); g.clip();
+        hatch(g, 130, y - 28, 40, 54, f.ch.color, 9, 0.25);
+        g.restore();
+        // a winner's tab hanging off the left edge
+        g.save();
+        g.fillStyle = f.ch.color;
+        poly(g, [118, y - 20, 132, y - 20, 132, y + 18, 118, y + 18, 124, y - 1]); g.fill();
+        g.restore();
       }
       // portrait
       g.save();

@@ -1471,7 +1471,7 @@ const STAGES = [
 
 /* ------------------------------------------------------------------ 1 --- */
 {
-  id: "YARD", name: "PIVOT YARD", tag: "NEON · BALANCED",
+  id: "YARD", name: "PIVOT YARD", tag: "NEON · BALANCED", deck: "neon",
   blurb: "The proving ground. Even tilt, generous ledges, room to learn the swing.",
   pivot: { x: 800, y: 580 },
   blast: { left: -420, right: 2020, top: -520, bottom: 1420 },
@@ -1498,10 +1498,48 @@ const STAGES = [
     rg.addColorStop(1, "rgba(0,0,0,0)");
     g.fillStyle = rg; g.fillRect(0, 0, W, H);
 
+    // a slow rotating emblem ring, far back — gives the void a centre
+    g.save();
+    g.translate(W / 2, H * 0.46);
+    g.rotate(t * 0.04);
+    g.strokeStyle = "rgba(0,229,255,.07)"; g.lineWidth = 2;
+    g.beginPath(); g.arc(0, 0, 230, 0, 7); g.stroke();
+    g.beginPath(); g.arc(0, 0, 178, 0, 7); g.stroke();
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      g.strokeStyle = `rgba(255,46,136,${i % 3 === 0 ? 0.12 : 0.05})`;
+      g.lineWidth = i % 3 === 0 ? 5 : 2;
+      g.beginPath();
+      g.moveTo(Math.cos(a) * 178, Math.sin(a) * 178);
+      g.lineTo(Math.cos(a) * 230, Math.sin(a) * 230);
+      g.stroke();
+    }
+    g.restore();
+
+    // distant neon skyline on the horizon
+    g.save();
+    const hz = H * 0.56;
+    for (let i = 0; i < 26; i++) {
+      const bw = 34 + hash(i * 3) * 46;
+      const bx = i * 52 - 20 + Math.sin(t * 0.05 + i) * 1.5;
+      const bh = 40 + hash(i * 7) * 150;
+      g.fillStyle = "rgba(9,6,24,.92)";
+      g.fillRect(bx, hz - bh, bw, bh);
+      g.fillStyle = i % 2 ? "rgba(0,229,255,.16)" : "rgba(255,46,136,.14)";
+      g.fillRect(bx, hz - bh, bw, 2);
+      // lit windows
+      for (let k = 0; k < 4; k++) {
+        if (hash(i * 13 + k) > 0.6) {
+          g.fillStyle = i % 2 ? "rgba(0,229,255,.22)" : "rgba(255,46,136,.2)";
+          g.fillRect(bx + 6 + k * 9, hz - bh + 14 + (k % 3) * 22, 4, 7);
+        }
+      }
+    }
+    g.restore();
+
     // perspective grid
     g.save();
     g.strokeStyle = "rgba(0,229,255,.12)"; g.lineWidth = 1;
-    const hz = H * 0.56;
     for (let i = -14; i <= 14; i++) {
       g.beginPath(); g.moveTo(W / 2 + i * 26, hz);
       g.lineTo(W / 2 + i * 120 + Math.sin(t * 0.3 + i) * 8, H); g.stroke();
@@ -1522,12 +1560,23 @@ const STAGES = [
       g.beginPath(); g.arc(hash(i) * W, H - p, 1.6 + (i % 3), 0, 7); g.fill();
     }
     g.restore();
+
+    // foreground: gantry rails across the bottom corners, out of focus
+    g.save();
+    g.globalAlpha = 0.5;
+    g.strokeStyle = "#06040f"; g.lineWidth = 16; g.lineCap = "round";
+    g.beginPath(); g.moveTo(-20, H + 10); g.lineTo(150, H - 70); g.stroke();
+    g.beginPath(); g.moveTo(W + 20, H + 10); g.lineTo(W - 150, H - 70); g.stroke();
+    g.strokeStyle = "rgba(0,229,255,.1)"; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(-20, H + 2); g.lineTo(150, H - 78); g.stroke();
+    g.beginPath(); g.moveTo(W + 20, H + 2); g.lineTo(W - 150, H - 78); g.stroke();
+    g.restore();
   },
 },
 
 /* ------------------------------------------------------------------ 2 --- */
 {
-  id: "FOUNDRY", name: "CINDER FOUNDRY", tag: "MOLTEN · HEAVY SWING",
+  id: "FOUNDRY", name: "CINDER FOUNDRY", tag: "MOLTEN · HEAVY SWING", deck: "cast",
   blurb: "A casting beam over an open crucible. It swings like a wrecking ball and the floor is very close.",
   pivot: { x: 800, y: 560 },
   // the crucible is right below: far less room to recover underneath
@@ -1564,17 +1613,90 @@ const STAGES = [
     rg.addColorStop(1, "rgba(0,0,0,0)");
     g.fillStyle = rg; g.fillRect(0, 0, W, H);
 
-    // back wall: furnace bays
+    // the great furnace arch behind everything
     g.save();
-    g.globalAlpha = 0.5;
+    g.fillStyle = "#0d0604";
+    g.beginPath();
+    g.moveTo(W * 0.5 - 430, H);
+    g.lineTo(W * 0.5 - 430, H * 0.42);
+    g.arc(W * 0.5, H * 0.42, 430, Math.PI, 0);
+    g.lineTo(W * 0.5 + 430, H);
+    g.closePath(); g.fill();
+    /* The arch as one continuous masonry band with joint lines cut across it.
+       Drawn as separate bricks it read as a row of blocks floating in the
+       dark, because the arch body behind them was nearly black on black. */
+    g.save();
+    g.lineWidth = 46;
+    g.strokeStyle = "#2a1409";
+    g.beginPath(); g.arc(W * 0.5, H * 0.42, 430, Math.PI, 0); g.stroke();
+    // lit inner rim and a dark outer rim give the band thickness
+    g.lineWidth = 4;
+    g.strokeStyle = "rgba(255,138,31,.26)";
+    g.beginPath(); g.arc(W * 0.5, H * 0.42, 408, Math.PI, 0); g.stroke();
+    g.strokeStyle = "rgba(10,5,2,.9)";
+    g.beginPath(); g.arc(W * 0.5, H * 0.42, 453, Math.PI, 0); g.stroke();
+    // joints
+    g.strokeStyle = "rgba(10,5,2,.75)"; g.lineWidth = 3;
+    for (let i = 0; i <= 20; i++) {
+      const a = Math.PI + (i / 20) * Math.PI;
+      g.beginPath();
+      g.moveTo(W * 0.5 + Math.cos(a) * 407, H * 0.42 + Math.sin(a) * 407);
+      g.lineTo(W * 0.5 + Math.cos(a) * 453, H * 0.42 + Math.sin(a) * 453);
+      g.stroke();
+    }
+    g.restore();
+    g.restore();
+
+    // back wall: furnace bays
+    // (kept dim: at half alpha over the crucible glow these came out a pale
+    //  olive and read as lit windows rather than furnace mouths)
+    g.save();
     for (let i = 0; i < 6; i++) {
       const x = 90 + i * 190;
-      g.fillStyle = "#0e0603";
+      g.fillStyle = "#0b0402";
       roundRect(g, x, H * 0.30, 112, 180, 8); g.fill();
       const f = 0.5 + Math.sin(t * 2 + i * 1.7) * 0.5;
-      g.fillStyle = `rgba(255,${110 + f * 90},30,${0.22 + f * 0.3})`;
+      g.fillStyle = `rgba(255,${72 + f * 60},18,${0.16 + f * 0.2})`;
       roundRect(g, x + 14, H * 0.30 + 20, 84, 140, 6); g.fill();
+      // grate bars over each bay
+      g.strokeStyle = "rgba(14,7,3,.92)"; g.lineWidth = 5;
+      for (let k = 0; k < 4; k++) {
+        g.beginPath();
+        g.moveTo(x + 22 + k * 23, H * 0.30 + 20);
+        g.lineTo(x + 22 + k * 23, H * 0.30 + 160); g.stroke();
+      }
+      g.strokeStyle = "rgba(255,138,31,.14)"; g.lineWidth = 2;
+      roundRect(g, x, H * 0.30, 112, 180, 8); g.stroke();
     }
+    g.restore();
+
+    // A ladle pouring, hung far enough in that it is not clipped by the frame.
+    g.save();
+    const swing2 = Math.sin(t * 0.35) * 0.09;
+    g.translate(W * 0.16, H * 0.055);
+    g.rotate(swing2);
+    g.strokeStyle = "rgba(80,54,36,.9)"; g.lineWidth = 7;
+    g.beginPath(); g.moveTo(0, -H * 0.06); g.lineTo(0, 46); g.stroke();
+    // the bucket, solid with a hot rim
+    g.fillStyle = "#170b05";
+    g.strokeStyle = "rgba(14,7,3,.95)"; g.lineWidth = 5;
+    poly(g, [-36, 46, 36, 46, 25, 100, -25, 100]); g.stroke(); g.fill();
+    g.strokeStyle = "rgba(255,150,40,.5)"; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(-36, 48); g.lineTo(36, 48); g.stroke();
+    g.fillStyle = "rgba(255,200,90,.5)";
+    g.beginPath(); g.ellipse(0, 48, 34, 5, 0, 0, 7); g.fill();
+    // the pour
+    g.save(); g.globalCompositeOperation = "lighter";
+    const pg = g.createLinearGradient(0, 100, 0, H);
+    pg.addColorStop(0, "rgba(255,220,120,.7)");
+    pg.addColorStop(0.4, "rgba(255,130,30,.28)");
+    pg.addColorStop(1, "rgba(255,80,20,0)");
+    g.fillStyle = pg;
+    g.beginPath();
+    g.moveTo(-5, 100); g.lineTo(5, 100);
+    g.lineTo(13 + Math.sin(t * 3) * 4, H); g.lineTo(-13 + Math.sin(t * 3) * 4, H);
+    g.closePath(); g.fill();
+    g.restore();
     g.restore();
 
     // hanging chains
@@ -1605,12 +1727,25 @@ const STAGES = [
     // heat haze band
     g.save(); g.globalAlpha = 0.12; g.fillStyle = "#ff6a18";
     g.fillRect(0, H * 0.86, W, H * 0.14); g.restore();
+
+    // foreground: pipework across the bottom, nearly black
+    g.save();
+    g.strokeStyle = "#0a0503"; g.lineWidth = 26; g.lineCap = "butt";
+    g.beginPath(); g.moveTo(-10, H - 26); g.lineTo(W + 10, H - 40); g.stroke();
+    g.strokeStyle = "rgba(255,138,31,.09)"; g.lineWidth = 4;
+    g.beginPath(); g.moveTo(-10, H - 36); g.lineTo(W + 10, H - 50); g.stroke();
+    for (let i = 0; i < 6; i++) {
+      const x = 80 + i * 230;
+      g.fillStyle = "#0a0503";
+      roundRect(g, x, H - 48, 26, 48, 4); g.fill();
+    }
+    g.restore();
   },
 },
 
 /* ------------------------------------------------------------------ 3 --- */
 {
-  id: "DRIFT", name: "CIRRUS DRIFT", tag: "DAWN · TWITCHY",
+  id: "DRIFT", name: "CIRRUS DRIFT", tag: "DAWN · TWITCHY", deck: "cloud",
   blurb: "Dawn above the cloud deck. The platform rights itself almost instantly, so tilts are jabs, not leans.",
   pivot: { x: 800, y: 600 },
   // open sky: still the most forgiving map, but not so wide it stalemates
@@ -1670,8 +1805,71 @@ const STAGES = [
       }
       g.restore();
     };
+    /* Distant peaks. Drawn before any cloud deck and fairly opaque: at low
+       alpha over a bright sky they read as ghostly triangles hanging in the
+       air rather than mountains behind the weather. Their bases sit low
+       enough that the lower cloud decks cover them. */
+    g.save();
+    {
+      const base = H * 0.68;
+      const peaks = [];
+      for (let i = 0; i < 7; i++)
+        peaks.push({ x: i * 230 - 90 + Math.sin(i) * 40, h: 80 + hash(i * 17) * 130 });
+
+      /* Each layer is ONE path containing every peak, filled once. Filling
+         them one at a time stacked the translucency wherever two peaks
+         overlapped, which painted a hard dark V into the middle of the
+         range that looked like an upside-down mountain. */
+      const fillAll = (alpha, col, build) => {
+        g.globalAlpha = alpha; g.fillStyle = col;
+        g.beginPath();
+        for (const p of peaks) build(p);
+        g.fill();
+      };
+      fillAll(0.6, "#64487d", p => {
+        g.moveTo(p.x - 160, base); g.lineTo(p.x, base - p.h);
+        g.lineTo(p.x + 160, base); g.closePath();
+      });
+      // sunward faces, catching the dawn
+      fillAll(0.3, "#c98ba0", p => {
+        g.moveTo(p.x, base - p.h); g.lineTo(p.x + 160, base);
+        g.lineTo(p.x + 20, base); g.closePath();
+      });
+      // snow caps, following the ridge so they do not float
+      fillAll(0.5, "#fff0f6", p => {
+        const cw2 = 36, ch2 = p.h * 0.2;
+        g.moveTo(p.x, base - p.h);
+        g.lineTo(p.x + cw2, base - p.h + ch2);
+        g.lineTo(p.x + 12, base - p.h + ch2 * 0.7);
+        g.lineTo(p.x - 10, base - p.h + ch2);
+        g.lineTo(p.x - cw2, base - p.h + ch2 * 0.85);
+        g.closePath();
+      });
+    }
+    g.restore();
+
     deck(H * 0.30, 7, 0.8, 0.22, "#ffffff");
     deck(H * 0.52, 14, 1.0, 0.34, "#ffe9f2");
+
+    // floating stone islands, drifting slowly past
+    g.save();
+    for (let i = 0; i < 4; i++) {
+      const span = W + 700;
+      const ix = ((hash(i * 23) * span) + t * (9 + i * 4)) % span - 350;
+      const iy = H * (0.34 + hash(i * 29) * 0.22) + Math.sin(t * 0.4 + i) * 7;
+      const s = 0.45 + hash(i * 31) * 0.5;
+      g.save(); g.translate(ix, iy); g.scale(s, s);
+      g.globalAlpha = 0.55;
+      g.fillStyle = "#9a7fb8";
+      poly(g, [-60, 0, 60, 0, 34, 30, -30, 30]); g.fill();
+      g.fillStyle = "#7a5f98";
+      poly(g, [-30, 30, 34, 30, 6, 72, -8, 72]); g.fill();
+      g.fillStyle = "rgba(190,255,200,.5)";
+      g.beginPath(); g.ellipse(0, -2, 58, 7, 0, 0, 7); g.fill();
+      g.restore();
+    }
+    g.restore();
+
     deck(H * 0.86, 26, 1.5, 0.55, "#ffffff");
 
     // birds
@@ -1686,12 +1884,26 @@ const STAGES = [
       g.stroke();
     }
     g.restore();
+
+    // foreground wisps blowing across the camera
+    g.save();
+    g.globalAlpha = 0.3; g.fillStyle = "#ffffff";
+    for (let i = 0; i < 4; i++) {
+      const span = W + 900;
+      const x = ((hash(i * 41) * span) + t * 70) % span - 450;
+      const y = H * (0.78 + hash(i * 43) * 0.2);
+      g.beginPath();
+      g.ellipse(x, y, 260, 26, 0, 0, 7);
+      g.ellipse(x - 150, y + 12, 140, 18, 0, 0, 7);
+      g.fill();
+    }
+    g.restore();
   },
 },
 
 /* ------------------------------------------------------------------ 4 --- */
 {
-  id: "VAULT", name: "NULL VAULT", tag: "CRAMPED · LETHAL",
+  id: "VAULT", name: "NULL VAULT", tag: "CRAMPED · LETHAL", deck: "grate",
   blurb: "A sealed test chamber. Tiny deck, walls right there, and the pivot leans a long way before it lets go.",
   pivot: { x: 800, y: 560 },
   // walls are close — everything kills much earlier here
@@ -1723,6 +1935,41 @@ const STAGES = [
     vg.addColorStop(0, "rgba(57,255,158,.10)");
     vg.addColorStop(1, "rgba(0,0,0,0)");
     g.fillStyle = vg; g.fillRect(0, 0, W, H);
+    g.restore();
+
+    // the containment ring behind the deck: this is a test chamber, and
+    // something is clearly meant to be held in the middle of it
+    g.save();
+    g.translate(W / 2, H * 0.52);
+    g.strokeStyle = "rgba(57,255,158,.12)"; g.lineWidth = 20;
+    g.beginPath(); g.arc(0, 0, 250, 0, 7); g.stroke();
+    g.strokeStyle = "rgba(57,255,158,.22)"; g.lineWidth = 2;
+    g.beginPath(); g.arc(0, 0, 260, 0, 7); g.stroke();
+    g.beginPath(); g.arc(0, 0, 240, 0, 7); g.stroke();
+    // emitter blocks at the cardinals, pulsing in sequence
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + t * 0.12;
+      const lit = (Math.sin(t * 2.4 - i * 0.7) + 1) / 2;
+      g.save();
+      g.translate(Math.cos(a) * 250, Math.sin(a) * 250);
+      g.rotate(a);
+      g.fillStyle = "#061a12";
+      g.strokeStyle = `rgba(57,255,158,${0.2 + lit * 0.4})`; g.lineWidth = 2;
+      roundRect(g, -14, -20, 28, 40, 4); g.fill(); g.stroke();
+      g.fillStyle = `rgba(57,255,158,${0.15 + lit * 0.5})`;
+      roundRect(g, -7, -13, 14, 26, 3); g.fill();
+      g.restore();
+    }
+    g.restore();
+
+    // stencilled chamber markings
+    g.save();
+    g.globalAlpha = 0.14;
+    g.font = `900 72px ${FONT_DISPLAY}`;
+    g.textAlign = "center"; g.fillStyle = "#39ff9e";
+    g.fillText("VAULT 04", W / 2, H * 0.26);
+    g.font = `700 13px ${FONT_MONO}`;
+    g.fillText("PIVOT TOLERANCE EXCEEDED · CONTAINMENT ADVISED", W / 2, H * 0.30);
     g.restore();
 
     // falling glyph columns
@@ -1764,6 +2011,22 @@ const STAGES = [
     g.save();
     g.globalAlpha = 0.05 + Math.abs(Math.sin(t * 0.7)) * 0.05;
     g.fillStyle = "#39ff9e"; g.fillRect(0, (t * 180) % H, W, 60);
+    g.restore();
+
+    // foreground: the chamber's own window frame, hard black, hugging the edges
+    g.save();
+    g.fillStyle = "#020705";
+    g.fillRect(0, 0, 14, H); g.fillRect(W - 14, 0, 14, H);
+    g.fillRect(0, 0, W, 10); g.fillRect(0, H - 10, W, 10);
+    // corner gussets
+    g.fillStyle = "#04120c";
+    for (const [cx, cy, sx, sy] of [[0, 0, 1, 1], [W, 0, -1, 1], [0, H, 1, -1], [W, H, -1, -1]]) {
+      g.save(); g.translate(cx, cy); g.scale(sx, sy);
+      poly(g, [0, 0, 74, 0, 0, 74]); g.fill();
+      g.strokeStyle = "rgba(57,255,158,.18)"; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(74, 0); g.lineTo(0, 74); g.stroke();
+      g.restore();
+    }
     g.restore();
   },
 },
@@ -1908,6 +2171,182 @@ const Stage = {
     FX.ring(this.pivot.x, this.pivot.y, 60, 560, "#ffffff", 5);
   },
 };
+
+
+/* ===== src/065_uikit.js ===== */
+/* ==========================================================================
+   7. UI KIT — the fighters' drawing language, applied to panels and gauges
+
+   The roster got ink outlines, top-lit gradients and a clipped rim light, and
+   that is what made it stop looking like flat shapes. The HUD was still plain
+   translucent rounded rectangles, so it read as a different, cheaper game
+   sitting on top of a good-looking one. Everything here exists so a panel is
+   built the same way a pauldron is.
+
+   Shared with the roster: INK, ink(), rim(), vol(), plate(). Those are plain
+   function declarations in one concatenated script, so load order is moot.
+   ========================================================================== */
+
+const UI = {
+  ink:   "#07050f",
+  panel: "#15122b",
+  panel2:"#0c0a1c",
+  line:  "#2c2745",
+  text:  "#f2f0ff",
+  dim:   "#8f8cb5",
+  dimmer:"#6b6a85",
+};
+
+/* --------------------------------------------------------------- shapes */
+
+/** Rectangle with its corners cut off — stamped plate rather than a web card.
+    `cut` is the size of the chamfer; `only` picks which corners get one. */
+function notchPath(g, x, y, w, h, cut, only) {
+  const o = only || { tl: 1, tr: 1, br: 1, bl: 1 };
+  const c = cut;
+  g.beginPath();
+  g.moveTo(x + (o.tl ? c : 0), y);
+  g.lineTo(x + w - (o.tr ? c : 0), y);
+  if (o.tr) g.lineTo(x + w, y + c);
+  g.lineTo(x + w, y + h - (o.br ? c : 0));
+  if (o.br) g.lineTo(x + w - c, y + h);
+  g.lineTo(x + (o.bl ? c : 0), y + h);
+  if (o.bl) g.lineTo(x, y + h - c);
+  g.lineTo(x, y + (o.tl ? c : 0));
+  g.closePath();
+}
+
+/** A machined panel: cast shadow, ink edge, top-lit face, rim light, and an
+    optional accent hairline just inside the border. */
+function panel(g, x, y, w, h, opts) {
+  const o = opts || {};
+  const cut = o.cut === undefined ? 10 : o.cut;
+  const path = () => (cut > 0 ? notchPath(g, x, y, w, h, cut, o.only)
+                              : roundRect(g, x, y, w, h, o.r || 12));
+  const accent = o.accent || UI.line;
+
+  g.save();
+
+  // 1. a real cast shadow, so panels sit above the stage instead of in it
+  if (o.shadow !== false) {
+    g.save();
+    g.globalAlpha = 0.5; g.fillStyle = "#000";
+    g.translate(0, 4); path(); g.fill();
+    g.restore();
+  }
+
+  // 2. ink edge + top-lit face
+  const base = o.fill || UI.panel;
+  const q = g.createLinearGradient(0, y, 0, y + h);
+  q.addColorStop(0, shade(base, 0.12));
+  q.addColorStop(0.5, base);
+  q.addColorStop(1, shade(base, -0.42));
+  path();
+  g.strokeStyle = UI.ink; g.lineWidth = o.inkW || 4; g.lineJoin = "round"; g.stroke();
+  g.fillStyle = q; g.fill();
+
+  // 3. rim light along the top edge, clipped inside the panel
+  g.save(); path(); g.clip();
+  g.translate(0, 2.4); path();
+  g.strokeStyle = "#ffffff"; g.lineWidth = 3; g.globalAlpha = 0.14; g.stroke();
+  g.restore();
+
+  // 4. accent hairline, glowing when the panel wants attention
+  g.save(); path(); g.clip();
+  g.translate(0, 1.4); path();
+  g.strokeStyle = accent; g.lineWidth = o.accentW || 2;
+  g.globalAlpha = o.accentA === undefined ? 0.75 : o.accentA;
+  if (o.glow) { g.shadowColor = accent; g.shadowBlur = o.glow; }
+  g.stroke();
+  g.restore();
+
+  g.restore();
+}
+
+/** Diagonal hazard hatching, clipped to a shape. Used for danger zones. */
+function hatch(g, x, y, w, h, col, step, a) {
+  g.save();
+  g.beginPath(); g.rect(x, y, w, h); g.clip();
+  g.globalAlpha = a === undefined ? 0.3 : a;
+  g.strokeStyle = col; g.lineWidth = (step || 10) * 0.45;
+  for (let i = -h; i < w + h; i += step || 10) {
+    g.beginPath(); g.moveTo(x + i, y + h); g.lineTo(x + i + h, y); g.stroke();
+  }
+  g.restore();
+}
+
+/** A recessed slot: the inverse of a panel, for bars and readouts to sit in. */
+function slot(g, x, y, w, h, r) {
+  const path = () => roundRect(g, x, y, w, h, r === undefined ? h / 2 : r);
+  path();
+  g.fillStyle = "rgba(0,0,0,.55)"; g.fill();
+  // inner shadow at the top sells the depth
+  g.save(); path(); g.clip();
+  g.translate(0, 2); path();
+  g.strokeStyle = "#000"; g.lineWidth = 3; g.globalAlpha = 0.5; g.stroke();
+  g.restore();
+}
+
+/** A filled bar inside a slot, lit along its own top edge. */
+function bar(g, x, y, w, h, frac, col, opts) {
+  const o = opts || {};
+  const fw = Math.max(0, w * clamp(frac, 0, 1));
+  if (fw < 0.6) return;
+  const r = o.r === undefined ? h / 2 : o.r;
+  const path = () => roundRect(g, x, y, fw, h, Math.min(r, fw / 2));
+  g.save();
+  if (o.glow) { g.shadowColor = col; g.shadowBlur = o.glow; }
+  path(); g.fillStyle = col; g.fill();
+  g.shadowBlur = 0;
+  // highlight stripe across the top third
+  path(); g.clip();
+  g.fillStyle = "rgba(255,255,255,.26)";
+  g.fillRect(x, y, fw, Math.max(1, h * 0.34));
+  g.restore();
+}
+
+/** Evenly spaced tick marks — turns a bar into an instrument. */
+function ticks(g, x, y, w, h, n, col, a) {
+  g.save();
+  g.globalAlpha = a === undefined ? 0.4 : a;
+  g.strokeStyle = col; g.lineWidth = 1;
+  for (let i = 1; i < n; i++) {
+    const tx = Math.round(x + (w * i) / n) + 0.5;
+    g.beginPath(); g.moveTo(tx, y); g.lineTo(tx, y + h); g.stroke();
+  }
+  g.restore();
+}
+
+/** Small bolt head, for the corners of metal panels. */
+function screw(g, x, y, r, col) {
+  g.save();
+  g.fillStyle = "rgba(0,0,0,.6)";
+  g.beginPath(); g.arc(x, y + 0.8, r, 0, 7); g.fill();
+  g.fillStyle = col || UI.line;
+  g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+  g.strokeStyle = "rgba(0,0,0,.55)"; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(x - r * 0.55, y); g.lineTo(x + r * 0.55, y); g.stroke();
+  g.restore();
+}
+
+/** A small label chip — stage names, counts, tags. */
+function chip(g, text, x, y, col, opts) {
+  const o = opts || {};
+  g.save();
+  g.font = o.font || `700 10px ${FONT_MONO}`;
+  const tw = g.measureText(text).width;
+  const padX = o.padX || 9, h = o.h || 20;
+  const w = tw + padX * 2;
+  const bx = o.align === "right" ? x - w : o.align === "center" ? x - w / 2 : x;
+  notchPath(g, bx, y, w, h, 5);
+  g.fillStyle = "rgba(6,5,14,.88)"; g.fill();
+  g.strokeStyle = hexA(col, 0.65); g.lineWidth = 1.5; g.stroke();
+  g.fillStyle = col; g.textAlign = "left"; g.textBaseline = "middle";
+  g.fillText(text, bx + padX, y + h / 2 + 0.5);
+  g.textBaseline = "alphabetic";
+  g.restore();
+  return w;
+}
 
 
 /* ===== src/06_fx.js ===== */
@@ -3063,6 +3502,164 @@ function drawBackground() {
   (Stage.def.drawBg || STAGES[0].drawBg).call(Stage.def, g, bgT);
 }
 
+/* The underside of a platform, drawn differently per stage. This is where a
+   map stops being "the same deck in another colour": the Foundry's beam is
+   cast iron with molten seams, the Drift's is weathered stone, the Vault's is
+   bolted grating. Called already clipped to the platform body and rotated
+   into its local space, so x runs along the deck and y down into it. */
+function drawDeckDetail(kind, len, th, depth, pal, main, near, t) {
+  const bot = th / 2 + depth;
+
+  if (kind === "cast") {
+    // ribs, then molten seams that brighten as the beam nears its limit
+    g.strokeStyle = hexA("#000000", 0.5); g.lineWidth = 7;
+    for (let x = 18; x < len; x += 46) {
+      g.beginPath(); g.moveTo(x, th / 2); g.lineTo(x - 7, bot); g.stroke();
+    }
+    g.save();
+    g.globalCompositeOperation = "lighter";
+    const heat = 0.3 + near * 0.5 + Math.sin(t * 1.4) * 0.08;
+    g.strokeStyle = hexA("#ff7a1f", heat); g.lineWidth = 2.5;
+    g.beginPath();
+    for (let x = 0; x <= len; x += 16)
+      g.lineTo(x, th / 2 + 10 + Math.sin(x * 0.07 + t) * 5);
+    g.stroke();
+    g.strokeStyle = hexA("#ffd27a", heat * 0.7); g.lineWidth = 1;
+    g.stroke();
+    g.restore();
+    // drips
+    g.fillStyle = hexA("#ff8a1f", 0.5);
+    for (let i = 0; i < 5; i++) {
+      const x = ((i * 137) % len);
+      const d = 6 + (Math.sin(t * 1.1 + i * 2) * 0.5 + 0.5) * 16;
+      g.beginPath(); g.ellipse(x, bot - 6, 2.4, d * 0.5, 0, 0, 7); g.fill();
+    }
+
+  } else if (kind === "cloud") {
+    // weathered stone: soft strata and a mossy lip, no neon at all
+    for (let i = 0; i < 3; i++) {
+      g.fillStyle = hexA("#8e79b4", 0.18 - i * 0.04);
+      g.fillRect(0, th / 2 + 4 + i * 11, len, 5);
+    }
+    g.fillStyle = hexA("#c9a7e8", 0.3);
+    for (let i = 0; i < 14; i++) {
+      const x = (i * 97) % len;
+      g.beginPath(); g.ellipse(x, th / 2 + 2, 10 + (i % 4) * 5, 3, 0, 0, 7); g.fill();
+    }
+    // the stone tapers, hinting it is floating
+    g.fillStyle = hexA(pal.ink, 0.5);
+    poly(g, [0, bot - 22, len, bot - 22, len * 0.78, bot, len * 0.22, bot]); g.fill();
+
+  } else if (kind === "grate") {
+    // bolted plate: hazard stripes along the lip, a grille, rivet rows
+    hatch(g, 0, th / 2, len, 9, "#39ff9e", 12, 0.3);
+    g.strokeStyle = hexA("#000000", 0.55); g.lineWidth = 2;
+    for (let x = 6; x < len; x += 11) {
+      g.beginPath(); g.moveTo(x, th / 2 + 11); g.lineTo(x, bot); g.stroke();
+    }
+    g.strokeStyle = hexA(pal.platEdge, 0.2); g.lineWidth = 1;
+    for (let y = th / 2 + 14; y < bot; y += 9) {
+      g.beginPath(); g.moveTo(0, y); g.lineTo(len, y); g.stroke();
+    }
+    for (let x = 14; x < len; x += 52) screw(g, x, th / 2 + 18, 2.4, "#1e7a56");
+
+  } else {
+    // "neon": a lit circuit substrate under a dark deck
+    g.strokeStyle = hexA(pal.platEdge, 0.16 + near * 0.3); g.lineWidth = 3;
+    for (let x = 10; x < len; x += 26) {
+      g.beginPath(); g.moveTo(x, th / 2 + 4); g.lineTo(x + 12, th / 2 + 30); g.stroke();
+    }
+    g.strokeStyle = hexA(pal.platEdge, 0.1); g.lineWidth = 1;
+    for (let x = 22; x < len; x += 64) {
+      g.beginPath();
+      g.moveTo(x, th / 2 + 6); g.lineTo(x, bot - 14); g.lineTo(x + 18, bot - 14);
+      g.stroke();
+      g.fillStyle = hexA(pal.platEdge, 0.3);
+      g.beginPath(); g.arc(x + 18, bot - 14, 2, 0, 7); g.fill();
+    }
+  }
+}
+
+/* The column under the pivot. Same job on every map, four different machines. */
+function drawPivotColumn(P, kind, pal, anch, t) {
+  g.save();
+  g.translate(P.x, P.y);
+
+  if (kind === "cast") {
+    // a chain hoist, because the Foundry's beam hangs rather than stands
+    g.strokeStyle = "rgba(120,84,56,.75)"; g.lineWidth = 9;
+    g.beginPath(); g.moveTo(0, 14); g.lineTo(0, 330); g.stroke();
+    g.strokeStyle = "rgba(60,38,22,.9)"; g.lineWidth = 3;
+    for (let y = 26; y < 330; y += 18) {
+      g.beginPath(); g.ellipse(0, y, 7, 9, 0, 0, 7); g.stroke();
+    }
+    g.save(); g.globalCompositeOperation = "lighter";
+    g.strokeStyle = hexA("#ff8a1f", 0.3); g.lineWidth = 2;
+    g.beginPath(); g.moveTo(0, 14); g.lineTo(0, 330); g.stroke();
+    g.restore();
+
+  } else if (kind === "cloud") {
+    // a slender stone spire that frays into cloud
+    const q = g.createLinearGradient(0, 10, 0, 340);
+    q.addColorStop(0, hexA("#efe3f3", 0.9));
+    q.addColorStop(0.55, hexA("#c9a7e8", 0.45));
+    q.addColorStop(1, hexA("#c9a7e8", 0));
+    g.fillStyle = q;
+    poly(g, [-13, 10, 13, 10, 5, 340, -5, 340]); g.fill();
+    g.strokeStyle = hexA("#8e79b4", 0.35); g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(-4, 20); g.lineTo(-2, 300); g.stroke();
+
+  } else if (kind === "grate") {
+    // a hydraulic piston, with a visible rod and collar
+    g.fillStyle = "#0a1a14"; g.strokeStyle = pal.ink; g.lineWidth = 4;
+    roundRect(g, -16, 12, 32, 330, 5); g.stroke(); g.fill();
+    g.fillStyle = hexA("#1e7a56", 0.8);
+    roundRect(g, -7, 12, 14, 330, 4); g.fill();
+    g.fillStyle = hexA(pal.platEdge, 0.25);
+    g.fillRect(-5, 12, 3, 330);
+    for (let y = 40; y < 330; y += 54) {
+      g.fillStyle = "#0a1a14"; g.strokeStyle = pal.ink; g.lineWidth = 3;
+      roundRect(g, -19, y, 38, 12, 3); g.stroke(); g.fill();
+      screw(g, -13, y + 6, 2.2, "#1e7a56");
+      screw(g, 13, y + 6, 2.2, "#1e7a56");
+    }
+
+  } else {
+    // "neon": a lit strut with energy running down it
+    g.strokeStyle = hexA(pal.ink, 0.9); g.lineWidth = 14;
+    g.beginPath(); g.moveTo(0, 12); g.lineTo(0, 340); g.stroke();
+    g.strokeStyle = hexA(pal.soft, 0.5); g.lineWidth = 10;
+    g.beginPath(); g.moveTo(0, 12); g.lineTo(0, 340); g.stroke();
+    g.save(); g.globalCompositeOperation = "lighter";
+    g.strokeStyle = hexA(pal.platEdge, 0.4); g.lineWidth = 2.5;
+    g.beginPath(); g.moveTo(0, 12); g.lineTo(0, 340); g.stroke();
+    // a pulse travelling down the strut
+    const py = 12 + ((t * 120) % 328);
+    const pg = g.createLinearGradient(0, py - 40, 0, py + 40);
+    pg.addColorStop(0, hexA(pal.platEdge, 0));
+    pg.addColorStop(0.5, hexA("#ffffff", 0.5));
+    pg.addColorStop(1, hexA(pal.platEdge, 0));
+    g.strokeStyle = pg; g.lineWidth = 5;
+    g.beginPath(); g.moveTo(0, py - 40); g.lineTo(0, py + 40); g.stroke();
+    g.restore();
+    // cross braces
+    g.strokeStyle = hexA(pal.soft, 0.3); g.lineWidth = 3;
+    for (let y = 60; y < 330; y += 70) {
+      g.beginPath(); g.moveTo(-18, y + 18); g.lineTo(0, y); g.lineTo(18, y + 18); g.stroke();
+    }
+  }
+
+  if (anch) {
+    // anchor bolts clamp the column when Orbit locks the stage
+    g.fillStyle = "#b6ff3b"; g.shadowColor = "#b6ff3b"; g.shadowBlur = 18;
+    for (const s of [-1, 1]) {
+      poly(g, [s * 20, 30, s * 46, 18, s * 46, 44]); g.fill();
+    }
+    g.shadowBlur = 0;
+  }
+  g.restore();
+}
+
 /* ------------------------------------------------------------------ stage */
 function drawStage(alpha) {
   const def = Stage.def, pal = def.pal;
@@ -3074,14 +3671,10 @@ function drawStage(alpha) {
   const anch = Stage.anchorTimer > 0;
   const snap = Stage.snapFlash > 0;
   const near = Math.abs(clamp(tilt / Stage.cfg.limit, -1, 1));
+  const kind = def.deck || "neon";
 
-  // support column
-  g.save();
-  g.strokeStyle = hexA(pal.soft, 0.4); g.lineWidth = 11;
-  g.beginPath(); g.moveTo(P.x, P.y + 10); g.lineTo(P.x, P.y + 340); g.stroke();
-  g.strokeStyle = hexA(pal.platEdge, 0.3); g.lineWidth = 3;
-  g.beginPath(); g.moveTo(P.x, P.y + 10); g.lineTo(P.x, P.y + 340); g.stroke();
-  g.restore();
+  /* ---- the support column, built differently per stage ---- */
+  drawPivotColumn(P, kind, pal, anch, bgT);
 
   for (const p of def.layout) {
     const a = toW(p.x1, p.y1), b = toW(p.x2, p.y2);
@@ -3097,49 +3690,82 @@ function drawStage(alpha) {
     g.rotate(Math.atan2(dy, dx));
 
     const depth = main ? 48 : 15;
-    const lg = g.createLinearGradient(0, -th / 2, 0, th / 2 + depth);
-    lg.addColorStop(0, shade(pal.plat, 0.16));
-    lg.addColorStop(0.35, pal.plat);
-    lg.addColorStop(1, pal.ink);
-    g.fillStyle = lg;
-    roundRect(g, 0, -th / 2, len, th + depth, 6); g.fill();
+    const top = -th / 2, bot = th / 2 + depth;
+    const round = kind === "cloud" ? Math.min(16, th) : 5;
 
-    g.shadowColor = edge; g.shadowBlur = snap ? 36 : 20;
+    // cast shadow under the deck, so it floats above the background
+    g.save();
+    g.globalAlpha = 0.4; g.fillStyle = "#000";
+    roundRect(g, 2, top + 5, len, th + depth, round); g.fill();
+    g.restore();
+
+    // the body: ink edge, then a top-lit gradient
+    const lg = g.createLinearGradient(0, top, 0, bot);
+    lg.addColorStop(0, shade(pal.plat, 0.3));
+    lg.addColorStop(0.22, shade(pal.plat, 0.06));
+    lg.addColorStop(1, pal.ink);
+    roundRect(g, 0, top, len, th + depth, round);
+    g.strokeStyle = pal.ink; g.lineWidth = 4; g.lineJoin = "round"; g.stroke();
+    g.fillStyle = lg; g.fill();
+
+    /* ---- per-stage underside construction ---- */
+    g.save();
+    roundRect(g, 0, top, len, th + depth, round); g.clip();
+    drawDeckDetail(kind, len, th, depth, pal, main, near, bgT);
+    g.restore();
+
+    // the walking surface, lit
+    g.shadowColor = edge; g.shadowBlur = snap ? 36 : kind === "cloud" ? 10 : 20;
     g.strokeStyle = edge; g.lineWidth = main ? 5 : 3;
-    g.beginPath(); g.moveTo(0, -th / 2); g.lineTo(len, -th / 2); g.stroke();
+    g.beginPath(); g.moveTo(0, top); g.lineTo(len, top); g.stroke();
     g.shadowBlur = 0;
+    // a thin bright bevel just below it reads as a machined lip
+    g.strokeStyle = hexA("#ffffff", kind === "cloud" ? 0.5 : 0.28); g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(1, top + 3.5); g.lineTo(len - 1, top + 3.5); g.stroke();
 
     if (!p.solid) {
-      g.strokeStyle = hexA(pal.soft, 0.4); g.lineWidth = 2;
+      g.strokeStyle = hexA(pal.soft, 0.45); g.lineWidth = 2;
       g.setLineDash([8, 10]);
       g.beginPath(); g.moveTo(0, th / 2 + 11); g.lineTo(len, th / 2 + 11); g.stroke();
       g.setLineDash([]);
     }
 
     if (main) {
-      g.globalAlpha = 0.16 + near * 0.36;
-      g.strokeStyle = near > 0.8 ? "#ff2e88" : pal.platEdge;
-      g.lineWidth = 3;
-      for (let x = 10; x < len; x += 26) {
-        g.beginPath(); g.moveTo(x, th / 2 + 4); g.lineTo(x + 12, th / 2 + 30); g.stroke();
-      }
-      g.globalAlpha = 1;
+      // ledge caps — the thing you are actually aiming for when recovering
       g.fillStyle = edge; g.shadowColor = edge; g.shadowBlur = 16;
-      g.beginPath(); g.arc(3, -th / 2, 5, 0, 7); g.fill();
-      g.beginPath(); g.arc(len - 3, -th / 2, 5, 0, 7); g.fill();
+      g.beginPath(); g.arc(3, top, 5, 0, 7); g.fill();
+      g.beginPath(); g.arc(len - 3, top, 5, 0, 7); g.fill();
       g.shadowBlur = 0;
+      // and a danger wash along the deck when it is near its limit
+      if (near > 0.6) {
+        g.save();
+        g.globalAlpha = (near - 0.6) * 1.6;
+        g.fillStyle = "#ff2e88";
+        g.fillRect(0, top, len, 3);
+        g.restore();
+      }
     }
     g.restore();
   }
 
-  // pivot hub
+  /* ---- pivot hub ---- */
   g.save();
   g.translate(P.x, P.y); g.rotate(tilt);
-  g.fillStyle = anch ? "#b6ff3b" : shade(pal.plat, 0.25);
+  const hubCol = anch ? "#b6ff3b" : shade(pal.plat, 0.3);
+  // housing
+  g.beginPath(); g.arc(0, 0, 18, 0, 7);
+  g.strokeStyle = pal.ink; g.lineWidth = 4; g.stroke();
+  g.fillStyle = hubCol;
   g.shadowColor = anch ? "#b6ff3b" : pal.platEdge; g.shadowBlur = anch ? 30 : 14;
-  g.beginPath(); g.arc(0, 0, 16, 0, 7); g.fill();
-  g.strokeStyle = pal.ink; g.lineWidth = 4;
-  g.beginPath(); g.moveTo(-10, 0); g.lineTo(10, 0); g.stroke();
+  g.fill(); g.shadowBlur = 0;
+  // bolt ring, which visibly rotates with the deck
+  for (let i = 0; i < 6; i++) {
+    const a2 = (i / 6) * Math.PI * 2;
+    screw(g, Math.cos(a2) * 12, Math.sin(a2) * 12, 2, shade(pal.plat, -0.1));
+  }
+  g.fillStyle = anch ? "#b6ff3b" : pal.platEdge;
+  g.shadowColor = anch ? "#b6ff3b" : pal.platEdge; g.shadowBlur = 12;
+  g.beginPath(); g.arc(0, 0, 4.5, 0, 7); g.fill();
   g.restore();
 
   if (anch) {
@@ -3351,42 +3977,67 @@ function drawOffscreenMarkers(fighters, cam) {
 }
 
 /* -------------------------------------------------------------------- HUD */
+/* The balance gauge, built as an instrument: a machined housing, a scale with
+   tick marks, hatched danger bands at both ends, and a needle that leans with
+   the deck. It used to be a flat capsule with a block of colour in it, which
+   told you the number but never that the stage was a pair of scales. */
 function drawBalanceBar() {
-  const bw = 520, bh = 20, bx = (W - bw) / 2, by = 24;
+  const bw = 520, bh = 18, bx = (W - bw) / 2, by = 28;
   const b = Stage.balance();
   const anch = Stage.anchorTimer > 0;
   const danger = Math.abs(b) > 0.8;
   const col = anch ? "#b6ff3b" : danger ? "#ff2e88" : Stage.pal.platEdge;
+  const cxp = bx + bw / 2;
 
   g.save();
-  g.fillStyle = "rgba(8,6,18,.80)";
-  roundRect(g, bx - 8, by - 8, bw + 16, bh + 16, 12); g.fill();
-  g.strokeStyle = anch ? "#b6ff3b" : danger ? "#ff2e88" : hexA(Stage.pal.platEdge, 0.6);
-  g.lineWidth = 2; g.shadowColor = col; g.shadowBlur = danger ? 24 : 10;
-  roundRect(g, bx - 8, by - 8, bw + 16, bh + 16, 12); g.stroke();
-  g.shadowBlur = 0;
 
-  g.fillStyle = "rgba(255,255,255,.06)";
-  roundRect(g, bx, by, bw, bh, 8); g.fill();
-  g.fillStyle = "rgba(255,46,136,.22)";
-  roundRect(g, bx, by, bw * 0.1, bh, 8); g.fill();
-  roundRect(g, bx + bw * 0.9, by, bw * 0.1, bh, 8); g.fill();
+  // housing
+  panel(g, bx - 14, by - 13, bw + 28, bh + 30, {
+    cut: 11, fill: "#120f26", accent: col,
+    accentA: danger ? 0.95 : 0.5, glow: danger ? 20 : 8,
+  });
+  screw(g, bx - 7, by - 6, 2, UI.line);
+  screw(g, bx + bw + 7, by - 6, 2, UI.line);
+  screw(g, bx - 7, by + bh + 11, 2, UI.line);
+  screw(g, bx + bw + 7, by + bh + 11, 2, UI.line);
 
-  const cxp = bx + bw / 2, wFill = (bw / 2) * Math.abs(b);
-  g.fillStyle = col; g.shadowColor = col; g.shadowBlur = 16;
-  if (b >= 0) roundRect(g, cxp, by + 2, wFill, bh - 4, 6);
-  else roundRect(g, cxp - wFill, by + 2, wFill, bh - 4, 6);
-  g.fill(); g.shadowBlur = 0;
+  // the scale itself, recessed
+  slot(g, bx, by, bw, bh, 5);
+  // hatched danger bands — the ends where a Snap-Back lives
+  g.save();
+  g.beginPath(); roundRect(g, bx, by, bw, bh, 5); g.clip();
+  hatch(g, bx, by, bw * 0.12, bh, "#ff2e88", 9, 0.32);
+  hatch(g, bx + bw * 0.88, by, bw * 0.12, bh, "#ff2e88", 9, 0.32);
+  g.restore();
+  ticks(g, bx, by + bh - 6, bw, 5, 20, "#ffffff", 0.16);
+  ticks(g, bx, by + bh - 9, bw, 8, 4, "#ffffff", 0.3);
 
-  g.strokeStyle = "rgba(255,255,255,.7)"; g.lineWidth = 2;
-  g.beginPath(); g.moveTo(cxp, by - 4); g.lineTo(cxp, by + bh + 4); g.stroke();
+  // the load bar, growing from centre toward the heavy side
+  const wFill = (bw / 2 - 2) * Math.abs(b);
+  if (b >= 0) bar(g, cxp, by + 3, wFill, bh - 6, 1, col, { glow: 14, r: 3 });
+  else bar(g, cxp - wFill, by + 3, wFill, bh - 6, 1, col, { glow: 14, r: 3 });
 
-  g.font = `700 11px ${FONT_MONO}`; g.textAlign = "center";
-  g.fillStyle = anch ? "#b6ff3b" : danger ? "#ff2e88" : "#8f8cb5";
+  // centre post + the needle, which actually leans with the tilt
+  g.strokeStyle = "rgba(255,255,255,.45)"; g.lineWidth = 1.5;
+  g.beginPath(); g.moveTo(cxp, by - 2); g.lineTo(cxp, by + bh + 2); g.stroke();
+
+  const nx = cxp + b * (bw / 2 - 6);
+  g.save();
+  g.translate(nx, by + bh / 2);
+  g.rotate(b * 0.5);
+  g.fillStyle = "#ffffff"; g.shadowColor = col; g.shadowBlur = 14;
+  poly(g, [0, -bh / 2 - 5, 4, -bh / 2 + 2, 0, bh / 2 + 5, -4, -bh / 2 + 2]);
+  g.fill();
+  g.restore();
+
+  // readout
+  g.font = `700 10px ${FONT_MONO}`; g.textAlign = "center";
+  g.fillStyle = anch ? "#b6ff3b" : danger ? "#ff2e88" : UI.dim;
   g.fillText(anch ? `KEEL ANCHOR ${Math.ceil(Stage.anchorTimer / 60)}s`
-                  : danger ? "SNAP-BACK IMMINENT" : "BALANCE", cxp, by + bh + 17);
-  g.textAlign = "left"; g.fillStyle = "#6b6a85"; g.fillText("◀", bx - 2, by + bh + 17);
-  g.textAlign = "right"; g.fillText("▶", bx + bw + 2, by + bh + 17);
+                  : danger ? "SNAP-BACK IMMINENT" : "BALANCE", cxp, by + bh + 12);
+  g.textAlign = "left"; g.fillStyle = UI.dimmer;
+  g.fillText("◀ HEAVY", bx + 2, by + bh + 12);
+  g.textAlign = "right"; g.fillText("HEAVY ▶", bx + bw - 2, by + bh + 12);
   g.restore();
 }
 
@@ -3394,106 +4045,161 @@ function drawClock(framesLeft) {
   const secs = Math.max(0, Math.ceil(framesLeft / 60));
   const mm = Math.floor(secs / 60), ss = secs % 60;
   const low = secs <= 10;
+  const col = low ? "#ff2e88" : UI.text;
+
+  // the clock sits in its own hanging plate under the gauge
   g.save();
+  const cw = 132, cx = W / 2 - cw / 2, cy = 82;
+  panel(g, cx, cy, cw, 36, {
+    cut: 9, fill: "#120f26", accent: col,
+    accentA: low ? 0.95 : 0.4, glow: low ? 18 : 0,
+    only: { bl: 1, br: 1 },
+  });
   g.textAlign = "center";
-  g.font = `900 32px ${FONT_DISPLAY}`;
+  g.font = `900 26px ${FONT_DISPLAY}`;
   g.globalAlpha = low && Math.floor(framesLeft / 8) % 2 === 0 ? 0.55 : 1;
-  if (low) { g.shadowColor = "#ff2e88"; g.shadowBlur = 20; }
-  outlineText(g, `${mm}:${String(ss).padStart(2, "0")}`, W / 2, 104, low ? "#ff2e88" : "#f2f0ff", 6);
+  if (low) { g.shadowColor = "#ff2e88"; g.shadowBlur = 18; }
+  g.fillStyle = col;
+  g.fillText(`${mm}:${String(ss).padStart(2, "0")}`, W / 2, cy + 27);
   g.restore();
 
-  // stage name chip
+  // stage name + snap counter, top right
   g.save();
-  g.textAlign = "right";
-  g.font = `700 10px ${FONT_MONO}`;
-  g.fillStyle = "rgba(255,255,255,.3)";
-  g.fillText(Stage.def.name, W - 16, 30);
+  chip(g, Stage.def.name, W - 16, 22, Stage.pal.platEdge, { align: "right" });
+  if (Stage.snapCount > 0)
+    chip(g, `SNAP-BACKS ${Stage.snapCount}`, W - 16, 46, UI.dim, { align: "right" });
   g.restore();
 }
 
+/* Player cards. Each one is a stamped plate in that fighter's colour, with a
+   coloured header bar carrying the name, a recessed well for the damage
+   readout, stock pips as diamonds and the meter as a segmented charge rail.
+   The percentage is the single most-read number on screen, so it gets the
+   deepest recess and the most contrast. */
 function drawPlayerHUD(fighters) {
   const n = fighters.length;
-  const cardW = 198, gap = 16;
+  const cardW = 206, gap = 14, cardH = 92;
   let x = (W - (n * cardW + (n - 1) * gap)) / 2;
-  const y = H - 104;
+  const y = H - 108;
 
   for (const f of fighters) {
     const dead = f.stocks <= 0;
+    const col = f.ch.color;
     g.save();
-    g.globalAlpha = dead ? 0.32 : 1;
+    g.globalAlpha = dead ? 0.3 : 1;
 
-    g.fillStyle = "rgba(8,6,18,.84)";
-    roundRect(g, x, y, cardW, 88, 14); g.fill();
-    g.strokeStyle = hexA(f.ch.color, f.meterFull ? 0.95 : 0.6);
-    g.lineWidth = f.meterFull ? 3 : 2;
-    g.shadowColor = f.ch.color; g.shadowBlur = f.meterFull ? 22 : 12;
-    roundRect(g, x, y, cardW, 88, 14); g.stroke();
-    g.shadowBlur = 0;
+    // the plate, with the top corners cut toward the centre of the screen
+    panel(g, x, y, cardW, cardH, {
+      cut: 12, fill: "#14112a", accent: col,
+      accentA: f.meterFull ? 1 : 0.6,
+      glow: f.meterFull ? 20 : 6,
+      only: { tl: 1, tr: 1 },
+    });
 
-    // tiny portrait
+    // header bar in the fighter's colour
     g.save();
-    g.beginPath(); roundRect(g, x + 9, y + 9, 36, 36, 9); g.clip();
-    g.fillStyle = shade(f.ch.color2, -0.25); g.fillRect(x + 9, y + 9, 36, 36);
-    g.translate(x + 27, y + 46); g.scale(0.62, 0.62);
+    notchPath(g, x, y, cardW, 24, 12, { tl: 1, tr: 1 });
+    g.clip();
+    const hq = g.createLinearGradient(0, y, 0, y + 24);
+    hq.addColorStop(0, shade(col, 0.1));
+    hq.addColorStop(1, shade(col, -0.4));
+    g.fillStyle = hq; g.fillRect(x, y, cardW, 24);
+    hatch(g, x + cardW - 48, y, 48, 24, "#000000", 7, 0.18);
+    g.restore();
+
+    g.font = `700 13px ${FONT_MONO}`; g.textAlign = "left";
+    g.fillStyle = "rgba(0,0,0,.45)"; g.fillText(f.ch.name, x + 44.5, y + 17.5);
+    g.fillStyle = "#ffffff"; g.fillText(f.ch.name, x + 44, y + 17);
+    g.font = `700 9px ${FONT_MONO}`; g.textAlign = "right";
+    g.fillStyle = "rgba(255,255,255,.75)";
+    g.fillText(`P${f.slot + 1}${f.isCPU ? "·CPU" : ""}`, x + cardW - 10, y + 17);
+
+    // portrait, inset into the header so it breaks the bar's line
+    g.save();
+    const px0 = x + 7, py0 = y + 5;
+    notchPath(g, px0, py0, 32, 32, 7); g.clip();
+    g.fillStyle = shade(f.ch.color2, -0.4); g.fillRect(px0, py0, 32, 32);
+    g.translate(px0 + 16, py0 + 30); g.scale(0.52, 0.52);
     f.ch.draw(g, { time: f.animTime, runPhase: 0, running: false, air: false,
                    vx: 0, vy: 0, state: ST.IDLE, flash: false, atkPhase: -1 });
     g.restore();
+    notchPath(g, px0, py0, 32, 32, 7);
+    g.strokeStyle = UI.ink; g.lineWidth = 2.5; g.stroke();
 
-    g.font = `700 15px ${FONT_MONO}`; g.textAlign = "left";
-    g.fillStyle = "#f2f0ff"; g.fillText(f.ch.name, x + 52, y + 23);
-    g.font = `700 10px ${FONT_MONO}`; g.fillStyle = f.tint;
-    g.fillText(`P${f.slot + 1}${f.isCPU ? " · CPU" : ""}`, x + 52, y + 37);
-
+    /* ---- damage readout, in a recessed well ---- */
     const p = Math.floor(f.percent);
     const heat = clamp(p / 160, 0, 1);
     const pc = mixColor("#ffffff", "#ff2e88", heat);
-    g.font = `900 ${32 + heat * 10}px ${FONT_DISPLAY}`;
-    g.textAlign = "right";
-    g.shadowColor = pc; g.shadowBlur = 10 + heat * 18;
-    g.fillStyle = pc; g.fillText(`${p}%`, x + cardW - 12, y + 74);
-    g.shadowBlur = 0;
-
-    // stocks
-    for (let i = 0; i < CFG.stocks; i++) {
-      const on = i < f.stocks;
-      g.beginPath(); g.arc(x + 18 + i * 17, y + 58, 5.5, 0, 7);
-      g.fillStyle = on ? f.ch.color : "rgba(255,255,255,.14)";
-      if (on) { g.shadowColor = f.ch.color; g.shadowBlur = 10; }
-      g.fill(); g.shadowBlur = 0;
-    }
-
-    // special-ready diamond
-    const ready = f.specialCD <= 0;
+    const wx = x + cardW - 96, wy = y + 30;
+    slot(g, wx, wy, 88, 34, 6);
     g.save();
-    g.translate(x + 78, y + 58); g.rotate(Math.PI / 4);
-    g.fillStyle = ready ? f.ch.accent : "rgba(255,255,255,.12)";
-    if (ready) { g.shadowColor = f.ch.accent; g.shadowBlur = 10; }
-    g.fillRect(-4.5, -4.5, 9, 9);
+    g.beginPath(); roundRect(g, wx, wy, 88, 34, 6); g.clip();
+    if (heat > 0.4) hatch(g, wx, wy, 88, 34, "#ff2e88", 11, (heat - 0.4) * 0.28);
+    g.font = `900 ${29 + heat * 7}px ${FONT_DISPLAY}`;
+    g.textAlign = "right";
+    g.shadowColor = pc; g.shadowBlur = 8 + heat * 16;
+    g.fillStyle = pc;
+    g.fillText(`${p}%`, wx + 83, wy + 28);
     g.restore();
 
-    // shield rail + super meter
-    const sw = cardW - 24;
-    g.fillStyle = "rgba(255,255,255,.1)";
-    roundRect(g, x + 12, y + 68, sw, 3, 2); g.fill();
-    g.fillStyle = f.shield < 30 ? "#ff2e88" : "#7fd9ff";
-    roundRect(g, x + 12, y + 68, sw * (f.shield / CFG.shieldMax), 3, 2); g.fill();
-
-    const mk = f.meter / CFG.meter.max;
-    g.fillStyle = "rgba(255,255,255,.08)";
-    roundRect(g, x + 12, y + 76, sw, 7, 3.5); g.fill();
-    if (f.meterFull) {
-      const pulse = 0.65 + Math.sin(f.animTime * 0.18) * 0.35;
-      g.globalAlpha = pulse;
-      g.fillStyle = f.ch.accent; g.shadowColor = f.ch.accent; g.shadowBlur = 16;
-    } else {
-      g.fillStyle = f.ch.color;
+    /* ---- stocks as diamonds ---- */
+    for (let i = 0; i < CFG.stocks; i++) {
+      const on = i < f.stocks;
+      g.save();
+      g.translate(x + 18 + i * 16, y + 40); g.rotate(Math.PI / 4);
+      g.strokeStyle = UI.ink; g.lineWidth = 2.5;
+      g.strokeRect(-4.5, -4.5, 9, 9);
+      g.fillStyle = on ? col : "rgba(255,255,255,.10)";
+      if (on) { g.shadowColor = col; g.shadowBlur = 9; }
+      g.fillRect(-4.5, -4.5, 9, 9);
+      g.restore();
     }
-    roundRect(g, x + 12, y + 76, sw * mk, 7, 3.5); g.fill();
-    g.shadowBlur = 0; g.globalAlpha = dead ? 0.32 : 1;
+
+    /* ---- special-ready pip ---- */
+    const ready = f.specialCD <= 0;
+    g.save();
+    g.translate(x + 18 + CFG.stocks * 16 + 4, y + 40);
+    g.rotate(Math.PI / 4 + (ready ? f.animTime * 0.02 : 0));
+    g.strokeStyle = UI.ink; g.lineWidth = 2.5; g.strokeRect(-4, -4, 8, 8);
+    g.fillStyle = ready ? f.ch.accent : "rgba(255,255,255,.10)";
+    if (ready) { g.shadowColor = f.ch.accent; g.shadowBlur = 10; }
+    g.fillRect(-4, -4, 8, 8);
+    g.restore();
+
+    /* ---- shield rail ---- */
+    const sw = 96;
+    slot(g, x + 12, y + 52, sw, 5, 2.5);
+    bar(g, x + 12, y + 52, sw, 5, f.shield / CFG.shieldMax,
+        f.shield < 30 ? "#ff2e88" : "#7fd9ff", { r: 2.5 });
+
+    /* ---- super meter: a segmented charge rail across the card's foot ---- */
+    const mw = cardW - 24, mx = x + 12, my = y + 66;
+    slot(g, mx, my, mw, 14, 4);
+    const mk = f.meter / CFG.meter.max;
     if (f.meterFull) {
-      g.font = `700 8px ${FONT_MONO}`; g.textAlign = "center";
+      const pulse = 0.72 + Math.sin(f.animTime * 0.18) * 0.28;
+      g.globalAlpha = (dead ? 0.3 : 1) * pulse;
+      bar(g, mx + 1, my + 1, mw - 2, 12, 1, f.ch.accent, { glow: 18, r: 3 });
+      g.globalAlpha = dead ? 0.3 : 1;
+    } else {
+      bar(g, mx + 1, my + 1, mw - 2, 12, mk, col, { glow: 8, r: 3 });
+    }
+    ticks(g, mx, my + 1, mw, 12, 8, "#000000", 0.45);
+    g.font = `700 8px ${FONT_MONO}`; g.textAlign = "center";
+    if (f.meterFull) {
       g.fillStyle = "#07060f";
-      g.fillText("SUPER READY", x + 12 + sw / 2, y + 82);
+      g.fillText("SUPER READY", mx + mw / 2, my + 10);
+    } else {
+      g.fillStyle = "rgba(255,255,255,.4)";
+      g.fillText(`${Math.floor(mk * 100)}%`, mx + mw / 2, my + 10);
+    }
+
+    if (dead) {
+      // a struck-out card reads faster than a faded one
+      g.save();
+      g.strokeStyle = "#ff2e88"; g.lineWidth = 3; g.globalAlpha = 0.5;
+      g.beginPath(); g.moveTo(x + 6, y + cardH - 6); g.lineTo(x + cardW - 6, y + 6); g.stroke();
+      g.restore();
     }
 
     g.restore();
@@ -3655,39 +4361,86 @@ Match.current = null;
                  pause and results
    ========================================================================== */
 
-/* Immediate-mode button. Returns true on the frame it is clicked. */
+/* Immediate-mode button. Returns true on the frame it is clicked.
+   Built from the same panel() as the HUD, so menus and match share one look:
+   a stamped plate that physically presses in when hovered. */
 function btn(x, y, w, h, label, opts) {
   opts = opts || {};
   const hov = Mouse.x > x && Mouse.x < x + w && Mouse.y > y && Mouse.y < y + h;
   const col = opts.color || "#00e5ff";
   const on = opts.active;
   const dim = opts.disabled;
+  const live = (on || hov) && !dim;
+  const press = hov && Mouse.down && !dim ? 2 : 0;   // travel on click
+
   g.save();
-  g.fillStyle = on ? hexA(col, 0.22) : (hov && !dim) ? "rgba(255,255,255,.10)" : "rgba(8,6,18,.72)";
-  roundRect(g, x, y, w, h, 10); g.fill();
-  g.strokeStyle = dim ? "rgba(255,255,255,.12)" : (on || hov) ? col : "rgba(255,255,255,.22)";
-  g.lineWidth = 2;
-  if ((on || hov) && !dim) { g.shadowColor = col; g.shadowBlur = 16; }
-  roundRect(g, x, y, w, h, 10); g.stroke();
-  g.shadowBlur = 0;
-  g.fillStyle = dim ? "#55536e" : (on || hov) ? "#ffffff" : "#b7b4d4";
+  g.translate(0, press);
+  panel(g, x, y, w, h, {
+    cut: Math.min(10, h * 0.34),
+    fill: dim ? "#0d0b1a" : on ? mixColor("#14112a", col, 0.22) : "#14112a",
+    // idle buttons keep a hint of their own colour, or a menu of them all
+    // reads as one grey stack with nothing to aim at
+    accent: dim ? "#2c2745" : live ? col : mixColor(UI.line, col, 0.5),
+    accentA: live ? 0.95 : 0.6,
+    glow: live ? 16 : 0,
+    shadow: !press,
+  });
+  // a hovered button lights from inside, not just at its border
+  if (live) {
+    g.save();
+    notchPath(g, x, y, w, h, Math.min(10, h * 0.34)); g.clip();
+    const q = g.createLinearGradient(0, y, 0, y + h);
+    q.addColorStop(0, hexA(col, on ? 0.2 : 0.13));
+    q.addColorStop(1, hexA(col, 0));
+    g.fillStyle = q; g.fillRect(x, y, w, h);
+    g.restore();
+  }
+  g.fillStyle = dim ? "#55536e" : live ? "#ffffff" : "#b7b4d4";
   g.font = opts.font || `700 15px ${FONT_MONO}`;
   g.textAlign = "center"; g.textBaseline = "middle";
+  if (live) { g.shadowColor = col; g.shadowBlur = 10; }
   g.fillText(label, x + w / 2, y + h / 2 + 1);
   g.textBaseline = "alphabetic";
   g.restore();
   return hov && Mouse.click && !dim;
 }
 
+/* Screen header: a stamped banner plate rather than floating text, with the
+   Cool Matt Games mark above it and rules running out to the margins. */
 function screenTitleBar(sub, title, accent) {
+  const col = accent || "#00e5ff";
   g.save();
   g.textAlign = "center";
-  g.font = `700 12px ${FONT_MONO}`;
+
+  g.font = `900 44px ${FONT_DISPLAY}`;
+  const tw = g.measureText(title).width;
+  const bw = Math.max(360, tw + 110), bx = W / 2 - bw / 2;
+
+  // rules out to the edges, stopping clear of the plate
+  g.strokeStyle = hexA(col, 0.28); g.lineWidth = 2;
+  g.beginPath(); g.moveTo(40, 66); g.lineTo(bx - 18, 66); g.stroke();
+  g.beginPath(); g.moveTo(bx + bw + 18, 66); g.lineTo(W - 40, 66); g.stroke();
+  g.fillStyle = hexA(col, 0.5);
+  for (const dx of [-26, 26]) {
+    g.save(); g.translate(W / 2 + (dx < 0 ? bx - 18 - W / 2 : bx + bw + 18 - W / 2), 66);
+    g.rotate(Math.PI / 4); g.fillRect(-3, -3, 6, 6); g.restore();
+  }
+
+  panel(g, bx, 40, bw, 52, { cut: 16, fill: "#140f2c", accent: col, accentA: 0.8, glow: 14 });
+  g.save();
+  notchPath(g, bx, 40, bw, 52, 16); g.clip();
+  hatch(g, bx, 40, 34, 52, col, 8, 0.2);
+  hatch(g, bx + bw - 34, 40, 34, 52, col, 8, 0.2);
+  g.restore();
+
+  g.font = `900 44px ${FONT_DISPLAY}`;
+  g.shadowColor = col; g.shadowBlur = 20;
+  outlineText(g, title, W / 2, 81, "#ffffff", 7);
+  g.shadowBlur = 0;
+
+  g.font = `700 11px ${FONT_MONO}`;
   g.fillStyle = "#ff2e88";
-  g.fillText(sub, W / 2, 38);
-  g.font = `900 48px ${FONT_DISPLAY}`;
-  g.shadowColor = accent || "#00e5ff"; g.shadowBlur = 22;
-  outlineText(g, title, W / 2, 82, "#ffffff", 8);
+  g.fillText(sub, W / 2, 26);
   g.restore();
 }
 
@@ -3857,13 +4610,26 @@ const Game = {
       const picked = this.slots.map((s, i) => (s.mode !== "off" && s.charId === c.id) ? i : -1).filter(i => i >= 0);
 
       g.save();
-      g.fillStyle = "rgba(8,6,18,.84)";
-      roundRect(g, x, cy, cw, 284, 14); g.fill();
-      g.strokeStyle = hov ? c.color : hexA(c.color, 0.45);
-      g.lineWidth = hov ? 3 : 2;
-      g.shadowColor = c.color; g.shadowBlur = hov ? 26 : 10;
-      roundRect(g, x, cy, cw, 284, 14); g.stroke();
-      g.shadowBlur = 0;
+      g.translate(0, hov ? -4 : 0);
+      panel(g, x, cy, cw, 284, {
+        cut: 15, fill: "#110e24", accent: c.color,
+        accentA: hov ? 1 : 0.5, glow: hov ? 22 : 6,
+      });
+      // a wash of the fighter's colour rising from the card's foot
+      g.save();
+      notchPath(g, x, cy, cw, 284, 15); g.clip();
+      const wq = g.createLinearGradient(0, cy + 284, 0, cy + 120);
+      wq.addColorStop(0, hexA(c.color, hov ? 0.22 : 0.12));
+      wq.addColorStop(1, hexA(c.color, 0));
+      g.fillStyle = wq; g.fillRect(x, cy, cw, 284);
+      // The fighter's initial as a watermark, sitting high so the art covers
+      // most of it — at name height its glyph box showed as a pale block
+      // behind the lettering and muddied it.
+      g.globalAlpha = 0.055;
+      g.font = `900 190px ${FONT_DISPLAY}`; g.textAlign = "center";
+      g.fillStyle = c.color;
+      g.fillText(c.name[0], x + cw / 2, cy + 168);
+      g.restore();
 
       // full-size fighter art
       g.save();
@@ -3924,13 +4690,17 @@ const Game = {
       const sel = this.selIndex === i, off = s.mode === "off";
       g.save();
       g.globalAlpha = off ? 0.5 : 1;
-      g.fillStyle = sel ? "rgba(255,255,255,.08)" : "rgba(8,6,18,.82)";
-      roundRect(g, sx, sy2, sw, 104, 12); g.fill();
-      g.strokeStyle = sel ? PLAYER_TINT[i] : "rgba(255,255,255,.2)";
-      g.lineWidth = sel ? 3 : 2;
-      if (sel) { g.shadowColor = PLAYER_TINT[i]; g.shadowBlur = 20; }
-      roundRect(g, sx, sy2, sw, 104, 12); g.stroke();
-      g.shadowBlur = 0;
+      panel(g, sx, sy2, sw, 104, {
+        cut: 12, fill: sel ? mixColor("#14112a", PLAYER_TINT[i], 0.14) : "#110e22",
+        accent: PLAYER_TINT[i], accentA: sel ? 1 : 0.45, glow: sel ? 20 : 0,
+        only: { tl: 1, br: 1 },
+      });
+      // a tint strip down the left edge identifies the slot at a glance
+      g.save();
+      notchPath(g, sx, sy2, sw, 104, 12, { tl: 1, br: 1 }); g.clip();
+      g.fillStyle = hexA(PLAYER_TINT[i], off ? 0.25 : 0.7);
+      g.fillRect(sx, sy2, 4, 104);
+      g.restore();
       g.textAlign = "left";
       g.font = `700 14px ${FONT_MONO}`; g.fillStyle = PLAYER_TINT[i];
       g.fillText(`PLAYER ${i + 1}`, sx + 14, sy2 + 22);
@@ -4008,18 +4778,25 @@ const Game = {
       const hov = Mouse.x > x && Mouse.x < x + cw && Mouse.y > cy && Mouse.y < cy + chh;
       const sel = this.stageIndex === i;
       g.save();
-      g.fillStyle = "rgba(8,6,18,.88)";
-      roundRect(g, x, cy, cw, chh, 14); g.fill();
+      // the card as a stamped plate, lifting on hover
+      const lift = hov && !sel ? -3 : 0;
+      g.translate(0, lift);
+      panel(g, x, cy, cw, chh, {
+        cut: 15, fill: "#100d22", accent: s.pal.platEdge,
+        accentA: sel ? 1 : hov ? 0.8 : 0.42,
+        glow: sel ? 24 : hov ? 14 : 0,
+      });
 
-      // live thumbnail of the stage's own background + deck
+      // live thumbnail of the stage's own background + deck, in a recessed well
       g.save();
-      g.beginPath(); roundRect(g, x + 10, cy + 10, cw - 20, 150, 9); g.clip();
+      notchPath(g, x + 10, cy + 10, cw - 20, 150, 9); g.clip();
+      g.save();
       g.translate(x + 10, cy + 10);
       g.scale((cw - 20) / W, 150 / H * 2.0);
       g.translate(0, -H * 0.18);
       s.drawBg.call(s, g, performance.now() / 1000 + i * 7);
       g.restore();
-      // mini deck line
+      // mini deck line, drawn inside the clip so it can't escape the well
       g.save();
       g.translate(x + cw / 2, cy + 128);
       const ta = Math.sin(performance.now() / 900 + i) * 0.14;
@@ -4029,18 +4806,23 @@ const Game = {
       g.shadowColor = s.pal.platEdge; g.shadowBlur = 14;
       g.beginPath(); g.moveTo(-half, 0); g.lineTo(half, 0); g.stroke();
       g.restore();
-
-      g.strokeStyle = sel ? s.pal.platEdge : hov ? hexA(s.pal.platEdge, 0.7) : "rgba(255,255,255,.18)";
-      g.lineWidth = sel ? 3 : 2;
-      if (sel || hov) { g.shadowColor = s.pal.platEdge; g.shadowBlur = sel ? 26 : 14; }
-      roundRect(g, x, cy, cw, chh, 14); g.stroke();
-      g.shadowBlur = 0;
+      // a scanline wash sells it as a monitor feed rather than a picture
+      g.globalAlpha = 0.14; g.fillStyle = "#000";
+      for (let sy = cy + 10; sy < cy + 160; sy += 4) g.fillRect(x + 10, sy, cw - 20, 2);
+      g.restore();
+      notchPath(g, x + 10, cy + 10, cw - 20, 150, 9);
+      g.strokeStyle = UI.ink; g.lineWidth = 3; g.stroke();
+      screw(g, x + 19, cy + 19, 2.2, UI.line);
+      screw(g, x + cw - 19, cy + 19, 2.2, UI.line);
 
       g.textAlign = "center";
       g.font = `900 26px ${FONT_DISPLAY}`;
       outlineText(g, s.name, x + cw / 2, cy + 192, s.pal.platEdge, 6);
       g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
       g.fillText(s.tag, x + cw / 2, cy + 208);
+      // a divider rule under the title, in the stage's own colour
+      g.strokeStyle = hexA(s.pal.platEdge, 0.3); g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(x + 34, cy + 218); g.lineTo(x + cw - 34, cy + 218); g.stroke();
 
       // wrapped blurb
       g.font = `400 11px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
@@ -4122,19 +4904,44 @@ const Game = {
         const label = capturing ? "PRESS A KEY…" : keyLabel(code);
         const hov = Mouse.x > cx && Mouse.x < cx + colW && Mouse.y > cy && Mouse.y < cy + ch;
 
+        /* Drawn as an actual keycap: a dark well, a raised cap sitting in it
+           with a lit top face, and the cap pressing down when hovered. It
+           makes the table read as a keyboard rather than a spreadsheet. */
         g.save();
-        g.fillStyle = capturing ? hexA(PLAYER_TINT[p], 0.25)
-                    : hov ? "rgba(255,255,255,.10)" : "rgba(255,255,255,.045)";
-        roundRect(g, cx, cy, colW, ch, 6); g.fill();
-        g.strokeStyle = capturing ? PLAYER_TINT[p] : hov ? hexA(PLAYER_TINT[p], 0.7) : "rgba(255,255,255,.12)";
-        g.lineWidth = capturing ? 2 : 1;
-        if (capturing) { g.shadowColor = PLAYER_TINT[p]; g.shadowBlur = 14; }
-        roundRect(g, cx, cy, colW, ch, 6); g.stroke();
-        g.shadowBlur = 0;
+        const press2 = hov && !capturing ? 1.5 : 0;
+        const tint = PLAYER_TINT[p];
+
+        // the well the cap sits in
+        roundRect(g, cx, cy, colW, ch, 6);
+        g.fillStyle = "rgba(0,0,0,.5)"; g.fill();
+
+        const capY = cy + 1.5 + press2, capH = ch - 4;
+        const capPath = () => roundRect(g, cx + 2, capY, colW - 4, capH, 5);
+        const capBase = capturing ? mixColor("#1c1838", tint, 0.4)
+                      : hov ? mixColor("#1c1838", tint, 0.18) : "#1a1733";
+        const cq = g.createLinearGradient(0, capY, 0, capY + capH);
+        cq.addColorStop(0, shade(capBase, 0.2));
+        cq.addColorStop(1, shade(capBase, -0.3));
+        capPath();
+        g.strokeStyle = UI.ink; g.lineWidth = 2.5; g.stroke();
+        g.fillStyle = cq; g.fill();
+        // lit top face
+        g.save(); capPath(); g.clip();
+        g.fillStyle = hexA("#ffffff", press2 ? 0.07 : 0.13);
+        g.fillRect(cx + 2, capY, colW - 4, capH * 0.42);
+        g.restore();
+        // accent edge while capturing or hovered
+        if (capturing || hov) {
+          capPath();
+          g.strokeStyle = tint; g.lineWidth = capturing ? 2 : 1.4;
+          if (capturing) { g.shadowColor = tint; g.shadowBlur = 14; }
+          g.stroke(); g.shadowBlur = 0;
+        }
+
         g.textAlign = "center"; g.textBaseline = "middle";
         g.font = `700 ${capturing ? 10 : 12}px ${FONT_MONO}`;
         g.fillStyle = capturing ? "#ffffff" : code ? "#e8e6f8" : "#ff2e88";
-        g.fillText(label, cx + colW / 2, cy + ch / 2);
+        g.fillText(label, cx + colW / 2, capY + capH / 2 + 0.5);
         g.textBaseline = "alphabetic";
         g.restore();
 
@@ -4292,14 +5099,24 @@ const Game = {
   drawPause() {
     g.save();
     g.fillStyle = "rgba(6,5,14,.80)"; g.fillRect(0, 0, W, H);
+    // hazard bars top and bottom — this is a stopped machine, not a web modal
+    hatch(g, 0, 0, W, 16, "#ffc83d", 22, 0.3);
+    hatch(g, 0, H - 16, W, 16, "#ffc83d", 22, 0.3);
     g.textAlign = "center";
     g.font = `900 76px ${FONT_DISPLAY}`;
     g.shadowColor = "#00e5ff"; g.shadowBlur = 30;
     outlineText(g, "PAUSED", W / 2, 150, "#ffffff", 10);
     g.shadowBlur = 0;
-    g.font = `700 12px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
-    g.fillText(`${Stage.def.name}  ·  BALANCE ${(Stage.balance() * 100).toFixed(0)}%  ·  SNAP-BACKS ${Stage.snapCount}`,
-               W / 2, 182);
+    g.restore();
+
+    // live readout of the thing that matters while stopped: the pivot
+    g.save();
+    const pw = 420, px2 = W / 2 - pw / 2;
+    panel(g, px2, 164, pw, 34, { cut: 9, fill: "#120f26", accent: "#00e5ff", accentA: 0.4 });
+    g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`;
+    g.fillStyle = UI.dim;
+    g.fillText(`${Stage.def.name}   ·   BALANCE ${(Stage.balance() * 100).toFixed(0)}%   ·   SNAP-BACKS ${Stage.snapCount}`,
+               W / 2, 185);
     g.restore();
 
     const bx = W / 2 - 130;
@@ -4339,7 +5156,8 @@ const Game = {
       + `  ·  ${(r.frames / 60).toFixed(1)}s  ·  SNAP-BACKS ${r.snapbacks}`, W / 2, 140);
     g.restore();
 
-    const cols = [["KOs", 560], ["FALLS", 672], ["DAMAGE", 800], ["SUPERS", 920], ["SNAP-BACKS", 1046], ["STOCKS", 1160]];
+    // x positions kept inside the row plate, which ends at W-110
+    const cols = [["KOs", 556], ["FALLS", 664], ["DAMAGE", 788], ["SUPERS", 902], ["SNAP-BACKS", 1024], ["STOCKS", 1134]];
     g.save();
     g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
     g.textAlign = "left"; g.fillText("FIGHTER", 140, 182);
@@ -4356,11 +5174,22 @@ const Game = {
     sorted.forEach(f => {
       const win = f === wn;
       g.save();
+      // every row gets a plate; the winner's is in their colour and glows
+      panel(g, 130, y - 28, W - 240, 54, {
+        cut: 12, fill: win ? mixColor("#110e24", f.ch.color, 0.16) : "#100d20",
+        accent: f.ch.color, accentA: win ? 0.95 : 0.3,
+        glow: win ? 18 : 0, shadow: win,
+      });
       if (win) {
-        g.fillStyle = hexA(f.ch.color, 0.12);
-        roundRect(g, 130, y - 28, W - 240, 54, 10); g.fill();
-        g.strokeStyle = hexA(f.ch.color, 0.5); g.lineWidth = 2;
-        roundRect(g, 130, y - 28, W - 240, 54, 10); g.stroke();
+        g.save();
+        notchPath(g, 130, y - 28, W - 240, 54, 12); g.clip();
+        hatch(g, 130, y - 28, 40, 54, f.ch.color, 9, 0.25);
+        g.restore();
+        // a winner's tab hanging off the left edge
+        g.save();
+        g.fillStyle = f.ch.color;
+        poly(g, [118, y - 20, 132, y - 20, 132, y + 18, 118, y + 18, 124, y - 1]); g.fill();
+        g.restore();
       }
       // portrait
       g.save();

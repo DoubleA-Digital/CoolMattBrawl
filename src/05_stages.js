@@ -19,7 +19,7 @@ const STAGES = [
 
 /* ------------------------------------------------------------------ 1 --- */
 {
-  id: "YARD", name: "PIVOT YARD", tag: "NEON · BALANCED",
+  id: "YARD", name: "PIVOT YARD", tag: "NEON · BALANCED", deck: "neon",
   blurb: "The proving ground. Even tilt, generous ledges, room to learn the swing.",
   pivot: { x: 800, y: 580 },
   blast: { left: -420, right: 2020, top: -520, bottom: 1420 },
@@ -46,10 +46,48 @@ const STAGES = [
     rg.addColorStop(1, "rgba(0,0,0,0)");
     g.fillStyle = rg; g.fillRect(0, 0, W, H);
 
+    // a slow rotating emblem ring, far back — gives the void a centre
+    g.save();
+    g.translate(W / 2, H * 0.46);
+    g.rotate(t * 0.04);
+    g.strokeStyle = "rgba(0,229,255,.07)"; g.lineWidth = 2;
+    g.beginPath(); g.arc(0, 0, 230, 0, 7); g.stroke();
+    g.beginPath(); g.arc(0, 0, 178, 0, 7); g.stroke();
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      g.strokeStyle = `rgba(255,46,136,${i % 3 === 0 ? 0.12 : 0.05})`;
+      g.lineWidth = i % 3 === 0 ? 5 : 2;
+      g.beginPath();
+      g.moveTo(Math.cos(a) * 178, Math.sin(a) * 178);
+      g.lineTo(Math.cos(a) * 230, Math.sin(a) * 230);
+      g.stroke();
+    }
+    g.restore();
+
+    // distant neon skyline on the horizon
+    g.save();
+    const hz = H * 0.56;
+    for (let i = 0; i < 26; i++) {
+      const bw = 34 + hash(i * 3) * 46;
+      const bx = i * 52 - 20 + Math.sin(t * 0.05 + i) * 1.5;
+      const bh = 40 + hash(i * 7) * 150;
+      g.fillStyle = "rgba(9,6,24,.92)";
+      g.fillRect(bx, hz - bh, bw, bh);
+      g.fillStyle = i % 2 ? "rgba(0,229,255,.16)" : "rgba(255,46,136,.14)";
+      g.fillRect(bx, hz - bh, bw, 2);
+      // lit windows
+      for (let k = 0; k < 4; k++) {
+        if (hash(i * 13 + k) > 0.6) {
+          g.fillStyle = i % 2 ? "rgba(0,229,255,.22)" : "rgba(255,46,136,.2)";
+          g.fillRect(bx + 6 + k * 9, hz - bh + 14 + (k % 3) * 22, 4, 7);
+        }
+      }
+    }
+    g.restore();
+
     // perspective grid
     g.save();
     g.strokeStyle = "rgba(0,229,255,.12)"; g.lineWidth = 1;
-    const hz = H * 0.56;
     for (let i = -14; i <= 14; i++) {
       g.beginPath(); g.moveTo(W / 2 + i * 26, hz);
       g.lineTo(W / 2 + i * 120 + Math.sin(t * 0.3 + i) * 8, H); g.stroke();
@@ -70,12 +108,23 @@ const STAGES = [
       g.beginPath(); g.arc(hash(i) * W, H - p, 1.6 + (i % 3), 0, 7); g.fill();
     }
     g.restore();
+
+    // foreground: gantry rails across the bottom corners, out of focus
+    g.save();
+    g.globalAlpha = 0.5;
+    g.strokeStyle = "#06040f"; g.lineWidth = 16; g.lineCap = "round";
+    g.beginPath(); g.moveTo(-20, H + 10); g.lineTo(150, H - 70); g.stroke();
+    g.beginPath(); g.moveTo(W + 20, H + 10); g.lineTo(W - 150, H - 70); g.stroke();
+    g.strokeStyle = "rgba(0,229,255,.1)"; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(-20, H + 2); g.lineTo(150, H - 78); g.stroke();
+    g.beginPath(); g.moveTo(W + 20, H + 2); g.lineTo(W - 150, H - 78); g.stroke();
+    g.restore();
   },
 },
 
 /* ------------------------------------------------------------------ 2 --- */
 {
-  id: "FOUNDRY", name: "CINDER FOUNDRY", tag: "MOLTEN · HEAVY SWING",
+  id: "FOUNDRY", name: "CINDER FOUNDRY", tag: "MOLTEN · HEAVY SWING", deck: "cast",
   blurb: "A casting beam over an open crucible. It swings like a wrecking ball and the floor is very close.",
   pivot: { x: 800, y: 560 },
   // the crucible is right below: far less room to recover underneath
@@ -112,17 +161,90 @@ const STAGES = [
     rg.addColorStop(1, "rgba(0,0,0,0)");
     g.fillStyle = rg; g.fillRect(0, 0, W, H);
 
-    // back wall: furnace bays
+    // the great furnace arch behind everything
     g.save();
-    g.globalAlpha = 0.5;
+    g.fillStyle = "#0d0604";
+    g.beginPath();
+    g.moveTo(W * 0.5 - 430, H);
+    g.lineTo(W * 0.5 - 430, H * 0.42);
+    g.arc(W * 0.5, H * 0.42, 430, Math.PI, 0);
+    g.lineTo(W * 0.5 + 430, H);
+    g.closePath(); g.fill();
+    /* The arch as one continuous masonry band with joint lines cut across it.
+       Drawn as separate bricks it read as a row of blocks floating in the
+       dark, because the arch body behind them was nearly black on black. */
+    g.save();
+    g.lineWidth = 46;
+    g.strokeStyle = "#2a1409";
+    g.beginPath(); g.arc(W * 0.5, H * 0.42, 430, Math.PI, 0); g.stroke();
+    // lit inner rim and a dark outer rim give the band thickness
+    g.lineWidth = 4;
+    g.strokeStyle = "rgba(255,138,31,.26)";
+    g.beginPath(); g.arc(W * 0.5, H * 0.42, 408, Math.PI, 0); g.stroke();
+    g.strokeStyle = "rgba(10,5,2,.9)";
+    g.beginPath(); g.arc(W * 0.5, H * 0.42, 453, Math.PI, 0); g.stroke();
+    // joints
+    g.strokeStyle = "rgba(10,5,2,.75)"; g.lineWidth = 3;
+    for (let i = 0; i <= 20; i++) {
+      const a = Math.PI + (i / 20) * Math.PI;
+      g.beginPath();
+      g.moveTo(W * 0.5 + Math.cos(a) * 407, H * 0.42 + Math.sin(a) * 407);
+      g.lineTo(W * 0.5 + Math.cos(a) * 453, H * 0.42 + Math.sin(a) * 453);
+      g.stroke();
+    }
+    g.restore();
+    g.restore();
+
+    // back wall: furnace bays
+    // (kept dim: at half alpha over the crucible glow these came out a pale
+    //  olive and read as lit windows rather than furnace mouths)
+    g.save();
     for (let i = 0; i < 6; i++) {
       const x = 90 + i * 190;
-      g.fillStyle = "#0e0603";
+      g.fillStyle = "#0b0402";
       roundRect(g, x, H * 0.30, 112, 180, 8); g.fill();
       const f = 0.5 + Math.sin(t * 2 + i * 1.7) * 0.5;
-      g.fillStyle = `rgba(255,${110 + f * 90},30,${0.22 + f * 0.3})`;
+      g.fillStyle = `rgba(255,${72 + f * 60},18,${0.16 + f * 0.2})`;
       roundRect(g, x + 14, H * 0.30 + 20, 84, 140, 6); g.fill();
+      // grate bars over each bay
+      g.strokeStyle = "rgba(14,7,3,.92)"; g.lineWidth = 5;
+      for (let k = 0; k < 4; k++) {
+        g.beginPath();
+        g.moveTo(x + 22 + k * 23, H * 0.30 + 20);
+        g.lineTo(x + 22 + k * 23, H * 0.30 + 160); g.stroke();
+      }
+      g.strokeStyle = "rgba(255,138,31,.14)"; g.lineWidth = 2;
+      roundRect(g, x, H * 0.30, 112, 180, 8); g.stroke();
     }
+    g.restore();
+
+    // A ladle pouring, hung far enough in that it is not clipped by the frame.
+    g.save();
+    const swing2 = Math.sin(t * 0.35) * 0.09;
+    g.translate(W * 0.16, H * 0.055);
+    g.rotate(swing2);
+    g.strokeStyle = "rgba(80,54,36,.9)"; g.lineWidth = 7;
+    g.beginPath(); g.moveTo(0, -H * 0.06); g.lineTo(0, 46); g.stroke();
+    // the bucket, solid with a hot rim
+    g.fillStyle = "#170b05";
+    g.strokeStyle = "rgba(14,7,3,.95)"; g.lineWidth = 5;
+    poly(g, [-36, 46, 36, 46, 25, 100, -25, 100]); g.stroke(); g.fill();
+    g.strokeStyle = "rgba(255,150,40,.5)"; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(-36, 48); g.lineTo(36, 48); g.stroke();
+    g.fillStyle = "rgba(255,200,90,.5)";
+    g.beginPath(); g.ellipse(0, 48, 34, 5, 0, 0, 7); g.fill();
+    // the pour
+    g.save(); g.globalCompositeOperation = "lighter";
+    const pg = g.createLinearGradient(0, 100, 0, H);
+    pg.addColorStop(0, "rgba(255,220,120,.7)");
+    pg.addColorStop(0.4, "rgba(255,130,30,.28)");
+    pg.addColorStop(1, "rgba(255,80,20,0)");
+    g.fillStyle = pg;
+    g.beginPath();
+    g.moveTo(-5, 100); g.lineTo(5, 100);
+    g.lineTo(13 + Math.sin(t * 3) * 4, H); g.lineTo(-13 + Math.sin(t * 3) * 4, H);
+    g.closePath(); g.fill();
+    g.restore();
     g.restore();
 
     // hanging chains
@@ -153,12 +275,25 @@ const STAGES = [
     // heat haze band
     g.save(); g.globalAlpha = 0.12; g.fillStyle = "#ff6a18";
     g.fillRect(0, H * 0.86, W, H * 0.14); g.restore();
+
+    // foreground: pipework across the bottom, nearly black
+    g.save();
+    g.strokeStyle = "#0a0503"; g.lineWidth = 26; g.lineCap = "butt";
+    g.beginPath(); g.moveTo(-10, H - 26); g.lineTo(W + 10, H - 40); g.stroke();
+    g.strokeStyle = "rgba(255,138,31,.09)"; g.lineWidth = 4;
+    g.beginPath(); g.moveTo(-10, H - 36); g.lineTo(W + 10, H - 50); g.stroke();
+    for (let i = 0; i < 6; i++) {
+      const x = 80 + i * 230;
+      g.fillStyle = "#0a0503";
+      roundRect(g, x, H - 48, 26, 48, 4); g.fill();
+    }
+    g.restore();
   },
 },
 
 /* ------------------------------------------------------------------ 3 --- */
 {
-  id: "DRIFT", name: "CIRRUS DRIFT", tag: "DAWN · TWITCHY",
+  id: "DRIFT", name: "CIRRUS DRIFT", tag: "DAWN · TWITCHY", deck: "cloud",
   blurb: "Dawn above the cloud deck. The platform rights itself almost instantly, so tilts are jabs, not leans.",
   pivot: { x: 800, y: 600 },
   // open sky: still the most forgiving map, but not so wide it stalemates
@@ -218,8 +353,71 @@ const STAGES = [
       }
       g.restore();
     };
+    /* Distant peaks. Drawn before any cloud deck and fairly opaque: at low
+       alpha over a bright sky they read as ghostly triangles hanging in the
+       air rather than mountains behind the weather. Their bases sit low
+       enough that the lower cloud decks cover them. */
+    g.save();
+    {
+      const base = H * 0.68;
+      const peaks = [];
+      for (let i = 0; i < 7; i++)
+        peaks.push({ x: i * 230 - 90 + Math.sin(i) * 40, h: 80 + hash(i * 17) * 130 });
+
+      /* Each layer is ONE path containing every peak, filled once. Filling
+         them one at a time stacked the translucency wherever two peaks
+         overlapped, which painted a hard dark V into the middle of the
+         range that looked like an upside-down mountain. */
+      const fillAll = (alpha, col, build) => {
+        g.globalAlpha = alpha; g.fillStyle = col;
+        g.beginPath();
+        for (const p of peaks) build(p);
+        g.fill();
+      };
+      fillAll(0.6, "#64487d", p => {
+        g.moveTo(p.x - 160, base); g.lineTo(p.x, base - p.h);
+        g.lineTo(p.x + 160, base); g.closePath();
+      });
+      // sunward faces, catching the dawn
+      fillAll(0.3, "#c98ba0", p => {
+        g.moveTo(p.x, base - p.h); g.lineTo(p.x + 160, base);
+        g.lineTo(p.x + 20, base); g.closePath();
+      });
+      // snow caps, following the ridge so they do not float
+      fillAll(0.5, "#fff0f6", p => {
+        const cw2 = 36, ch2 = p.h * 0.2;
+        g.moveTo(p.x, base - p.h);
+        g.lineTo(p.x + cw2, base - p.h + ch2);
+        g.lineTo(p.x + 12, base - p.h + ch2 * 0.7);
+        g.lineTo(p.x - 10, base - p.h + ch2);
+        g.lineTo(p.x - cw2, base - p.h + ch2 * 0.85);
+        g.closePath();
+      });
+    }
+    g.restore();
+
     deck(H * 0.30, 7, 0.8, 0.22, "#ffffff");
     deck(H * 0.52, 14, 1.0, 0.34, "#ffe9f2");
+
+    // floating stone islands, drifting slowly past
+    g.save();
+    for (let i = 0; i < 4; i++) {
+      const span = W + 700;
+      const ix = ((hash(i * 23) * span) + t * (9 + i * 4)) % span - 350;
+      const iy = H * (0.34 + hash(i * 29) * 0.22) + Math.sin(t * 0.4 + i) * 7;
+      const s = 0.45 + hash(i * 31) * 0.5;
+      g.save(); g.translate(ix, iy); g.scale(s, s);
+      g.globalAlpha = 0.55;
+      g.fillStyle = "#9a7fb8";
+      poly(g, [-60, 0, 60, 0, 34, 30, -30, 30]); g.fill();
+      g.fillStyle = "#7a5f98";
+      poly(g, [-30, 30, 34, 30, 6, 72, -8, 72]); g.fill();
+      g.fillStyle = "rgba(190,255,200,.5)";
+      g.beginPath(); g.ellipse(0, -2, 58, 7, 0, 0, 7); g.fill();
+      g.restore();
+    }
+    g.restore();
+
     deck(H * 0.86, 26, 1.5, 0.55, "#ffffff");
 
     // birds
@@ -234,12 +432,26 @@ const STAGES = [
       g.stroke();
     }
     g.restore();
+
+    // foreground wisps blowing across the camera
+    g.save();
+    g.globalAlpha = 0.3; g.fillStyle = "#ffffff";
+    for (let i = 0; i < 4; i++) {
+      const span = W + 900;
+      const x = ((hash(i * 41) * span) + t * 70) % span - 450;
+      const y = H * (0.78 + hash(i * 43) * 0.2);
+      g.beginPath();
+      g.ellipse(x, y, 260, 26, 0, 0, 7);
+      g.ellipse(x - 150, y + 12, 140, 18, 0, 0, 7);
+      g.fill();
+    }
+    g.restore();
   },
 },
 
 /* ------------------------------------------------------------------ 4 --- */
 {
-  id: "VAULT", name: "NULL VAULT", tag: "CRAMPED · LETHAL",
+  id: "VAULT", name: "NULL VAULT", tag: "CRAMPED · LETHAL", deck: "grate",
   blurb: "A sealed test chamber. Tiny deck, walls right there, and the pivot leans a long way before it lets go.",
   pivot: { x: 800, y: 560 },
   // walls are close — everything kills much earlier here
@@ -271,6 +483,41 @@ const STAGES = [
     vg.addColorStop(0, "rgba(57,255,158,.10)");
     vg.addColorStop(1, "rgba(0,0,0,0)");
     g.fillStyle = vg; g.fillRect(0, 0, W, H);
+    g.restore();
+
+    // the containment ring behind the deck: this is a test chamber, and
+    // something is clearly meant to be held in the middle of it
+    g.save();
+    g.translate(W / 2, H * 0.52);
+    g.strokeStyle = "rgba(57,255,158,.12)"; g.lineWidth = 20;
+    g.beginPath(); g.arc(0, 0, 250, 0, 7); g.stroke();
+    g.strokeStyle = "rgba(57,255,158,.22)"; g.lineWidth = 2;
+    g.beginPath(); g.arc(0, 0, 260, 0, 7); g.stroke();
+    g.beginPath(); g.arc(0, 0, 240, 0, 7); g.stroke();
+    // emitter blocks at the cardinals, pulsing in sequence
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + t * 0.12;
+      const lit = (Math.sin(t * 2.4 - i * 0.7) + 1) / 2;
+      g.save();
+      g.translate(Math.cos(a) * 250, Math.sin(a) * 250);
+      g.rotate(a);
+      g.fillStyle = "#061a12";
+      g.strokeStyle = `rgba(57,255,158,${0.2 + lit * 0.4})`; g.lineWidth = 2;
+      roundRect(g, -14, -20, 28, 40, 4); g.fill(); g.stroke();
+      g.fillStyle = `rgba(57,255,158,${0.15 + lit * 0.5})`;
+      roundRect(g, -7, -13, 14, 26, 3); g.fill();
+      g.restore();
+    }
+    g.restore();
+
+    // stencilled chamber markings
+    g.save();
+    g.globalAlpha = 0.14;
+    g.font = `900 72px ${FONT_DISPLAY}`;
+    g.textAlign = "center"; g.fillStyle = "#39ff9e";
+    g.fillText("VAULT 04", W / 2, H * 0.26);
+    g.font = `700 13px ${FONT_MONO}`;
+    g.fillText("PIVOT TOLERANCE EXCEEDED · CONTAINMENT ADVISED", W / 2, H * 0.30);
     g.restore();
 
     // falling glyph columns
@@ -312,6 +559,22 @@ const STAGES = [
     g.save();
     g.globalAlpha = 0.05 + Math.abs(Math.sin(t * 0.7)) * 0.05;
     g.fillStyle = "#39ff9e"; g.fillRect(0, (t * 180) % H, W, 60);
+    g.restore();
+
+    // foreground: the chamber's own window frame, hard black, hugging the edges
+    g.save();
+    g.fillStyle = "#020705";
+    g.fillRect(0, 0, 14, H); g.fillRect(W - 14, 0, 14, H);
+    g.fillRect(0, 0, W, 10); g.fillRect(0, H - 10, W, 10);
+    // corner gussets
+    g.fillStyle = "#04120c";
+    for (const [cx, cy, sx, sy] of [[0, 0, 1, 1], [W, 0, -1, 1], [0, H, 1, -1], [W, H, -1, -1]]) {
+      g.save(); g.translate(cx, cy); g.scale(sx, sy);
+      poly(g, [0, 0, 74, 0, 0, 74]); g.fill();
+      g.strokeStyle = "rgba(57,255,158,.18)"; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(74, 0); g.lineTo(0, 74); g.stroke();
+      g.restore();
+    }
     g.restore();
   },
 },
