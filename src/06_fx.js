@@ -14,6 +14,7 @@ const FX = {
   shakeMag: 0, shakeX: 0, shakeY: 0,
   pause: 0,
   flashCol: null, flashAmt: 0,
+  chroma: 0,                 // red/blue separation, decays every frame
   bannerText: "", bannerTimer: 0, bannerColor: "#fff",
 
   cam: {
@@ -28,7 +29,7 @@ const FX = {
     this.blades.length = 0; this.bolts.length = 0;
     this.cracks.length = 0; this.glyphs.length = 0;
     this.shakeMag = 0; this.pause = 0; this.bannerTimer = 0;
-    this.flashAmt = 0;
+    this.flashAmt = 0; this.chroma = 0;
     const c = this.cam;
     c.x = c.px = Stage.pivot.x;
     c.y = c.py = Stage.pivot.y - 150;
@@ -43,6 +44,8 @@ const FX = {
   },
   hitPause(f) { this.pause = Math.max(this.pause, f); },
   flash(col, amt) { this.flashCol = col; this.flashAmt = Math.max(this.flashAmt, amt); },
+  /** Kick the chromatic aberration. Heavy hits, Snap-Backs, KOs and supers. */
+  punch(amt) { this.chroma = Math.min(1, this.chroma + amt); },
   banner(text, color) {
     if (!text) return;
     this.bannerText = text; this.bannerTimer = 72; this.bannerColor = color || "#fff";
@@ -148,6 +151,24 @@ const FX = {
     this.glyphs.push({ x, y, kind, size, color, life: life || 20, max: life || 20, rot: 0 });
   },
 
+  /** Radial impact lines. Short, bright, and gone in a few frames — the thing
+      that makes a heavy connect read as a BLOW rather than a touch. */
+  impactLines(x, y, dir, n, color, len) {
+    if (this.density <= 0) return;
+    n = Math.round(n * Math.min(1, this.density));
+    for (let i = 0; i < n; i++) {
+      const spread = 1.5;
+      const a = dir + rnd(-spread, spread);
+      const r0 = 16 + Math.random() * 14;
+      const l = (len || 42) * (0.55 + Math.random() * 0.8);
+      this.streaks.push({
+        x1: x + Math.cos(a) * r0, y1: y + Math.sin(a) * r0,
+        x2: x + Math.cos(a) * (r0 + l), y2: y + Math.sin(a) * (r0 + l),
+        color, life: 7 + (Math.random() * 4 | 0), max: 11,
+      });
+    }
+  },
+
   hitmark(x, y, dmg) { this.marks.push({ x, y, life: 11, max: 11, size: 14 + dmg * 2.6 }); },
   /** Floating text at the point of impact — a damage number, or a short label
       like TIP/STALE when something modified that number. */
@@ -198,6 +219,8 @@ const FX = {
 
     this.flashAmt *= 0.84;
     if (this.flashAmt < 0.01) this.flashAmt = 0;
+    this.chroma *= 0.80;
+    if (this.chroma < 0.01) this.chroma = 0;
     if (this.bannerTimer > 0) this.bannerTimer--;
 
     this.updateCamera(fighters);
@@ -284,6 +307,7 @@ const FX = {
   },
 
   drawWorld(g) {
+    const litParts = Settings.get("postFx") > 0;
     g.save();
     g.globalCompositeOperation = "lighter";
 
@@ -334,11 +358,21 @@ const FX = {
       g.globalAlpha = a * 0.85; g.strokeStyle = r.color;
       g.lineWidth = r.lw * (0.4 + a);
       g.beginPath(); g.arc(r.x, r.y, r.cur, 0, 7); g.stroke();
+      // a soft bloom core inside a young ring, so impacts flare
+      if (a > 0.55 && litParts)
+        Light.draw(g, r.x, r.y, r.cur * 0.9, r.color, (a - 0.55) * 0.7, 0.02);
     }
+    /* Particles cast light rather than being flat discs, so a burst reads as
+       sparks instead of confetti. Measured at ~1.3us per halo, so only the
+       larger particles get one: a 1px spark gains nothing visually from a
+       halo, and at the 900-particle cap the difference is ~1ms a frame. */
     for (const p of this.parts) {
       const a = p.life / p.max;
+      const r = p.size * (0.4 + a * 0.8);
+      if (litParts && p.size > 2.1)
+        Light.draw(g, p.x, p.y, r * 3.2, p.color, Math.min(1, a * 1.1) * 0.55, 0.12);
       g.globalAlpha = Math.min(1, a * 1.4); g.fillStyle = p.color;
-      g.beginPath(); g.arc(p.x, p.y, p.size * (0.4 + a * 0.8), 0, 7); g.fill();
+      g.beginPath(); g.arc(p.x, p.y, r, 0, 7); g.fill();
     }
     for (const m of this.marks) {
       const a = m.life / m.max;
@@ -423,7 +457,9 @@ const FX = {
     g.restore();
   },
 
+  /** Kept for the menu screens, which do not run the post pass. */
   drawOverlay(g) {
+    if (Settings.get("postFx") > 0) return;   // the post pass draws it instead
     if (this.flashAmt > 0.01) {
       g.save();
       g.globalAlpha = Math.min(0.75, this.flashAmt);

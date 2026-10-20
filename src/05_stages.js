@@ -821,6 +821,7 @@ const Stage = {
     Snd.snapback();
     FX.shake(26); FX.hitPause(8);
     FX.flash("#ffffff", 0.25);
+    FX.punch(0.85);
 
     for (const f of fighters) {
       if (!f.alive || !f.grounded || !f.groundSeg || f.pinned) continue;

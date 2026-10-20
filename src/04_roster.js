@@ -142,7 +142,11 @@ function rivets(g, x, y, n, step, col) {
   }
 }
 
-/** A lit lens/visor: dark socket, glowing core, a hot specular dot. */
+/** A lit lens/visor: dark socket, glowing core, a hot specular dot.
+    Still uses shadowBlur rather than a glow sprite: a sprite has to be stamped
+    at a point, and these shapes sit at arbitrary offsets inside each
+    fighter's local transform, so a sprite would light the fighter's centre
+    rather than the visor. There are only a handful per fighter. */
 function lens(g, pathFn, col, glowCol, blur) {
   g.save();
   pathFn(); g.fillStyle = INK; g.fill();
@@ -154,12 +158,7 @@ function lens(g, pathFn, col, glowCol, blur) {
 
 /** Faint energy wash behind a fighter — sells "this thing is powered". */
 function aura(g, x, y, r, col, a) {
-  const q = g.createRadialGradient(x, y, 0, x, y, r);
-  q.addColorStop(0, hexA(col, a === undefined ? 0.3 : a));
-  q.addColorStop(1, hexA(col, 0));
-  g.save(); g.globalCompositeOperation = "lighter";
-  g.fillStyle = q; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
-  g.restore();
+  Light.draw(g, x, y, r, col, a === undefined ? 0.3 : a, 0.05);
 }
 
 /* Reach of a swing arm.

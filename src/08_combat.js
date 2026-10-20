@@ -357,9 +357,16 @@ const Combat = {
     FX.burst(hx, hy, Math.round(6 + dmg * 1.1), atk.ch.color, 3 + dmg * 0.35);
     FX.ring(hx, hy, 6, 30 + dmg * 5, "#ffffff", 2);
     FX.hitmark(hx, hy, dmg);
+    // the bigger the hit, the more it throws off
+    if (dmg >= 6) {
+      const away = Math.atan2(-Math.sin(rad), Math.cos(rad) * dirX);
+      FX.impactLines(hx, hy, away, Math.round(3 + dmg * 0.45),
+                     dmg >= 13 ? "#ffffff" : atk.ch.accent, 30 + dmg * 2.4);
+    }
     FX.damageText(hx, hy - 24, dmg, tip ? "#ffffff" : atk.ch.accent);
     Snd.hit(dmg);
-    if (dmg >= 13) { Snd.bigHit(); FX.flash(atk.ch.color, 0.12); }
+    if (dmg >= 13) { Snd.bigHit(); FX.flash(atk.ch.color, 0.12); FX.punch(0.5); }
+    else if (dmg >= 7) FX.punch(0.22);
 
     /* Tell the player why the number was what it was — a skill mechanic the
        player cannot see is just inconsistency. */

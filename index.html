@@ -165,6 +165,7 @@ const CFG = {
     showHitboxGlow: true,
     musicOn:     true,
     sfxOn:       true,
+    postFx:      1.0,   // bloom, chromatic aberration and vignette; 0 disables
   },
 };
 
@@ -413,6 +414,146 @@ const Snd = {
     if (deg >= 0) note(m.root * Math.pow(2, m.scale[deg % m.scale.length] / 12) * (deg >= m.scale.length ? 2 : 1));
     // hat
     if (m.hats && s % 2 === 1) this.noise(0.03, 0.05, 7000, 1, "highpass");
+  },
+};
+
+
+/* ===== src/02a_glow.js ===== */
+/* ==========================================================================
+   3b. LIGHT — cached glow sprites and the screen post-processing pass
+
+   WHY SPRITES INSTEAD OF shadowBlur
+   Canvas `shadowBlur` re-blurs its source on every single draw call. The game
+   was using it for every lit visor, every ring, every particle flourish, which
+   meant re-blurring dozens of shapes per frame. A radial-gradient sprite baked
+   once and then stamped with additive blending looks the same or better and is
+   a plain drawImage. Cheap enough that light can be used liberally, which is
+   what makes a neon game actually glow instead of merely having bright colours.
+
+   THE POST PASS
+   Everything that makes a frame feel finished rather than merely drawn:
+     bloom      bright areas bleed into their surroundings
+     chroma     red/blue separation on heavy impacts
+     flash      full-screen colour on a super or a KO
+     vignette   darkened corners so the eye goes to the middle
+   It runs on the world, underneath the HUD, so readouts stay crisp.
+   ========================================================================== */
+
+const Light = {
+  cache: new Map(),
+  sizes: [8, 16, 32, 64, 128, 256],
+  bloomCv: null, bloomCtx: null,
+
+  _bucket(r) {
+    for (const s of this.sizes) if (r <= s) return s;
+    return 256;
+  },
+
+  /** A soft radial sprite: white hot centre, the colour, then out to nothing. */
+  sprite(color, radius, core) {
+    core = core === undefined ? 0.18 : core;
+    const r = this._bucket(radius);
+    const key = color + "|" + r + "|" + core;
+    let c = this.cache.get(key);
+    if (c) return c;
+    c = document.createElement("canvas");
+    c.width = c.height = r * 2;
+    const cx = c.getContext("2d");
+    const q = cx.createRadialGradient(r, r, 0, r, r, r);
+    q.addColorStop(0, "#ffffff");
+    q.addColorStop(core, color);
+    q.addColorStop(0.45, hexA(color, 0.35));
+    q.addColorStop(1, hexA(color, 0));
+    cx.fillStyle = q;
+    cx.fillRect(0, 0, r * 2, r * 2);
+    if (this.cache.size < 220) this.cache.set(key, c);
+    return c;
+  },
+
+  /** Stamp a glow centred on (x,y). Additive, so overlapping lights build up. */
+  draw(ctx, x, y, radius, color, alpha, core) {
+    if (alpha !== undefined && alpha <= 0.01) return;
+    if (radius <= 0.5) return;
+    const s = this.sprite(color, radius, core);
+    const pa = ctx.globalAlpha, po = ctx.globalCompositeOperation;
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = pa * Math.min(1, alpha === undefined ? 1 : alpha);
+    ctx.drawImage(s, x - radius, y - radius, radius * 2, radius * 2);
+    ctx.globalAlpha = pa;
+    ctx.globalCompositeOperation = po;
+  },
+
+  /* ------------------------------------------------------------- post ---- */
+
+  /** Cheap thresholded bloom.
+
+      Downsampling and adding the result straight back lifts EVERY pixel by a
+      fraction of its neighbourhood, which washed the whole frame out — the
+      background is dark blue, not black, so it bloomed too. Multiplying the
+      downsample by itself squares each channel first: a dark 0.2 becomes 0.04
+      while a hot 0.9 stays 0.81, so only genuinely bright things bleed. Three
+      drawImages and no pixel reads. */
+  bloom(ctx, canvas, w, h, amount) {
+    if (amount <= 0.01) return;
+    const bw = Math.max(1, (w / 8) | 0), bh = Math.max(1, (h / 8) | 0);
+    if (!this.bloomCv) {
+      this.bloomCv = document.createElement("canvas");
+      this.bloomCtx = this.bloomCv.getContext("2d");
+    }
+    if (this.bloomCv.width !== bw || this.bloomCv.height !== bh) {
+      this.bloomCv.width = bw; this.bloomCv.height = bh;
+    }
+    const b = this.bloomCtx;
+    b.globalCompositeOperation = "source-over";
+    b.clearRect(0, 0, bw, bh);
+    b.drawImage(canvas, 0, 0, bw, bh);
+    // square it against the same source, never against itself
+    b.globalCompositeOperation = "multiply";
+    b.drawImage(canvas, 0, 0, bw, bh);
+    b.globalCompositeOperation = "source-over";
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = amount;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(this.bloomCv, 0, 0, w, h);
+    ctx.restore();
+  },
+
+  /** Red/blue separation. Used on heavy impacts, Snap-Backs and KOs. */
+  chroma(ctx, canvas, w, h, amount) {
+    if (amount <= 0.02) return;
+    const shift = amount * 7;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = 0.3 * amount;
+    ctx.drawImage(canvas, -shift, 0);
+    ctx.drawImage(canvas, shift, 0);
+    ctx.restore();
+  },
+
+  vignette(ctx, w, h, amount) {
+    const q = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.34,
+                                       w / 2, h / 2, Math.max(w, h) * 0.76);
+    q.addColorStop(0, "rgba(0,0,0,0)");
+    q.addColorStop(1, "rgba(0,0,8," + amount + ")");
+    ctx.fillStyle = q;
+    ctx.fillRect(0, 0, w, h);
+  },
+
+  /** The whole pass, in screen space. Call after the world, before the HUD. */
+  post(ctx, canvas, w, h) {
+    const q = Settings.get("postFx");
+    if (q <= 0) return;
+    this.chroma(ctx, canvas, w, h, FX.chroma * q);
+    this.bloom(ctx, canvas, w, h, 0.62 * q);
+    if (FX.flashAmt > 0.01) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(0.7, FX.flashAmt);
+      ctx.fillStyle = FX.flashCol || "#ffffff";
+      ctx.fillRect(0, 0, w, h);
+      ctx.restore();
+    }
+    this.vignette(ctx, w, h, 0.5 * q);
   },
 };
 
@@ -733,7 +874,11 @@ function rivets(g, x, y, n, step, col) {
   }
 }
 
-/** A lit lens/visor: dark socket, glowing core, a hot specular dot. */
+/** A lit lens/visor: dark socket, glowing core, a hot specular dot.
+    Still uses shadowBlur rather than a glow sprite: a sprite has to be stamped
+    at a point, and these shapes sit at arbitrary offsets inside each
+    fighter's local transform, so a sprite would light the fighter's centre
+    rather than the visor. There are only a handful per fighter. */
 function lens(g, pathFn, col, glowCol, blur) {
   g.save();
   pathFn(); g.fillStyle = INK; g.fill();
@@ -745,12 +890,7 @@ function lens(g, pathFn, col, glowCol, blur) {
 
 /** Faint energy wash behind a fighter — sells "this thing is powered". */
 function aura(g, x, y, r, col, a) {
-  const q = g.createRadialGradient(x, y, 0, x, y, r);
-  q.addColorStop(0, hexA(col, a === undefined ? 0.3 : a));
-  q.addColorStop(1, hexA(col, 0));
-  g.save(); g.globalCompositeOperation = "lighter";
-  g.fillStyle = q; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
-  g.restore();
+  Light.draw(g, x, y, r, col, a === undefined ? 0.3 : a, 0.05);
 }
 
 /* Reach of a swing arm.
@@ -3248,6 +3388,7 @@ const Stage = {
     Snd.snapback();
     FX.shake(26); FX.hitPause(8);
     FX.flash("#ffffff", 0.25);
+    FX.punch(0.85);
 
     for (const f of fighters) {
       if (!f.alive || !f.grounded || !f.groundSeg || f.pinned) continue;
@@ -3460,6 +3601,7 @@ const FX = {
   shakeMag: 0, shakeX: 0, shakeY: 0,
   pause: 0,
   flashCol: null, flashAmt: 0,
+  chroma: 0,                 // red/blue separation, decays every frame
   bannerText: "", bannerTimer: 0, bannerColor: "#fff",
 
   cam: {
@@ -3474,7 +3616,7 @@ const FX = {
     this.blades.length = 0; this.bolts.length = 0;
     this.cracks.length = 0; this.glyphs.length = 0;
     this.shakeMag = 0; this.pause = 0; this.bannerTimer = 0;
-    this.flashAmt = 0;
+    this.flashAmt = 0; this.chroma = 0;
     const c = this.cam;
     c.x = c.px = Stage.pivot.x;
     c.y = c.py = Stage.pivot.y - 150;
@@ -3489,6 +3631,8 @@ const FX = {
   },
   hitPause(f) { this.pause = Math.max(this.pause, f); },
   flash(col, amt) { this.flashCol = col; this.flashAmt = Math.max(this.flashAmt, amt); },
+  /** Kick the chromatic aberration. Heavy hits, Snap-Backs, KOs and supers. */
+  punch(amt) { this.chroma = Math.min(1, this.chroma + amt); },
   banner(text, color) {
     if (!text) return;
     this.bannerText = text; this.bannerTimer = 72; this.bannerColor = color || "#fff";
@@ -3594,6 +3738,24 @@ const FX = {
     this.glyphs.push({ x, y, kind, size, color, life: life || 20, max: life || 20, rot: 0 });
   },
 
+  /** Radial impact lines. Short, bright, and gone in a few frames — the thing
+      that makes a heavy connect read as a BLOW rather than a touch. */
+  impactLines(x, y, dir, n, color, len) {
+    if (this.density <= 0) return;
+    n = Math.round(n * Math.min(1, this.density));
+    for (let i = 0; i < n; i++) {
+      const spread = 1.5;
+      const a = dir + rnd(-spread, spread);
+      const r0 = 16 + Math.random() * 14;
+      const l = (len || 42) * (0.55 + Math.random() * 0.8);
+      this.streaks.push({
+        x1: x + Math.cos(a) * r0, y1: y + Math.sin(a) * r0,
+        x2: x + Math.cos(a) * (r0 + l), y2: y + Math.sin(a) * (r0 + l),
+        color, life: 7 + (Math.random() * 4 | 0), max: 11,
+      });
+    }
+  },
+
   hitmark(x, y, dmg) { this.marks.push({ x, y, life: 11, max: 11, size: 14 + dmg * 2.6 }); },
   /** Floating text at the point of impact — a damage number, or a short label
       like TIP/STALE when something modified that number. */
@@ -3644,6 +3806,8 @@ const FX = {
 
     this.flashAmt *= 0.84;
     if (this.flashAmt < 0.01) this.flashAmt = 0;
+    this.chroma *= 0.80;
+    if (this.chroma < 0.01) this.chroma = 0;
     if (this.bannerTimer > 0) this.bannerTimer--;
 
     this.updateCamera(fighters);
@@ -3730,6 +3894,7 @@ const FX = {
   },
 
   drawWorld(g) {
+    const litParts = Settings.get("postFx") > 0;
     g.save();
     g.globalCompositeOperation = "lighter";
 
@@ -3780,11 +3945,21 @@ const FX = {
       g.globalAlpha = a * 0.85; g.strokeStyle = r.color;
       g.lineWidth = r.lw * (0.4 + a);
       g.beginPath(); g.arc(r.x, r.y, r.cur, 0, 7); g.stroke();
+      // a soft bloom core inside a young ring, so impacts flare
+      if (a > 0.55 && litParts)
+        Light.draw(g, r.x, r.y, r.cur * 0.9, r.color, (a - 0.55) * 0.7, 0.02);
     }
+    /* Particles cast light rather than being flat discs, so a burst reads as
+       sparks instead of confetti. Measured at ~1.3us per halo, so only the
+       larger particles get one: a 1px spark gains nothing visually from a
+       halo, and at the 900-particle cap the difference is ~1ms a frame. */
     for (const p of this.parts) {
       const a = p.life / p.max;
+      const r = p.size * (0.4 + a * 0.8);
+      if (litParts && p.size > 2.1)
+        Light.draw(g, p.x, p.y, r * 3.2, p.color, Math.min(1, a * 1.1) * 0.55, 0.12);
       g.globalAlpha = Math.min(1, a * 1.4); g.fillStyle = p.color;
-      g.beginPath(); g.arc(p.x, p.y, p.size * (0.4 + a * 0.8), 0, 7); g.fill();
+      g.beginPath(); g.arc(p.x, p.y, r, 0, 7); g.fill();
     }
     for (const m of this.marks) {
       const a = m.life / m.max;
@@ -3869,7 +4044,9 @@ const FX = {
     g.restore();
   },
 
+  /** Kept for the menu screens, which do not run the post pass. */
   drawOverlay(g) {
+    if (Settings.get("postFx") > 0) return;   // the post pass draws it instead
     if (this.flashAmt > 0.01) {
       g.save();
       g.globalAlpha = Math.min(0.75, this.flashAmt);
@@ -4187,6 +4364,7 @@ class Fighter {
     };
     this.setState(ST.ATTACK);
     this.invuln = Math.max(this.invuln, m.startup + 4);
+    FX.punch(0.6);
     if (m.onStart) m.onStart(this);
     FX.banner(m.name.toUpperCase(), this.ch.color);
     FX.hitPause(10);
@@ -4478,6 +4656,7 @@ class Fighter {
     const ex = clamp(this.x, 40, CFG.world.w - 40), ey = clamp(this.y, 40, CFG.world.h - 40);
     FX.burst(ex, ey, 34, this.ch.color, 11);
     FX.ring(ex, ey, 16, 280, this.ch.color, 4);
+    FX.punch(0.9);
     FX.banner(this.stocks > 0 ? "KO!" : `${this.ch.name} OUT!`, this.tint);
     this.setState(ST.DEAD);
     this.respawnTimer = CFG.respawnFrames;
@@ -4882,9 +5061,16 @@ const Combat = {
     FX.burst(hx, hy, Math.round(6 + dmg * 1.1), atk.ch.color, 3 + dmg * 0.35);
     FX.ring(hx, hy, 6, 30 + dmg * 5, "#ffffff", 2);
     FX.hitmark(hx, hy, dmg);
+    // the bigger the hit, the more it throws off
+    if (dmg >= 6) {
+      const away = Math.atan2(-Math.sin(rad), Math.cos(rad) * dirX);
+      FX.impactLines(hx, hy, away, Math.round(3 + dmg * 0.45),
+                     dmg >= 13 ? "#ffffff" : atk.ch.accent, 30 + dmg * 2.4);
+    }
     FX.damageText(hx, hy - 24, dmg, tip ? "#ffffff" : atk.ch.accent);
     Snd.hit(dmg);
-    if (dmg >= 13) { Snd.bigHit(); FX.flash(atk.ch.color, 0.12); }
+    if (dmg >= 13) { Snd.bigHit(); FX.flash(atk.ch.color, 0.12); FX.punch(0.5); }
+    else if (dmg >= 7) FX.punch(0.22);
 
     /* Tell the player why the number was what it was — a skill mechanic the
        player cannot see is just inconsistency. */
@@ -5907,13 +6093,30 @@ class Match {
     FX.drawWorld(g);
     g.restore();
 
+    /* The banner and the countdown are drawn before the post pass rather than
+       after it, so SNAP-BACK! and BRAWL! bloom like everything else in the
+       world. The HUD stays after it and therefore stays crisp. */
+    drawBanner();
+    this.drawCountdown();
+
+    /* Post-processing runs on the world only: bloom, chroma, flash and
+       vignette land here, underneath the HUD, so the readouts stay legible. */
+    Light.post(g, cv, W, H);
+
     FX.drawOverlay(g);
     drawOffscreenMarkers(this.fighters, cam);
     drawBalanceBar();
     drawClock(this.timeLeft);
     drawPlayerHUD(this.fighters);
-    drawBanner();
 
+    g.save();
+    g.font = `700 10px ${FONT_MONO}`;
+    g.textAlign = "right"; g.fillStyle = "rgba(255,255,255,.16)";
+    g.fillText("COOL MATT GAMES", W - 16, H - 10);
+    g.restore();
+  }
+
+  drawCountdown() {
     if (this.countdown > 0) {
       const step = Math.floor(this.countdown / 40);
       const txt = step >= 3 ? "READY" : step >= 2 ? "SET" : step >= 1 ? "..." : "BRAWL!";
@@ -5929,12 +6132,6 @@ class Match {
       outlineText(g, txt, 0, 0, step === 0 ? "#b6ff3b" : Stage.pal.platEdge, 11);
       g.restore();
     }
-
-    g.save();
-    g.font = `700 10px ${FONT_MONO}`;
-    g.textAlign = "right"; g.fillStyle = "rgba(255,255,255,.16)";
-    g.fillText("COOL MATT GAMES", W - 16, H - 10);
-    g.restore();
   }
 }
 Match.current = null;
@@ -6110,7 +6307,7 @@ const Game = {
 
   draw(alpha) {
     switch (this.screen) {
-      case "title":    this.drawTitle(); break;
+      case "title":    this.drawTitle(); Light.post(g, cv, W, H); break;
       case "select":   this.drawSelect(); break;
       case "stage":    this.drawStageSelect(); break;
       case "controls": this.drawControls(); break;
@@ -6642,6 +6839,9 @@ const Game = {
       { key: "shakeAmount", label: "Screen Shake",
         note: "Impact shake on hits, KOs and Snap-Backs.",
         steps: [["OFF", 0], ["LOW", 0.5], ["NORMAL", 1.0], ["HIGH", 1.6]] },
+      { key: "postFx", label: "Lighting & Bloom",
+        note: "Glow bleed, impact colour-split and the darkened corners. Turn down if the game ever feels heavy.",
+        steps: [["OFF", 0], ["LOW", 0.5], ["NORMAL", 1.0], ["HIGH", 1.4]] },
       { key: "particles", label: "Particle Density",
         note: "Lower this if the game ever drops frames on a big 4-player Snap-Back.",
         steps: [["LOW", 0.4], ["NORMAL", 1.0], ["HIGH", 1.6]] },

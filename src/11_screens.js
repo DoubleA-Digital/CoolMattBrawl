@@ -167,7 +167,7 @@ const Game = {
 
   draw(alpha) {
     switch (this.screen) {
-      case "title":    this.drawTitle(); break;
+      case "title":    this.drawTitle(); Light.post(g, cv, W, H); break;
       case "select":   this.drawSelect(); break;
       case "stage":    this.drawStageSelect(); break;
       case "controls": this.drawControls(); break;
@@ -699,6 +699,9 @@ const Game = {
       { key: "shakeAmount", label: "Screen Shake",
         note: "Impact shake on hits, KOs and Snap-Backs.",
         steps: [["OFF", 0], ["LOW", 0.5], ["NORMAL", 1.0], ["HIGH", 1.6]] },
+      { key: "postFx", label: "Lighting & Bloom",
+        note: "Glow bleed, impact colour-split and the darkened corners. Turn down if the game ever feels heavy.",
+        steps: [["OFF", 0], ["LOW", 0.5], ["NORMAL", 1.0], ["HIGH", 1.4]] },
       { key: "particles", label: "Particle Density",
         note: "Lower this if the game ever drops frames on a big 4-player Snap-Back.",
         steps: [["LOW", 0.4], ["NORMAL", 1.0], ["HIGH", 1.6]] },

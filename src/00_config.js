@@ -128,6 +128,7 @@ const CFG = {
     showHitboxGlow: true,
     musicOn:     true,
     sfxOn:       true,
+    postFx:      1.0,   // bloom, chromatic aberration and vignette; 0 disables
   },
 };
 

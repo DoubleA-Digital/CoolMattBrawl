@@ -303,6 +303,7 @@ class Fighter {
     };
     this.setState(ST.ATTACK);
     this.invuln = Math.max(this.invuln, m.startup + 4);
+    FX.punch(0.6);
     if (m.onStart) m.onStart(this);
     FX.banner(m.name.toUpperCase(), this.ch.color);
     FX.hitPause(10);
@@ -594,6 +595,7 @@ class Fighter {
     const ex = clamp(this.x, 40, CFG.world.w - 40), ey = clamp(this.y, 40, CFG.world.h - 40);
     FX.burst(ex, ey, 34, this.ch.color, 11);
     FX.ring(ex, ey, 16, 280, this.ch.color, 4);
+    FX.punch(0.9);
     FX.banner(this.stocks > 0 ? "KO!" : `${this.ch.name} OUT!`, this.tint);
     this.setState(ST.DEAD);
     this.respawnTimer = CFG.respawnFrames;

@@ -96,13 +96,30 @@ class Match {
     FX.drawWorld(g);
     g.restore();
 
+    /* The banner and the countdown are drawn before the post pass rather than
+       after it, so SNAP-BACK! and BRAWL! bloom like everything else in the
+       world. The HUD stays after it and therefore stays crisp. */
+    drawBanner();
+    this.drawCountdown();
+
+    /* Post-processing runs on the world only: bloom, chroma, flash and
+       vignette land here, underneath the HUD, so the readouts stay legible. */
+    Light.post(g, cv, W, H);
+
     FX.drawOverlay(g);
     drawOffscreenMarkers(this.fighters, cam);
     drawBalanceBar();
     drawClock(this.timeLeft);
     drawPlayerHUD(this.fighters);
-    drawBanner();
 
+    g.save();
+    g.font = `700 10px ${FONT_MONO}`;
+    g.textAlign = "right"; g.fillStyle = "rgba(255,255,255,.16)";
+    g.fillText("COOL MATT GAMES", W - 16, H - 10);
+    g.restore();
+  }
+
+  drawCountdown() {
     if (this.countdown > 0) {
       const step = Math.floor(this.countdown / 40);
       const txt = step >= 3 ? "READY" : step >= 2 ? "SET" : step >= 1 ? "..." : "BRAWL!";
@@ -118,12 +135,6 @@ class Match {
       outlineText(g, txt, 0, 0, step === 0 ? "#b6ff3b" : Stage.pal.platEdge, 11);
       g.restore();
     }
-
-    g.save();
-    g.font = `700 10px ${FONT_MONO}`;
-    g.textAlign = "right"; g.fillStyle = "rgba(255,255,255,.16)";
-    g.fillText("COOL MATT GAMES", W - 16, H - 10);
-    g.restore();
   }
 }
 Match.current = null;
