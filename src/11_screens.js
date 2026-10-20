@@ -191,12 +191,18 @@ const Game = {
 
     // decorative tilting beam with the roster riding it
     const a = Math.sin(this.titleT * 0.011) * 0.15;
+    /* The beam and the roster share one half-width so they can never disagree.
+       This used to be a hard-coded 340 with fighters placed every 156 units
+       from -234, which fitted a roster of four exactly -- at eight, the last
+       four stood on thin air past the end of the beam. */
+    const beamHalf = 430;
     g.save();
     g.translate(W / 2, H * 0.84); g.rotate(a);
-    g.fillStyle = "#15102b"; roundRect(g, -340, -12, 680, 52, 8); g.fill();
+    g.fillStyle = "#15102b";
+    roundRect(g, -beamHalf, -12, beamHalf * 2, 52, 8); g.fill();
     g.strokeStyle = "#00e5ff"; g.lineWidth = 5;
     g.shadowColor = "#00e5ff"; g.shadowBlur = 24;
-    g.beginPath(); g.moveTo(-340, -12); g.lineTo(340, -12); g.stroke();
+    g.beginPath(); g.moveTo(-beamHalf, -12); g.lineTo(beamHalf, -12); g.stroke();
     g.restore();
     g.save();
     g.strokeStyle = "rgba(120,110,170,.4)"; g.lineWidth = 10;
@@ -205,12 +211,16 @@ const Game = {
     g.beginPath(); g.arc(W / 2, H * 0.84, 15, 0, 7); g.fill();
     g.restore();
 
+    // spread whatever the roster is evenly along the beam, inside its ends
+    const inset = 52, n = ROSTER.length;
+    const span = (beamHalf - inset) * 2;
+    const step = n > 1 ? span / (n - 1) : 0;
     ROSTER.forEach((c, i) => {
-      const lx = -234 + i * 156;
+      const lx = -(beamHalf - inset) + i * step;
       const x = W / 2 + lx * Math.cos(a), y = H * 0.84 + lx * Math.sin(a);
       g.save();
-      g.translate(x, y - 32); g.rotate(a);
-      g.scale(0.95, 0.95);
+      g.translate(x, y - 28); g.rotate(a);
+      g.scale(0.78, 0.78);
       c.draw(g, { time: this.titleT + i * 40, runPhase: 0, running: false, air: false,
                   vx: 0, vy: 0, state: ST.IDLE, flash: false, atkPhase: -1 });
       g.restore();
@@ -224,7 +234,16 @@ const Game = {
     g.shadowBlur = 0;
 
     const bob = Math.sin(this.titleT * 0.028) * 4;
-    g.font = `900 104px ${FONT_DISPLAY}`;
+    /* Fit the wordmark to the canvas rather than trusting a fixed size: at
+       104px Archivo Black it ran past both edges. */
+    let logoPx = 104;
+    g.font = `900 ${logoPx}px ${FONT_DISPLAY}`;
+    const maxLogoW = W - 120;
+    const measured = g.measureText("COOL MATT BRAWL").width;
+    if (measured > maxLogoW) {
+      logoPx = Math.floor(logoPx * (maxLogoW / measured));
+      g.font = `900 ${logoPx}px ${FONT_DISPLAY}`;
+    }
     const lg = g.createLinearGradient(W / 2 - 400, 140, W / 2 + 400, 220);
     lg.addColorStop(0, "#00e5ff"); lg.addColorStop(0.5, "#ffffff"); lg.addColorStop(1, "#ff2e88");
     g.shadowColor = "#00e5ff"; g.shadowBlur = 32;
@@ -248,7 +267,9 @@ const Game = {
     g.save();
     g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`;
     g.fillStyle = "#6b6a85";
-    g.fillText("2-4 PLAYERS LOCAL  ·  2 PLAYERS ONLINE  ·  GAMEPADS SUPPORTED", W / 2, 524);
+    /* Sits under the wordmark, not under the buttons: down there the tilting
+       beam swings the leftmost fighters up through it. */
+    g.fillText("2-4 PLAYERS LOCAL  ·  2 PLAYERS ONLINE  ·  GAMEPADS SUPPORTED", W / 2, 243);
     g.restore();
   },
 

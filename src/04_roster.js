@@ -381,7 +381,7 @@ const ROSTER = [
     const ax = 18 + sw, ay = -4 + (A.atkPhase >= 0 ? -3 : 0);
     // back arm first so the front one overlaps it
     jointLimb(g, -15, -11, -20 - (A.running ? st * 0.4 : 0), 2, -3.5, 9, dark);
-    plateRect(g, -26, -3, 12, 12, 5, dark, { up: 0.2 });
+    plateRect(g, -25, -2, 10, 10, 4.5, deep, { up: 0.14, rim: false });
     // upper arm in shadow, forearm in body colour and much thicker
     jointLimb(g, 15, -11, (15 + ax) / 2, ay - 1, 2, 10, dark);
     limb(g, (15 + ax) / 2, ay - 1, ax - 3, ay, 12, mid_(c, c2));
@@ -402,7 +402,10 @@ const ROSTER = [
           { up: 0.3, down: 0.34, under: true });
     // the striking face only — the one bright surface, kept thin
     plate(g, [12, -10, 15, -9.5, 15, 7.5, 12, 8], ac, { up: 0.1, down: 0.2, ink: 2.2 });
-    rivets(g, 1, -7, 2, 5, ac);
+    // a seam line, not a pair of bright rivets -- two dots on the anvil read
+    // as eyes and turned the weapon into a face
+    g.strokeStyle = hexA(INK, 0.5); g.lineWidth = 1.6;
+    g.beginPath(); g.moveTo(1, -9); g.lineTo(1, 7); g.stroke();
     g.restore();
   },
 },
@@ -973,14 +976,15 @@ const ROSTER = [
       g.save();
       const spread = t === 0 ? 0 : 4;
       const seg = (s) => [
-        -4 - s * 7.5 - Math.abs(A.vx) * 0.8 * s * 0.35,
-        -18 + spread + Math.sin(A.time * 0.1 + s * 0.7 + t * 1.3) * (2.6 + s * 1.9) + s * 1.3,
+        -4 - s * 7.2 - Math.abs(A.vx) * 0.8 * s * 0.35,
+        // trails DOWN behind her: curling upward made it read as a hook
+        -17 + spread + Math.sin(A.time * 0.1 + s * 0.7 + t * 1.3) * (2.2 + s * 1.3) + s * 3.4,
       ];
       g.lineCap = "round"; g.lineJoin = "round";
       // taper: each segment drawn thinner than the last
       for (let s = 0; s < 5; s++) {
         const [x1, y1] = seg(s), [x2, y2] = seg(s + 1);
-        const w = (t ? 4.6 : 6.4) * (1 - s * 0.16);
+        const w = (t ? 4.2 : 6.0) * (1 - s * 0.19);
         g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2);
         g.strokeStyle = INK; g.lineWidth = w + 1.8; g.stroke();
         g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2);
@@ -1037,7 +1041,8 @@ const ROSTER = [
           { up: 0.34, down: 0.34, under: true });
     g.fillStyle = INK; g.fillRect(-2, -3, 11, 3.4);
     g.fillStyle = hexA(c, 0.5); g.fillRect(-2, -3, 11, 1.2);
-    rivets(g, 1, -6, 2, 4.5, ac);
+    g.strokeStyle = hexA(INK, 0.45); g.lineWidth = 1.4;
+    g.beginPath(); g.moveTo(2, -7); g.lineTo(2, 6); g.stroke();
     // the edge the stage actually gets levered with
     lens(g, () => poly(g, [9, -5.5, 14, -0.6, 14, 0.6, 9, 6]), ac, c, 13);
     g.restore();
@@ -1177,13 +1182,13 @@ const ROSTER = [
     plate(g, [-13, -14, 13, -14, 15, 4, -15, 4], dark, { up: 0.12, down: 0.3, rimA: 0.26 });
     // hazard stripe across the chest — the one piece of pure signage on him
     g.save();
-    poly(g, [-15, -4, 15, -4, 15, 4, -15, 4]); g.clip();
-    g.fillStyle = deep; g.fillRect(-15, -4, 30, 8);
-    hatch(g, -15, -4, 30, 8, ac, 7, 0.85);
+    poly(g, [-13, -2, 13, -2, 13, 4, -13, 4]); g.clip();
+    g.fillStyle = deep; g.fillRect(-13, -2, 26, 6);
+    hatch(g, -13, -2, 26, 6, ac, 7, 0.5);
     g.restore();
     g.strokeStyle = INK; g.lineWidth = 2;
-    g.strokeRect(-15, -4, 30, 8);
-    rivets(g, -12, -11, 7, 4, ac);
+    g.strokeRect(-13, -2, 26, 6);
+    rivets(g, -11, -10, 6, 4, ac);
 
     /* --- shoulders: one bare mount for the jib, one armoured --- */
     plate(g, [-22, -22, -6, -24, -4, -10, -20, -8], deep, { up: 0.24 });
@@ -1199,7 +1204,7 @@ const ROSTER = [
     plate(g, [-3, -34, 5, -34, 4, -39, -2, -39], deep, { up: 0.2, rim: false });
     g.globalCompositeOperation = "lighter";
     const lq = g.createLinearGradient(0, -38, 22, -26);
-    lq.addColorStop(0, hexA(ac, 0.34)); lq.addColorStop(1, hexA(ac, 0));
+    lq.addColorStop(0, hexA(ac, 0.2)); lq.addColorStop(1, hexA(ac, 0));
     g.fillStyle = lq;
     poly(g, [3, -38, 24, -33, 24, -22, 3, -34]); g.fill();
     g.restore();
@@ -1321,20 +1326,22 @@ const ROSTER = [
     ink(g, sailPath, vol(g, -26, 24, dark, 0.3, 0.3), 3);
     rim(g, sailPath, "#ffffff", 3, 0.35);
     // spars
-    g.strokeStyle = hexA(ac, 0.5); g.lineWidth = 1.3;
-    for (let i = 1; i <= 3; i++) {
+    g.strokeStyle = hexA(ac, 0.28); g.lineWidth = 1.1;
+    for (let i = 1; i <= 2; i++) {
       g.beginPath(); g.moveTo(0, 0);
-      g.lineTo(-span * (0.5 + i * 0.2), -14 + i * 7); g.stroke();
+      g.lineTo(-span * (0.6 + i * 0.22), -11 + i * 9); g.stroke();
     }
     // streamers off the trailing edge
     g.lineCap = "round";
+    /* Short ripples hugging the trailing edge. Long ones in any colour stuck
+       out sideways and read as antennae rather than cloth. */
     for (let i = 0; i < 3; i++) {
-      g.strokeStyle = hexA(ac, 0.4 - i * 0.1); g.lineWidth = 1.8 - i * 0.4;
+      g.strokeStyle = hexA(c, 0.45 - i * 0.12); g.lineWidth = 2;
+      const ey = -9 + i * 8;
       g.beginPath();
-      g.moveTo(-span * 1.04, 1 + i * 5);
-      for (let sgm = 1; sgm <= 3; sgm++)
-        g.lineTo(-span * 1.04 - sgm * 9,
-                 1 + i * 5 + Math.sin(A.time * 0.15 + sgm + i) * (2 + sgm * 1.8));
+      g.moveTo(-span * 0.98, ey);
+      g.quadraticCurveTo(-span * 1.1, ey + 3 + Math.sin(A.time * 0.18 + i) * 2.5,
+                         -span * 1.16, ey + 1);
       g.stroke();
     }
     g.restore();
@@ -1360,14 +1367,12 @@ const ROSTER = [
     g.save(); g.rotate(A.running ? 0.08 : 0.02 + breeze * 0.02);
     plate(g, [-8, -14, 9, -15, 8, 10, -7, 9], body, { up: 0.3, down: 0.32, under: true });
     plate(g, [-6, -11, 7, -12, 6, 0, -5, 0], dark, { up: 0.12, down: 0.28, rimA: 0.3 });
-    // a wind chevron, not Zip's lightning bolt
-    glow(g, ac, 11, () => {
-      g.strokeStyle = ac; g.lineWidth = 1.7; g.lineCap = "round";
-      for (let i = 0; i < 2; i++) {
-        g.beginPath();
-        g.moveTo(-4, -8 + i * 6); g.lineTo(2, -5 + i * 6); g.lineTo(-4, -2 + i * 6);
-        g.stroke();
-      }
+    // one small chevron: stacked pairs read as a capital W on her chest
+    glow(g, ac, 10, () => {
+      g.strokeStyle = ac; g.lineWidth = 1.6; g.lineCap = "round";
+      g.beginPath();
+      g.moveTo(-3.5, -7); g.lineTo(2, -3.5); g.lineTo(-3.5, 0);
+      g.stroke();
     });
     g.restore();
 
@@ -1553,18 +1558,18 @@ const ROSTER = [
 
     /* --- the core, burning behind the shroud's gap --- */
     g.fillStyle = INK;
-    poly(g, [-8, -10, 8, -10, 6, 6, -6, 6]); g.fill();
-    lens(g, () => { g.beginPath(); g.ellipse(0, -2, 5.4, 7, 0, 0, 7); },
+    poly(g, [-8, -7, 8, -7, 6, 9, -6, 9]); g.fill();
+    lens(g, () => { g.beginPath(); g.ellipse(0, 1, 5.2, 6.6, 0, 0, 7); },
          lit, lit, 18 + pulse * 14);
 
     /* A heavy collar yoke across the shoulders. Drawn as a full ellipse it
        sat under the hood like a grin, so it is a flattened band with raised
        shoulder bosses instead. */
     g.save();
-    plate(g, [-21, -16, 21, -16, 18, -9, -18, -9], deep, { up: 0.26, rimA: 0.4 });
-    for (const bx of [-15, 0, 15]) screw(g, bx, -12.5, 2.2, ac);
-    plate(g, [-25, -17, -13, -19, -12, -11, -23, -10], deep, { up: 0.3, rim: false });
-    plate(g, [25, -17, 13, -19, 12, -11, 23, -10], deep, { up: 0.3, rim: false });
+    plate(g, [-20, -17, 20, -17, 17, -11, -17, -11], deep, { up: 0.26, rimA: 0.4 });
+    for (const bx of [-13, 13]) screw(g, bx, -14, 2.2, ac);
+    plate(g, [-25, -15, -14, -17, -13, -9, -23, -8], deep, { up: 0.3, rim: false });
+    plate(g, [25, -15, 14, -17, 13, -9, 23, -8], deep, { up: 0.3, rim: false });
     g.restore();
 
     /* --- head: a hood with nothing in it but two lights --- */
@@ -1587,19 +1592,24 @@ const ROSTER = [
        dark wrist behind them so the hand reads as held rather than carried. */
     g.save(); g.translate(ax, ay);
     plateRect(g, -12, -7, 8, 14, 3, deep, { up: 0.12, rim: false });
-    const fistPts = [-5, -10, 7, -12, 13, -7, 14, 5, 9, 11, -4, 11];
+    // the back of the hand
+    const fistPts = [-5, -9, 6, -11, 11, -7, 12, 4, 8, 10, -4, 10];
     plate(g, fistPts, body, { up: 0.3, down: 0.38, under: true });
+    // three curled fingers stepping down the front, so it reads as a fist
+    for (let i = 0; i < 3; i++) {
+      const fy = -7 + i * 6;
+      plateRect(g, 8, fy, 7, 5.4, 2.6, shade(body, 0.08 - i * 0.04),
+                { up: 0.2, rim: false, ink: 2.2 });
+    }
+    // and a thumb across the near side
+    plate(g, [-4, 0, 4, -2, 6, 4, -3, 7], shade(body, -0.12),
+          { up: 0.16, rim: false, ink: 2.2 });
     g.save();
     poly(g, fistPts); g.clip();
     g.globalCompositeOperation = "lighter";
     g.strokeStyle = hexA(lit, 0.3 + pulse * 0.4); g.lineWidth = 2;
-    g.beginPath(); g.moveTo(-2, -8); g.lineTo(5, 0); g.lineTo(0, 10); g.stroke();
+    g.beginPath(); g.moveTo(-2, -7); g.lineTo(3, -1); g.stroke();
     g.restore();
-    // knuckle ridges
-    g.strokeStyle = hexA(INK, 0.5); g.lineWidth = 1.8;
-    for (let i = 0; i < 3; i++) {
-      g.beginPath(); g.moveTo(8 - i * 0.5, -9 + i * 6.5); g.lineTo(14 - i * 0.5, -7 + i * 6); g.stroke();
-    }
     g.restore();
 
     /* --- when planted, show the ground giving up --- */
@@ -1738,8 +1748,8 @@ const ROSTER = [
                    -6 + t * 4 + Math.sin(A.time * 0.11 + s * 0.8 + t) * (2 + s * 1.7) + s * 4.5);
       };
       g.lineCap = "round"; g.lineJoin = "round";
-      path(); g.strokeStyle = INK; g.lineWidth = (t ? 3.6 : 5.6) + 1.8; g.stroke();
-      path(); g.strokeStyle = t ? deep : dark; g.lineWidth = t ? 3.6 : 5.6; g.stroke();
+      path(); g.strokeStyle = INK; g.lineWidth = (t ? 2.8 : 4.6) + 1.6; g.stroke();
+      path(); g.strokeStyle = t ? deep : dark; g.lineWidth = t ? 2.8 : 4.6; g.stroke();
       path(); g.strokeStyle = hexA(ac, 0.28); g.lineWidth = 1.3; g.stroke();
       g.restore();
     }
@@ -1775,8 +1785,8 @@ const ROSTER = [
 
     /* --- back arm tucked behind, as a fencer holds it --- */
     jointLimb(g, -8, -11, -16, -15, -3, 5, dark);
-    g.fillStyle = mid_(c, c2); g.strokeStyle = INK; g.lineWidth = 2.2;
-    g.beginPath(); g.arc(-17.5, -16, 3.6, 0, 7); g.stroke(); g.fill();
+    g.fillStyle = shade(c2, 0.1); g.strokeStyle = INK; g.lineWidth = 2;
+    g.beginPath(); g.arc(-17, -15.5, 3, 0, 7); g.stroke(); g.fill();
 
     /* --- sword arm: the blade is a line, held point-forward --- */
     const ax = 16 + sw, ay = -8;
