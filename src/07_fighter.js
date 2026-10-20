@@ -43,6 +43,10 @@ class Fighter {
     this.specialCD = 0;
     this.pinned = false;
     this.hotTick = 0;         // cooldown between burns from a hot platform
+    this.weightMul = 1;       // Husk doubles his own mass while planted
+    this.counter = 0;         // Mira's riposte window, in frames
+    this.counterFlash = 0;    // purely cosmetic afterglow on a successful one
+    this.hover = 0;           // Kite's remaining hover charge
     this.moveLog = [];        // recent connects, for stale-move negation
     this.armorDamage = 0;     // damage absorbed by the current super's armour
     this.trail = [];
@@ -104,6 +108,8 @@ class Fighter {
     if (this.heavyStomp > 0) this.heavyStomp--;
     if (this.specialCD > 0) this.specialCD--;
     if (this.hotTick > 0) this.hotTick--;
+    if (this.counter > 0) this.counter--;
+    if (this.counterFlash > 0) this.counterFlash--;
     if (this.anchorGlow > 0) this.anchorGlow--;
     if (this.flipGlow > 0) this.flipGlow--;
     this.crankDir = 0;
@@ -439,6 +445,36 @@ class Fighter {
   }
 
   applyKnockback(vx, vy, dmg, mag, from) {
+    /* A live counter window eats the hit outright and answers it. Checked
+       before armour and before `pinned` so a counter beats everything except
+       being already dead. */
+    if (this.counter > 0 && from && from.alive) {
+      this.counter = 0;
+      this.counterFlash = 24;
+      this.invuln = Math.max(this.invuln, 14);
+      const ripo = this.ch.riposte || { dmg: 11, base: 5.5, scale: 1.1, angle: 40 };
+      const dirX = from.x >= this.x ? 1 : -1;
+      const kb = CFG.kbBase + ripo.base + ripo.dmg * CFG.kbDamageScale
+               + from.percent * CFG.kbPercentScale * ripo.scale * 1.9;
+      const m2 = kb * ((CFG.kbWeightRef + 0.55) / (from.ch.weight + 0.55));
+      const rad = ripo.angle * Math.PI / 180;
+      from.applyKnockback(Math.cos(rad) * m2 * dirX, -Math.sin(rad) * m2,
+                          ripo.dmg, m2, this);
+      this.stats.damageDealt += ripo.dmg;
+      this.addMeter(ripo.dmg * CFG.meter.onDeal);
+      /* The answer lands on the pivot too: the deck lurches toward whoever
+         just swung, which is Mira's version of bending the stage. */
+      Stage.nudge(Math.sign(from.x - Stage.pivot.x || 1) * 0.020);
+      Stage.lastPusher = this;
+      FX.banner("RIPOSTE", this.ch.accent);
+      FX.hitPause(12); FX.shake(13);
+      FX.flash(this.ch.color, 0.2);
+      FX.ring(this.x, this.y, 10, 150, this.ch.accent, 4);
+      FX.blade(this.x, this.y - 6, dirX > 0 ? 0 : Math.PI, 30, 96, 2.4,
+               this.ch.accent, { w: 16, life: 16, spin: dirX * 0.08 });
+      Snd.superHit();
+      return;
+    }
     /* Supers have armour during their active window, but it is no longer
        unconditional: enough damage breaks through and interrupts the super.
        Unbreakable armour meant a super, once started, could never be
@@ -528,9 +564,11 @@ class Fighter {
         FX.burst(this.x, this.feetY, 5, "#b9b6d8", 2.4);
       }
 
-      // slope: slide downhill, lose traction as it steepens
+      /* Slope: slide downhill and lose traction as it steepens. A fighter
+         with slopeGrip keeps its footing instead — that is the whole identity
+         of a character built to ignore the stage's tilt. */
       const sA = Math.sin(best.angle);
-      this.vx += sA * CFG.slideStrength;
+      this.vx += sA * CFG.slideStrength * (1 - (this.ch.slopeGrip || 0));
       const loss = Math.abs(sA) * CFG.slopeFrictionLoss;
       if ([ST.IDLE, ST.LANDLAG, ST.SHIELD, ST.SHIELDBREAK].includes(this.state))
         this.vx *= (CFG.groundFriction + loss * (1 - CFG.groundFriction));

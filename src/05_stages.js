@@ -304,7 +304,7 @@ const STAGES = [
   // Tightened again: with damage output down across the board (stale moves,
   // smaller hitboxes, nerfed supers) the most forgiving stage started running
   // to the clock -- 3 of 12 test matches timed out at 106s average.
-  blast: { left: -430, right: 2030, top: -640, bottom: 1300 },
+  blast: { left: -380, right: 1980, top: -620, bottom: 1235 },
   tilt: Object.assign({}, TILT_BASE, {
     torque: 0.0000030,
     spring: 0.0138,      // snaps level fast
@@ -605,6 +605,10 @@ const Stage = {
   segs: [],
   pfx: [], platT: 0,
   forcing: 0,
+  /* Weight on the deck that is not a fighter. Ballast's cubes register here
+     each frame and Stage.update consumes the list, so a cube tilts the stage
+     exactly as a body of the same mass standing in that spot would. */
+  extraWeights: [],
 
   get cfg() { return this.def.tilt; },
   get anchorFrames() { return this.def.tilt.anchorFrames; },
@@ -621,6 +625,7 @@ const Stage = {
     this.resetPlatforms();
     this.anchorTimer = 0; this.snapFlash = 0; this.snapCount = 0; this.snapCooldown = 0;
     this.lastPusher = null; this.forcing = 0;
+    this.extraWeights.length = 0;
     this.rebuild();
   },
 
@@ -772,9 +777,15 @@ const Stage = {
     for (const f of fighters) {
       if (!f.alive || !f.grounded || !f.groundSeg || !f.groundSeg.main) continue;
       const arm = (f.x - this.pivot.x) * Math.cos(this.tilt) + (f.y - this.pivot.y) * Math.sin(this.tilt);
-      torque += f.ch.weight * arm;
-      if (f.heavyStomp > 0) torque += f.ch.weight * arm * C.stompTorque;
+      const w = f.ch.weight * (f.weightMul || 1);
+      torque += w * arm;
+      if (f.heavyStomp > 0) torque += w * arm * C.stompTorque;
     }
+    for (const b of this.extraWeights) {
+      const arm = (b.x - this.pivot.x) * Math.cos(this.tilt) + (b.y - this.pivot.y) * Math.sin(this.tilt);
+      torque += b.w * arm;
+    }
+    this.extraWeights.length = 0;
     for (const f of fighters) if (f.alive && f.crankDir !== 0) torque += f.crankDir * C.crankTorque;
     if (this.forcing) { torque += this.forcing * C.crankTorque * 2.4; this.forcing = 0; }
 
@@ -824,3 +835,6 @@ const Stage = {
     FX.ring(this.pivot.x, this.pivot.y, 60, 560, "#ffffff", 5);
   },
 };
+
+/** Register non-fighter weight on the deck for this frame. */
+Stage.addWeight = function (x, y, w) { this.extraWeights.push({ x, y, w }); };

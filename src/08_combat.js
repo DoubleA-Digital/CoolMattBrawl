@@ -18,6 +18,17 @@ const Entities = {
   well(owner, x, y, move) {
     this.list.push({ kind: "well", owner, x, y, move, life: 62, r: 38, pull: 180, hitIds: [] });
   },
+  /** Ballast's cube: falls, lands on the deck, then sits there as real weight
+      on the pivot until it expires. The only way in the game to tilt a stage
+      from somewhere you are not standing. */
+  ballast(owner, x, y, vx, w, life, move) {
+    this.list.push({ kind: "ballast", owner, x, y, vx, vy: -2, w, move,
+                     life, r: 22, landed: false, hitIds: [] });
+  },
+  /** Kite's updraft: a rising column that carries anyone inside it upward. */
+  updraft(owner, x, y, life) {
+    this.list.push({ kind: "draft", owner, x, y, life, r: 62, hitIds: [] });
+  },
 
   update(fighters) {
     for (let i = this.list.length - 1; i >= 0; i--) {
@@ -30,6 +41,51 @@ const Entities = {
         if (e.life % 3 === 0) FX.spark(e.x, e.y, e.owner.ch.color);
         if (e.x < -300 || e.x > CFG.world.w + 300 || e.y > CFG.world.h + 300) gone = true;
         if (!gone) gone = this._touch(e, fighters, true);
+
+      } else if (e.kind === "ballast") {
+        if (!e.landed) {
+          e.x += e.vx; e.y += e.vy; e.vy += 0.72; e.vx *= 0.995;
+          for (const seg of Stage.segs) {
+            const sy = Stage.surfaceY(seg, e.x);
+            if (sy != null && e.y + e.r >= sy && e.y + e.r <= sy + 46 && e.vy > 0) {
+              e.y = sy - e.r; e.vy = 0; e.vx = 0; e.landed = true;
+              FX.burst(e.x, e.y + e.r, 16, e.owner.ch.color, 6);
+              FX.dustLine(e.x, e.y + e.r, 90, e.owner.ch.color2);
+              FX.crack(e.x, e.y + e.r - 2, 1, 22, e.owner.ch.color, 2);
+              FX.shake(8); Snd.bigHit();
+              break;
+            }
+          }
+          if (e.y > CFG.world.h + 400) gone = true;
+          if (!gone && !e.landed) gone = this._touch(e, fighters, false);
+        } else {
+          /* Resting: ride the deck as it tilts, and press on the pivot. */
+          let sy = null, slope = 0;
+          for (const seg of Stage.segs) {
+            const y2 = Stage.surfaceY(seg, e.x);
+            if (y2 != null && (sy === null || y2 < sy)) { sy = y2; slope = seg.angle; }
+          }
+          if (sy === null) { e.landed = false; e.vy = 0; }   // the deck moved away
+          else {
+            e.y = sy - e.r;
+            Stage.addWeight(e.x, e.y, e.w);
+            e.x += Math.sin(slope) * 1.6;                    // slides downhill
+          }
+        }
+
+      } else if (e.kind === "draft") {
+        e.y -= 1.2;
+        if (e.life % 2 === 0)
+          FX.spark(e.x + rnd(-e.r, e.r), e.y + rnd(-40, 60), e.owner.ch.accent);
+        for (const f of fighters) {
+          if (!f.alive || f.state === ST.DEAD) continue;
+          if (Math.abs(f.x - e.x) > e.r + f.ch.hurt) continue;
+          if (Math.abs(f.y - e.y) > 150) continue;
+          // her own lift is stronger: this is Kite's recovery tool
+          const lift = f === e.owner ? -1.15 : -0.6;
+          f.vy = Math.max(f.vy + lift, -13);
+          f.grounded = false; f.groundSeg = null;
+        }
 
       } else if (e.kind === "wave") {
         // rides the deck, following the tilted surface
@@ -113,6 +169,50 @@ const Entities = {
         g.beginPath(); g.arc(e.x, e.y, e.r, 0, 7); g.fill();
         g.fillStyle = "#fff"; g.shadowBlur = 8;
         g.beginPath(); g.arc(e.x, e.y, e.r * 0.45, 0, 7); g.fill();
+
+      } else if (e.kind === "ballast") {
+        /* A solid object, not an energy effect — so it draws normally with an
+           ink outline like the fighters, not additively like a projectile. */
+        g.globalCompositeOperation = "source-over";
+        const blink = e.life < 40 && Math.floor(e.life / 4) % 2 === 0;
+        g.globalAlpha = blink ? 0.45 : 1;
+        g.save();
+        g.translate(e.x, e.y);
+        if (!e.landed) g.rotate(e.life * 0.09);
+        plate(g, [-e.r, -e.r, e.r, -e.r, e.r, e.r, -e.r, e.r], e.owner.ch.color,
+              { up: 0.3, down: 0.4, under: true });
+        g.fillStyle = hexA("#000000", 0.35);
+        g.fillRect(-e.r + 5, -3, e.r * 2 - 10, 6);
+        g.fillStyle = hexA(e.owner.ch.accent, 0.8);
+        g.fillRect(-e.r + 5, -3, e.r * 2 - 10, 2);
+        rivets(g, -e.r + 7, -e.r + 7, 3, (e.r * 2 - 14) / 2, e.owner.ch.accent);
+        g.restore();
+        // a weight gauge under a resting cube, so its pull on the pivot is legible
+        if (e.landed) {
+          g.globalCompositeOperation = "lighter";
+          g.strokeStyle = hexA(c, 0.5); g.lineWidth = 2;
+          g.beginPath(); g.moveTo(e.x - e.r, e.y + e.r + 5);
+          g.lineTo(e.x - e.r + (e.r * 2) * clamp(e.life / 480, 0, 1), e.y + e.r + 5);
+          g.stroke();
+        }
+
+      } else if (e.kind === "draft") {
+        const a = clamp(e.life / 110, 0, 1);
+        const q = g.createLinearGradient(0, e.y + 90, 0, e.y - 120);
+        q.addColorStop(0, hexA(e.owner.ch.accent, 0));
+        q.addColorStop(0.4, hexA(c, 0.26 * a));
+        q.addColorStop(1, hexA(e.owner.ch.accent, 0));
+        g.fillStyle = q;
+        g.fillRect(e.x - e.r, e.y - 120, e.r * 2, 210);
+        g.strokeStyle = hexA(e.owner.ch.accent, 0.4 * a); g.lineWidth = 2;
+        for (let i = 0; i < 4; i++) {
+          const ox = -e.r + 10 + i * ((e.r * 2 - 20) / 3);
+          const wob = Math.sin(e.life * 0.18 + i) * 7;
+          g.beginPath();
+          g.moveTo(e.x + ox + wob, e.y + 80);
+          g.quadraticCurveTo(e.x + ox - wob, e.y - 10, e.x + ox + wob, e.y - 110);
+          g.stroke();
+        }
 
       } else if (e.kind === "wave") {
         const a = clamp(e.life / 70, 0, 1);
@@ -346,6 +446,14 @@ const CPU = {
         case "ZIP":    if (t > 0.4 || adx < 170) press("special"); break;
         case "ORBIT":  if (t > 0.45 || adx < 260) press("special"); break;
         case "PIVOT":  if (t > 0.2) press("special"); break;
+        // drop a cube on whichever side is already heavy, to push it over
+        case "BALLAST": if (adx < 340) press("special"); break;
+        // ride an updraft when recovering, or to escape a steep deck
+        case "KITE":    if (!f.grounded || t > 0.5) press("special"); break;
+        // plant only when the deck is leaning his way and a foe is close
+        case "HUSK":    if (adx < 150 && t > 0.15) press("special"); break;
+        // hold the counter when someone is in swinging range
+        case "MIRA":    if (adx < 90) press("special"); break;
       }
     }
     if (f.state === ST.ATTACK && f.ch.id === "PIVOT" && f.attack && f.attack.kind === "special") {

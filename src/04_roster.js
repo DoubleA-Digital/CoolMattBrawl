@@ -216,6 +216,7 @@ const ROSTER = [
 {
   id: "BOLDER", name: "BOLDER", tag: "THE ANVIL",
   blurb: "Walks like furniture, hits like a dropped engine. His weight alone bends the stage.",
+  power: "Heaviest body in the game. Slams the deck to hammer the tilt toward whichever side he is standing on.",
   color: "#ff2e88", color2: "#6d1038", color3: "#2b0a1a", accent: "#ffd0e4",
   weight: 1.42, speed: 3.05, accel: 0.52, jump: 11.6, airSpeed: 2.9, fallMul: 1.12,
   size: { w: 46, h: 60 }, hurt: 31,
@@ -412,6 +413,7 @@ const ROSTER = [
 {
   id: "ZIP", name: "ZIP", tag: "THE SPARK",
   blurb: "Barely registers on the pivot and barely stays still. Dies to one clean read.",
+  power: "Inverts the stage's tilt outright — whatever lean you just built, she hands straight back to you.",
   color: "#00e5ff", color2: "#07475a", color3: "#04232e", accent: "#eafdff",
   weight: 0.74, speed: 5.65, accel: 1.05, jump: 12.9, airSpeed: 5.3, fallMul: 0.9,
   size: { w: 30, h: 50 }, hurt: 24,
@@ -641,6 +643,7 @@ const ROSTER = [
 {
   id: "ORBIT", name: "ORBIT", tag: "THE KEEL",
   blurb: "Fights at arm's length and can bolt the pivot flat when the stage stops cooperating.",
+  power: "Bolts the pivot dead level for three seconds, switching the whole gimmick off while it holds.",
   color: "#b6ff3b", color2: "#2f5410", color3: "#152806", accent: "#f4ffdd",
   weight: 1.02, speed: 4.25, accel: 0.78, jump: 12.1, airSpeed: 4.0, fallMul: 1.0,
   size: { w: 36, h: 54 }, hurt: 27,
@@ -849,6 +852,7 @@ const ROSTER = [
 {
   id: "PIVOT", name: "PIVOT", tag: "THE TRICKSTER",
   blurb: "Does not fight you so much as fight the floor you are standing on.",
+  power: "Cranks the tilt by hand and can force a Snap-Back on demand — the only fighter immune to her own.",
   color: "#ffc83d", color2: "#5e3c05", color3: "#2c1c02", accent: "#fff6dc",
   weight: 0.88, speed: 4.6, accel: 0.9, jump: 12.4, airSpeed: 4.5, fallMul: 0.96,
   size: { w: 34, h: 52 }, hurt: 26,
@@ -1050,6 +1054,767 @@ const ROSTER = [
     // hood fold + the point
     g.strokeStyle = hexA(INK, 0.4); g.lineWidth = 1.4;
     g.beginPath(); g.moveTo(-7, -32); g.lineTo(2, -35); g.stroke();
+  },
+},
+
+/* ======================================================================== */
+/* BALLAST — THE LOADER                                                      */
+/* The only fighter who can tilt the stage from somewhere they are not       */
+/* standing: its cubes are real weight on the pivot until they expire.       */
+/* ======================================================================== */
+{
+  id: "BALLAST", name: "BALLAST", tag: "THE LOADER",
+  blurb: "Dockyard loader. Drops cubes of real weight onto the deck and lets the pivot do the killing.",
+  power: "Places weight remotely — a resting cube leans the stage even with nobody on that side.",
+  color: "#ffa424", color2: "#5a3708", color3: "#241502", accent: "#ffe6b0",
+  weight: 1.18, speed: 3.40, accel: 0.60, jump: 11.4, airSpeed: 3.2, fallMul: 1.08,
+  size: { w: 42, h: 58 }, hurt: 29,
+  specialCooldown: 200,
+
+  light: { name: "Load Arm", startup: 4, active: 3, recovery: 11,
+    dmg: 4.2, base: 2.1, scale: 0.52, angle: 40, ox: 40, oy: -6, r: 24,
+    vfx(f) {
+      const ang = faceAng(f);
+      FX.blade(f.x + f.facing * 12, f.y - 6, ang, 28, 58, 0.44, f.ch.color, { w: 13, life: 10 });
+      FX.glyph(hbAt(f, this).x, f.y - 6, "wedge", 11, f.ch.accent, 11);
+      Snd.tone(190, 0.05, "square", 0.08, 120);
+    } },
+
+  heavy: { name: "Counterweight", startup: 15, active: 4, recovery: 29,
+    dmg: 17, base: 5.0, scale: 1.10, angle: 36, ox: 56, oy: -4, r: 36,
+    onStart(f) { Snd.whoosh(1.5); },
+    vfx(f) {
+      const ang = faceAng(f);
+      // a cube on a chain, so the arc is a long low sweep with a heavy tip
+      FX.blade(f.x, f.y - 6, ang - 0.8 * f.facing, 58, 92, 1.7, f.ch.color,
+               { w: 20, life: 16, spin: f.facing * 0.07 });
+      FX.streak(f.x + f.facing * 10, f.y - 14,
+                f.x + f.facing * 78, f.y - 2, f.ch.accent);
+      if (f.grounded) FX.dustLine(f.x + f.facing * 34, f.feetY, 110, f.ch.color2);
+      FX.shake(7);
+      Snd.tone(96, 0.16, "sawtooth", 0.15, 50, 0, 0.4);
+    } },
+
+  special: { name: "Drop Anchor", startup: 10, active: 6, recovery: 22,
+    dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
+    desc: "Lobs a ballast cube. Where it lands it keeps pressing on the pivot for eight seconds.",
+    onStart(f) { Snd.whoosh(1.1); },
+    tick(f, a) {
+      const m = a.data;
+      if (a.t === m.startup && !a.fired) {
+        a.fired = true;
+        Entities.ballast(f, f.x + f.facing * 34, f.y - 40, f.facing * 7.2, 2.4, 480, m);
+        Stage.lastPusher = f;
+        FX.banner("DROP ANCHOR", f.ch.color);
+        FX.ring(f.x + f.facing * 34, f.y - 40, 10, 90, f.ch.accent, 3);
+        Snd.tone(150, 0.2, "triangle", 0.14, 70);
+      }
+    } },
+
+  super: { name: "Overload",
+    desc: "Buries the deck under three cubes at once. Whatever side they land on is going down.",
+    startup: 22, active: 30, recovery: 38,
+    dmg: 10, base: 3.4, scale: 0.8, angle: 60, ox: 0, oy: -20, r: 60,
+    onStart(f) { Snd.superCharge(); FX.flash("#ffa424", 0.3); f.vy = -6; },
+    tick(f, a) {
+      const m = a.data;
+      if (a.t < m.startup) { f.vx *= 0.82; FX.spark(f.x + rnd(-30, 30), f.y + rnd(-40, 20), f.ch.color); }
+      if (a.t >= m.startup && (a.t - m.startup) % 9 === 0 && (a.dropped || 0) < 3) {
+        a.dropped = (a.dropped || 0) + 1;
+        const off = (a.dropped - 2) * 150;
+        Entities.ballast(f, Stage.pivot.x + off, Stage.pivot.y - 320, 0, 3.1, 420, m);
+        FX.shake(9);
+        Snd.tone(120 - a.dropped * 14, 0.2, "sawtooth", 0.14, 48);
+      }
+      if (a.t === m.startup) {
+        FX.banner("OVERLOAD", f.ch.color);
+        Stage.lastPusher = f;
+      }
+    } },
+
+  /* ---- art: a dockyard loader. Boxy chassis, a shoulder jib with a hook,
+           hazard striping, and treads instead of feet. ---- */
+  draw(g, A) {
+    const c = this.color, c2 = this.color2, c3 = this.color3, ac = this.accent;
+    const body = A.flash ? "#ffffff" : c;
+    const dark = A.flash ? "#ffe2ad" : c2;
+    const deep = A.flash ? "#ffcf80" : c3;
+    const sw = swing(A, -10, 44);
+
+    /* --- the jib arm and its hanging cube, behind the body --- */
+    const jibA = -0.5 + (A.atkPhase >= 0 ? sw * 0.012 : 0);
+    g.save();
+    g.translate(-10, -12); g.rotate(jibA + 0.25);
+    limb(g, 0, 0, 34, 0, 6.5, mid_(c, c2));
+    // the chain and the counterweight cube on the end
+    g.strokeStyle = INK; g.lineWidth = 3.2;
+    g.beginPath(); g.moveTo(34, 0); g.lineTo(34, 13); g.stroke();
+    g.strokeStyle = hexA(ac, 0.55); g.lineWidth = 1.3;
+    g.beginPath(); g.moveTo(34, 0); g.lineTo(34, 13); g.stroke();
+    g.save(); g.translate(34, 19); g.rotate(-jibA * 0.6);
+    plate(g, [-6, -6, 6, -6, 6, 6, -6, 6], deep, { up: 0.2, rim: false });
+    g.fillStyle = hexA(ac, 0.6); g.fillRect(-6, -1.2, 12, 1.4);
+    g.restore();
+    g.restore();
+
+    /* --- treads instead of feet: he rolls, he does not walk --- */
+    const roll = A.running ? A.runPhase * 2 : 0;
+    for (const sx of [-1, 1]) {
+      g.save(); g.translate(sx * 12, 25);
+      plateRect(g, -11, -6, 22, 13, 5, deep, { up: 0.16 });
+      g.strokeStyle = hexA(INK, 0.6); g.lineWidth = 1.6;
+      for (let i = 0; i < 4; i++) {
+        const tx = -8 + ((i * 5.5 + roll * 2) % 17);
+        g.beginPath(); g.moveTo(tx, -5); g.lineTo(tx, 6); g.stroke();
+      }
+      g.restore();
+    }
+    jointLimb(g, -8, 10, -11, 20, -3, 9, dark);
+    jointLimb(g, 9, 10, 12, 20, 3, 9, dark);
+
+    /* --- torso: a loader cab, wider at the base than the shoulders --- */
+    plate(g, [-17, -18, 17, -18, 20, 12, -20, 12], body, { up: 0.3, down: 0.36, under: true });
+    plate(g, [-13, -14, 13, -14, 15, 4, -15, 4], dark, { up: 0.12, down: 0.3, rimA: 0.26 });
+    // hazard stripe across the chest — the one piece of pure signage on him
+    g.save();
+    poly(g, [-15, -4, 15, -4, 15, 4, -15, 4]); g.clip();
+    g.fillStyle = deep; g.fillRect(-15, -4, 30, 8);
+    hatch(g, -15, -4, 30, 8, ac, 7, 0.85);
+    g.restore();
+    g.strokeStyle = INK; g.lineWidth = 2;
+    g.strokeRect(-15, -4, 30, 8);
+    rivets(g, -12, -11, 7, 4, ac);
+
+    /* --- shoulders: one bare mount for the jib, one armoured --- */
+    plate(g, [-22, -22, -6, -24, -4, -10, -20, -8], deep, { up: 0.24 });
+    plate(g, [22, -22, 6, -24, 4, -10, 20, -8], body, { up: 0.4, down: 0.28 });
+    screw(g, -13, -16, 2.4, ac);
+
+    /* --- head: a low cab with a wide window and a lamp --- */
+    plateRect(g, -9, -34, 18, 15, 4, body, { up: 0.3, down: 0.3 });
+    g.fillStyle = INK; roundRect(g, -10.5, -31, 21, 7, 2.5); g.fill();
+    lens(g, () => roundRect(g, -3, -30, 11, 4.6, 2), A.flash ? "#ffffff" : ac, c, 14);
+    // work lamp on top, actually lit
+    g.save();
+    plate(g, [-3, -34, 5, -34, 4, -39, -2, -39], deep, { up: 0.2, rim: false });
+    g.globalCompositeOperation = "lighter";
+    const lq = g.createLinearGradient(0, -38, 22, -26);
+    lq.addColorStop(0, hexA(ac, 0.34)); lq.addColorStop(1, hexA(ac, 0));
+    g.fillStyle = lq;
+    poly(g, [3, -38, 24, -33, 24, -22, 3, -34]); g.fill();
+    g.restore();
+
+    /* --- arms: a short fixed arm, and the loading ram --- */
+    jointLimb(g, -15, -13, -21, 2, -3.5, 9, dark);
+    plateRect(g, -27, -2, 12, 12, 4, dark, { up: 0.2 });
+    const ax = 26 + sw, ay = -5;
+    jointLimb(g, 15, -13, (15 + ax) / 2, ay - 1, 2, 9.5, dark);
+    limb(g, (15 + ax) / 2, ay - 1, ax - 3, ay, 11, mid_(c, c2));
+    g.save(); g.translate(ax, ay);
+    // a ram head: narrow at the wrist, flaring to a flat striking face
+    plateRect(g, -11, -5, 8, 10, 2.5, deep, { up: 0.12, rim: false });
+    plate(g, [-4, -8, 8, -9, 11, -6, 11, 6, 8, 9, -4, 8], body,
+          { up: 0.3, down: 0.36, under: true });
+    g.fillStyle = INK; g.fillRect(-3, -2.4, 13, 3.4);
+    plate(g, [8, -8, 11, -6.5, 11, 6, 8, 7.5], ac, { up: 0.1, ink: 2 });
+    g.restore();
+  },
+},
+
+/* ======================================================================== */
+/* KITE — THE DRIFTER                                                        */
+/* Barely registers on the pivot and barely slides on it either: her sail    */
+/* grips slopes everyone else falls down.                                    */
+/* ======================================================================== */
+{
+  id: "KITE", name: "KITE", tag: "THE DRIFTER",
+  blurb: "Rides the air instead of the floor. Almost weightless on the pivot and almost unbothered by its tilt.",
+  power: "Keeps her footing on slopes that slide everyone else, and makes updrafts that lift the whole stage's worth of fighters.",
+  color: "#5ff2d0", color2: "#0d5a4c", color3: "#042a23", accent: "#eafffa",
+  weight: 0.62, speed: 4.90, accel: 1.00, jump: 13.6, airSpeed: 5.6, fallMul: 0.74,
+  slopeGrip: 0.85,
+  size: { w: 30, h: 50 }, hurt: 23,
+  specialCooldown: 150,
+
+  light: { name: "Sail Cut", startup: 3, active: 3, recovery: 9,
+    dmg: 3.0, base: 1.5, scale: 0.38, angle: 50, ox: 34, oy: -8, r: 22,
+    vfx(f) {
+      const ang = faceAng(f);
+      // two thin feathers of wind rather than a blade
+      for (let i = 0; i < 2; i++)
+        FX.blade(f.x + f.facing * 8, f.y - 8, ang + (i ? 0.34 : -0.34) * f.facing,
+                 24, 52, 0.62, i ? f.ch.accent : f.ch.color, { w: 5.5, life: 10, core: !i });
+      Snd.noise(0.05, 0.07, 4200, 1.2, "bandpass");
+    } },
+
+  heavy: { name: "Dive Stall", startup: 10, active: 5, recovery: 26,
+    dmg: 12.5, base: 4.2, scale: 1.14, angle: 64, ox: 30, oy: 16, r: 28,
+    onStart(f) { f.vy = 13; f.vx += f.facing * 3.4; Snd.whoosh(1.3); },
+    vfx(f) {
+      const ang = faceAng(f);
+      FX.blade(f.x + f.facing * 6, f.y + 6, ang + 0.9 * f.facing, 26, 72, 1.5, f.ch.color,
+               { w: 14, life: 14, spin: -f.facing * 0.06 });
+      FX.ring(f.x, f.y + 14, 8, 60, f.ch.accent, 2);
+      for (let i = 0; i < 4; i++)
+        FX.spark(f.x + rnd(-20, 20), f.y + rnd(0, 26), f.ch.accent);
+      FX.shake(4);
+      Snd.noise(0.12, 0.16, 2200, 0.9, "bandpass");
+    } },
+
+  special: { name: "Updraft", startup: 7, active: 10, recovery: 18,
+    dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
+    desc: "Opens a rising column of air. It lifts her hard and everyone else gently — her recovery, and your problem.",
+    tick(f, a) {
+      const m = a.data;
+      if (a.t === m.startup && !a.fired) {
+        a.fired = true;
+        Entities.updraft(f, f.x, f.y + 20, 110);
+        f.vy = Math.min(f.vy, -6);
+        FX.banner("UPDRAFT", f.ch.color);
+        FX.ring(f.x, f.y + 20, 14, 120, f.ch.accent, 3);
+        Snd.tone(420, 0.3, "sine", 0.12, 1500);
+        Snd.noise(0.4, 0.12, 2600, 0.8, "bandpass");
+      }
+    } },
+
+  super: { name: "Monsoon",
+    desc: "Turns the whole deck into rising air. Everyone goes up — she is the only one who can steer it.",
+    startup: 16, active: 70, recovery: 30,
+    dmg: 8, base: 2.6, scale: 0.7, angle: 82, ox: 0, oy: 0, r: 70,
+    onStart(f) { Snd.superCharge(); FX.flash("#5ff2d0", 0.3); },
+    tick(f, a) {
+      const m = a.data;
+      if (a.t < m.startup) { f.vy *= 0.8; FX.spark(f.x + rnd(-30, 30), f.y + rnd(-40, 40), f.ch.color); }
+      if (a.t === m.startup) {
+        FX.banner("MONSOON", f.ch.color);
+        for (let i = -1; i <= 1; i++)
+          Entities.updraft(f, Stage.pivot.x + i * 190, Stage.pivot.y, 150);
+        FX.shake(12);
+      }
+      if (a.t > m.startup) {
+        f.vy = Math.max(f.vy - 0.5, -9);                 // she rides her own storm
+        if (a.t % 5 === 0) FX.spark(f.x + rnd(-40, 40), f.y + rnd(-10, 50), f.ch.accent);
+      }
+    } },
+
+  /* ---- art: a slender glider. A sail-wing frames her, streamers trail off
+           it, and she stands on taloned feet — which is what the slope grip
+           is, made visible. ---- */
+  draw(g, A) {
+    const c = this.color, c2 = this.color2, c3 = this.color3, ac = this.accent;
+    const body = A.flash ? "#ffffff" : c;
+    const dark = A.flash ? "#c8fff2" : c2;
+    const deep = A.flash ? "#9dffe9" : c3;
+    const sw = swing(A, -8, 40);
+    const breeze = Math.sin(A.time * 0.07);
+
+    aura(g, 0, -8, 40, c, 0.13);
+
+    /* --- the sail: a wing on a spar, behind everything --- */
+    g.save();
+    g.translate(-7, -22);
+    g.rotate(-0.3 + breeze * 0.07 + (A.air ? -0.22 : 0));
+    /* Kept deliberately small. At its first size the sail was wider than her
+       whole body and she read as a flag with legs instead of a flier. */
+    const span = A.air ? 27 : 21;
+    const sailPath = () => poly(g, [0, 0, -span, -15, -span * 1.08, 7, -8, 14]);
+    ink(g, sailPath, vol(g, -26, 24, dark, 0.3, 0.3), 3);
+    rim(g, sailPath, "#ffffff", 3, 0.35);
+    // spars
+    g.strokeStyle = hexA(ac, 0.5); g.lineWidth = 1.3;
+    for (let i = 1; i <= 3; i++) {
+      g.beginPath(); g.moveTo(0, 0);
+      g.lineTo(-span * (0.5 + i * 0.2), -14 + i * 7); g.stroke();
+    }
+    // streamers off the trailing edge
+    g.lineCap = "round";
+    for (let i = 0; i < 3; i++) {
+      g.strokeStyle = hexA(ac, 0.4 - i * 0.1); g.lineWidth = 1.8 - i * 0.4;
+      g.beginPath();
+      g.moveTo(-span * 1.04, 1 + i * 5);
+      for (let sgm = 1; sgm <= 3; sgm++)
+        g.lineTo(-span * 1.04 - sgm * 9,
+                 1 + i * 5 + Math.sin(A.time * 0.15 + sgm + i) * (2 + sgm * 1.8));
+      g.stroke();
+    }
+    g.restore();
+
+    /* --- legs: long and thin, ending in gripping talons --- */
+    const st = Math.sin(A.runPhase) * (A.running ? 13 : 0);
+    jointLimb(g, -4, 8, -7 + st, 24, -4, 5, dark);
+    jointLimb(g, 5, 8, 8 - st, 24, 4, 5, dark);
+    for (const [fx2, dir] of [[-7 + st, -1], [8 - st, 1]]) {
+      g.save(); g.translate(fx2, 25);
+      g.strokeStyle = INK; g.lineWidth = 3.4; g.lineCap = "round";
+      for (let i = -1; i <= 1; i++) {
+        g.beginPath(); g.moveTo(0, 0); g.lineTo(i * 4 + dir * 2, 5); g.stroke();
+      }
+      g.strokeStyle = ac; g.lineWidth = 1.8;
+      for (let i = -1; i <= 1; i++) {
+        g.beginPath(); g.moveTo(0, 0); g.lineTo(i * 4 + dir * 2, 5); g.stroke();
+      }
+      g.restore();
+    }
+
+    /* --- torso: narrow, upright, a wind-vane crest on the chest --- */
+    g.save(); g.rotate(A.running ? 0.08 : 0.02 + breeze * 0.02);
+    plate(g, [-8, -14, 9, -15, 8, 10, -7, 9], body, { up: 0.3, down: 0.32, under: true });
+    plate(g, [-6, -11, 7, -12, 6, 0, -5, 0], dark, { up: 0.12, down: 0.28, rimA: 0.3 });
+    // a wind chevron, not Zip's lightning bolt
+    glow(g, ac, 11, () => {
+      g.strokeStyle = ac; g.lineWidth = 1.7; g.lineCap = "round";
+      for (let i = 0; i < 2; i++) {
+        g.beginPath();
+        g.moveTo(-4, -8 + i * 6); g.lineTo(2, -5 + i * 6); g.lineTo(-4, -2 + i * 6);
+        g.stroke();
+      }
+    });
+    g.restore();
+
+    /* --- head: a small hooded skull with a long trailing crest --- */
+    g.save(); g.translate(1, -24);
+    const headPath = () => poly(g, [-7, -5, 7, -7, 10, 2, -6, 5]);
+    ink(g, headPath, vol(g, -8, 6, body, 0.34, 0.3));
+    rim(g, headPath, "#ffffff", 3, 0.5);
+    // crest streaming backward
+    g.strokeStyle = hexA(ac, 0.6); g.lineWidth = 2.6; g.lineCap = "round";
+    g.beginPath(); g.moveTo(-5, -5);
+    for (let i = 1; i <= 3; i++)
+      g.lineTo(-5 - i * 9, -6 + Math.sin(A.time * 0.13 + i) * (2 + i * 2));
+    g.stroke();
+    g.fillStyle = hexA(INK, 0.4); poly(g, [-6, 2, 9, 2, 8, 4.5, -6, 4.5]); g.fill();
+    lens(g, () => poly(g, [-1, -3.4, 9, -1.6, 9, 1.4, -2, 0.6]),
+         A.flash ? "#ff2e88" : ac, c, 13);
+    g.restore();
+
+    /* --- arms: thin, with a wind-blade that opens on the swing --- */
+    jointLimb(g, -6, -10, -13 - (A.running ? st * 0.3 : 0), -2, -3, 4.5, dark);
+    const ax = 13 + sw, ay = -7;
+    jointLimb(g, 7, -10, (7 + ax) / 2, ay - 1, 2.5, 5, dark);
+    limb(g, (7 + ax) / 2, ay - 1, ax - 2, ay, 6, mid_(c, c2));
+    g.save(); g.translate(ax, ay);
+    const open = A.atkPhase >= 0 ? 1 : 0.22;
+    for (let i = 0; i < 3; i++) {
+      g.save(); g.rotate((i - 1) * 0.36 * open);
+      plate(g, [0, -1.6, 12, -3.6, 14, 0, 12, 3.6, 0, 1.6], i === 1 ? ac : body,
+            { up: 0.2, ink: 1.8, rim: false });
+      g.restore();
+    }
+    g.restore();
+  },
+},
+
+/* ======================================================================== */
+/* HUSK — THE MILLSTONE                                                      */
+/* Can plant himself: immovable, and twice his own weight on the pivot.      */
+/* ======================================================================== */
+{
+  id: "HUSK", name: "HUSK", tag: "THE MILLSTONE",
+  blurb: "Something old and heavy wearing cracked stone. Slow everywhere, and impossible to move when it decides to stop.",
+  power: "Plants itself: cannot be knocked back and counts as more than double its weight, so the deck goes where it stands.",
+  color: "#a764ff", color2: "#361a5e", color3: "#160a28", accent: "#e8d6ff",
+  weight: 1.30, speed: 3.25, accel: 0.58, jump: 10.8, airSpeed: 3.0, fallMul: 1.20,
+  size: { w: 46, h: 62 }, hurt: 32,
+  specialCooldown: 240,
+
+  light: { name: "Knuckle", startup: 5, active: 3, recovery: 12,
+    dmg: 5.0, base: 2.4, scale: 0.56, angle: 44, ox: 42, oy: -6, r: 25,
+    vfx(f) {
+      const ang = faceAng(f);
+      FX.blade(f.x + f.facing * 12, f.y - 6, ang, 28, 60, 0.5, f.ch.color, { w: 14, life: 11 });
+      FX.glyph(hbAt(f, this).x, f.y - 8, "wedge", 12, f.ch.accent, 12);
+      Snd.tone(140, 0.06, "sawtooth", 0.09, 80);
+    } },
+
+  heavy: { name: "Millstone Drop", startup: 17, active: 4, recovery: 31,
+    dmg: 19, base: 5.4, scale: 1.16, angle: 74, ox: 36, oy: 10, r: 38,
+    onStart(f) { Snd.whoosh(1.7); },
+    vfx(f) {
+      const ang = faceAng(f);
+      // straight down and forward, like something being dropped rather than swung
+      FX.blade(f.x, f.y - 10, ang - 1.35 * f.facing, 40, 84, 1.5, f.ch.color,
+               { w: 22, life: 17, spin: f.facing * 0.05 });
+      FX.blade(f.x, f.y - 10, ang - 1.2 * f.facing, 36, 70, 1.2, "#ffffff",
+               { w: 6, life: 10, core: false, spin: f.facing * 0.05 });
+      if (f.grounded) {
+        FX.dustLine(f.x + f.facing * 28, f.feetY, 130, f.ch.color2);
+        FX.crack(f.x + f.facing * 24, f.feetY - 2, f.facing, 36, f.ch.color, 3);
+      }
+      FX.shake(9);
+      Snd.tone(70, 0.22, "sawtooth", 0.17, 36, 0, 0.5);
+    } },
+
+  special: { name: "Dead Weight", startup: 6, active: 150, recovery: 20,
+    dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
+    desc: "Plants itself. Cannot be knocked back and weighs more than double, so the stage leans wherever it chose to stand.",
+    tick(f, a) {
+      const m = a.data;
+      if (a.t === m.startup) {
+        FX.banner("DEAD WEIGHT", f.ch.color);
+        FX.ring(f.x, f.feetY, 16, 180, f.ch.color, 4);
+        if (f.grounded) FX.crack(f.x, f.feetY - 2, 1, 40, f.ch.color, 3);
+        if (f.grounded) FX.crack(f.x, f.feetY - 2, -1, 40, f.ch.color, 3);
+        FX.shake(12); Snd.bigHit();
+        Stage.lastPusher = f;
+      }
+      if (a.t >= m.startup && a.t < m.startup + m.active) {
+        f.pinned = true;                 // nothing shifts it, Snap-Backs included
+        f.weightMul = 2.4;
+        f.vx = 0;
+        if (!f.grounded) f.vy = Math.min(f.vy + 1.4, 20);   // it still falls
+        Stage.lastPusher = f;
+        if (a.t % 10 === 0) {
+          FX.spark(f.x + rnd(-24, 24), f.feetY - rnd(0, 10), f.ch.accent);
+          FX.ring(f.x, f.feetY, 6, 48, f.ch.color, 2);
+        }
+        // let go early
+        if (a.t > m.startup + 24 && !f.pad.held("special")) a.t = m.startup + m.active;
+      }
+      if (a.t >= m.startup + m.active) { f.pinned = false; f.weightMul = 1; }
+    } },
+
+  super: { name: "Mortal Coil",
+    desc: "Throws a chain, drags the nearest fighter in, and puts them through the deck.",
+    startup: 18, active: 46, recovery: 34,
+    dmg: 21, base: 6.4, scale: 1.1, angle: 68, ox: 0, oy: 0, r: 74,
+    onStart(f) { Snd.superCharge(); FX.flash("#a764ff", 0.32); },
+    tick(f, a) {
+      const m = a.data;
+      if (a.t < m.startup) { f.vx *= 0.8; FX.spark(f.x + rnd(-30, 30), f.y + rnd(-40, 30), f.ch.color); }
+      if (a.t === m.startup) {
+        a.grabbed = Combat.nearestFoe(f) || null;
+        FX.banner("MORTAL COIL", f.ch.color);
+        Stage.lastPusher = f;
+        Snd.grab();
+      }
+      const t = a.grabbed;
+      if (t && t.alive && a.t > m.startup && a.t < m.startup + m.active) {
+        const phase = (a.t - m.startup) / m.active;
+        // reel them in, hold them, then drive them down
+        if (phase < 0.55) {
+          t.x = lerp(t.x, f.x + f.facing * 46, 0.16);
+          t.y = lerp(t.y, f.y - 36, 0.16);
+          t.vx = 0; t.vy = 0; t.hitstun = 6;
+          if (a.t % 4 === 0) FX.spark(t.x, t.y, f.ch.accent);
+        } else if (!a.slammed) {
+          a.slammed = true;
+          t.applyKnockback(f.facing * 7, 20, m.dmg, 16, f);
+          f.stats.damageDealt += m.dmg;
+          f.addMeter(m.dmg * CFG.meter.onDeal);
+          FX.hitPause(14); FX.shake(26);
+          FX.burst(t.x, t.y, 34, f.ch.color, 11);
+          FX.ring(t.x, t.y, 14, 240, "#ffffff", 5);
+          if (f.grounded) FX.crack(t.x, f.feetY - 2, 1, 60, f.ch.color, 4);
+          Snd.superHit();
+        }
+        // the chain itself
+        if (a.t % 2 === 0)
+          FX.streak(f.x + f.facing * 14, f.y - 10, t.x, t.y, f.ch.accent);
+      }
+    } },
+
+  /* ---- art: cracked stone over something lit. No face — just a gap in the
+           shroud with light coming out of it. ---- */
+  draw(g, A) {
+    const c = this.color, c2 = this.color2, c3 = this.color3, ac = this.accent;
+    const body = A.flash ? "#ffffff" : c2;      // the SHELL is the dark colour:
+    const lit = A.flash ? "#ffffff" : c;        // the light inside is the bright one
+    const deep = A.flash ? "#cdb3ff" : c3;
+    const sw = swing(A, -11, 44);
+    const planted = A.state === ST.ATTACK && A.atkKind === "special";
+    const pulse = 0.55 + Math.sin(A.time * 0.06) * 0.45;
+
+    aura(g, 0, 0, 46, c, 0.1 + (planted ? 0.2 : 0) + pulse * 0.05);
+
+    /* --- legs: squat, planted wide, wrapped in shroud --- */
+    const st = Math.sin(A.runPhase) * (A.running ? 7 : 0);
+    jointLimb(g, -9, 12, -14 + st, 29, -4, 12, body);
+    jointLimb(g, 10, 12, 15 - st, 29, 4, 12, body);
+    plateRect(g, -22 + st * 0.5, 26, 17, 9, 2.5, deep, { up: 0.14 });
+    plateRect(g, 5 - st * 0.5, 26, 17, 9, 2.5, deep, { up: 0.14 });
+
+    /* --- the shroud: a heavy mantle over the whole upper body --- */
+    const mantle = () => poly(g, [-24, -14, 24, -14, 28, 16, -28, 16]);
+    ink(g, mantle, vol(g, -16, 18, body, 0.24, 0.4));
+    rim(g, mantle, "#ffffff", 3, 0.22);
+    // cracks with light coming through them
+    g.save();
+    mantle(); g.clip();
+    g.globalCompositeOperation = "lighter";
+    g.strokeStyle = hexA(lit, 0.35 + pulse * 0.45); g.lineWidth = 2.2;
+    g.lineCap = "round"; g.lineJoin = "round";
+    const seams = [[-16, -12, -9, -2, -13, 12], [4, -13, 9, 0, 3, 14], [16, -10, 21, 4]];
+    for (const sm of seams) {
+      g.beginPath(); g.moveTo(sm[0], sm[1]);
+      for (let i = 2; i < sm.length; i += 2) g.lineTo(sm[i], sm[i + 1]);
+      g.stroke();
+    }
+    g.restore();
+
+    /* --- the core, burning behind the shroud's gap --- */
+    g.fillStyle = INK;
+    poly(g, [-8, -10, 8, -10, 6, 6, -6, 6]); g.fill();
+    lens(g, () => { g.beginPath(); g.ellipse(0, -2, 5.4, 7, 0, 0, 7); },
+         lit, lit, 18 + pulse * 14);
+
+    /* A heavy collar yoke across the shoulders. Drawn as a full ellipse it
+       sat under the hood like a grin, so it is a flattened band with raised
+       shoulder bosses instead. */
+    g.save();
+    plate(g, [-21, -16, 21, -16, 18, -9, -18, -9], deep, { up: 0.26, rimA: 0.4 });
+    for (const bx of [-15, 0, 15]) screw(g, bx, -12.5, 2.2, ac);
+    plate(g, [-25, -17, -13, -19, -12, -11, -23, -10], deep, { up: 0.3, rim: false });
+    plate(g, [25, -17, 13, -19, 12, -11, 23, -10], deep, { up: 0.3, rim: false });
+    g.restore();
+
+    /* --- head: a hood with nothing in it but two lights --- */
+    const hood = () => poly(g, [-12, -20, 12, -20, 9, -38, 0, -43, -10, -36]);
+    ink(g, hood, vol(g, -43, -20, body, 0.26, 0.34));
+    rim(g, hood, "#ffffff", 3, 0.3);
+    g.fillStyle = INK; poly(g, [-11, -20, 11, -20, 9, -29, -10, -29]); g.fill();
+    for (const ex of [-4.5, 4.5])
+      lens(g, () => { g.beginPath(); g.arc(ex, -24.5, 2.4, 0, 7); },
+           A.flash ? "#ff2e88" : lit, lit, 12 + pulse * 10);
+
+    /* --- arms: long, heavy, ending in stone fists --- */
+    jointLimb(g, -18, -10, -25 - (A.running ? st * 0.4 : 0), 6, -4, 11, body);
+    g.fillStyle = deep; g.strokeStyle = INK; g.lineWidth = 2.6;
+    g.beginPath(); g.arc(-28, 9, 8, 0, 7); g.stroke(); g.fill();
+    const ax = 20 + sw, ay = -3;
+    jointLimb(g, 18, -10, (18 + ax) / 2, ay - 1, 2.5, 11, body);
+    limb(g, (18 + ax) / 2, ay - 1, ax - 3, ay, 13, mid_(c2, c3));
+    /* A fist, not a slab: knuckles that step down toward the front, with a
+       dark wrist behind them so the hand reads as held rather than carried. */
+    g.save(); g.translate(ax, ay);
+    plateRect(g, -12, -7, 8, 14, 3, deep, { up: 0.12, rim: false });
+    const fistPts = [-5, -10, 7, -12, 13, -7, 14, 5, 9, 11, -4, 11];
+    plate(g, fistPts, body, { up: 0.3, down: 0.38, under: true });
+    g.save();
+    poly(g, fistPts); g.clip();
+    g.globalCompositeOperation = "lighter";
+    g.strokeStyle = hexA(lit, 0.3 + pulse * 0.4); g.lineWidth = 2;
+    g.beginPath(); g.moveTo(-2, -8); g.lineTo(5, 0); g.lineTo(0, 10); g.stroke();
+    g.restore();
+    // knuckle ridges
+    g.strokeStyle = hexA(INK, 0.5); g.lineWidth = 1.8;
+    for (let i = 0; i < 3; i++) {
+      g.beginPath(); g.moveTo(8 - i * 0.5, -9 + i * 6.5); g.lineTo(14 - i * 0.5, -7 + i * 6); g.stroke();
+    }
+    g.restore();
+
+    /* --- when planted, show the ground giving up --- */
+    if (planted) {
+      g.save();
+      g.globalCompositeOperation = "lighter";
+      g.strokeStyle = hexA(lit, 0.5); g.lineWidth = 2.4;
+      for (let i = -2; i <= 2; i++) {
+        if (!i) continue;
+        g.beginPath(); g.moveTo(i * 8, 30); g.lineTo(i * 17, 38); g.stroke();
+      }
+      g.restore();
+    }
+  },
+},
+
+/* ======================================================================== */
+/* MIRA — THE ANSWER                                                         */
+/* The only fighter who wins by being hit: a live counter eats the blow and  */
+/* answers it, and the answer shoves the pivot toward whoever swung.          */
+/* ======================================================================== */
+{
+  id: "MIRA", name: "MIRA", tag: "THE ANSWER",
+  blurb: "A duelist who would rather you swung first. Reads the attack, eats it, and sends it back harder.",
+  power: "Counters: a hit during her stance is cancelled and answered, and the answer lurches the deck toward the attacker.",
+  color: "#ff4d6d", color2: "#5e1024", color3: "#2a0710", accent: "#ffe3ea",
+  weight: 0.94, speed: 4.40, accel: 0.92, jump: 12.0, airSpeed: 4.2, fallMul: 1.00,
+  riposte: { dmg: 12, base: 5.8, scale: 1.15, angle: 42 },
+  size: { w: 32, h: 52 }, hurt: 25,
+  specialCooldown: 210,
+
+  light: { name: "Feint", startup: 3, active: 3, recovery: 8,
+    dmg: 3.4, base: 1.6, scale: 0.42, angle: 46, ox: 38, oy: -8, r: 22,
+    vfx(f) {
+      const ang = faceAng(f);
+      // a thin, fast line — a fencer's point, not a slash
+      FX.blade(f.x + f.facing * 10, f.y - 8, ang, 30, 62, 0.22, f.ch.color,
+               { w: 16, life: 9 });
+      FX.spark(hbAt(f, this).x, f.y - 8, f.ch.accent);
+      Snd.tone(1400, 0.035, "square", 0.06, 2100);
+    } },
+
+  heavy: { name: "Lunge", startup: 12, active: 4, recovery: 27,
+    dmg: 14, base: 4.2, scale: 1.02, angle: 40, ox: 56, oy: -6, r: 28,
+    onStart(f) { f.vx += f.facing * 6.2; Snd.whoosh(1.2); },
+    vfx(f) {
+      const ang = faceAng(f);
+      FX.blade(f.x + f.facing * 8, f.y - 6, ang, 36, 98, 0.3, f.ch.color,
+               { w: 26, life: 13 });
+      FX.blade(f.x + f.facing * 8, f.y - 6, ang, 34, 88, 0.16, "#ffffff",
+               { w: 12, life: 9, core: false });
+      FX.streak(f.x, f.y - 6, f.x + f.facing * 100, f.y - 6, f.ch.accent);
+      FX.shake(5);
+      Snd.tone(900, 0.08, "sawtooth", 0.1, 240);
+    } },
+
+  special: { name: "Riposte", startup: 4, active: 26, recovery: 26,
+    dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
+    desc: "A stance. Anything that hits her during it is cancelled and answered, and the deck lurches toward whoever swung.",
+    onStart(f) { Snd.tone(600, 0.14, "sine", 0.1, 1100); },
+    tick(f, a) {
+      const m = a.data;
+      if (a.t >= m.startup && a.t < m.startup + m.active) {
+        f.counter = 2;                       // re-armed every frame of the window
+        f.vx *= 0.7;
+        if (a.t % 6 === 0) {
+          FX.ring(f.x, f.y, 4, 34, f.ch.accent, 2);
+          FX.spark(f.x + rnd(-16, 16), f.y + rnd(-18, 18), f.ch.color);
+        }
+      }
+    } },
+
+  super: { name: "Perfect Answer",
+    desc: "A long stance that answers everything. One hit during it and the whole stage pays for it.",
+    startup: 12, active: 60, recovery: 34,
+    dmg: 16, base: 5.4, scale: 1.05, angle: 46, ox: 0, oy: 0, r: 150,
+    onStart(f) { Snd.superCharge(); FX.flash("#ff4d6d", 0.3); },
+    tick(f, a) {
+      const m = a.data;
+      if (a.t < m.startup) { f.vx *= 0.82; FX.spark(f.x + rnd(-26, 26), f.y + rnd(-30, 30), f.ch.color); }
+      if (a.t === m.startup) {
+        FX.banner("PERFECT ANSWER", f.ch.color);
+        a.answered = false;
+      }
+      if (a.t >= m.startup && a.t < m.startup + m.active && !a.answered) {
+        f.counter = 2;
+        f.vx *= 0.86;
+        if (a.t % 4 === 0) {
+          FX.ring(f.x, f.y, 6, 70, f.ch.accent, 2);
+          FX.spark(f.x + rnd(-30, 30), f.y + rnd(-30, 30), f.ch.accent);
+        }
+        /* counterFlash is set by the riposte in applyKnockback, so it is how
+           the super learns that its counter actually fired */
+        if (f.counterFlash > 20) {
+          a.answered = true;
+          for (const o of Match.current.fighters) {
+            if (o === f || !o.alive || o.state === ST.DEAD) continue;
+            if (dist(o.x, o.y, f.x, f.y) > m.r) continue;
+            const dirX = o.x >= f.x ? 1 : -1;
+            const rad = m.angle * Math.PI / 180;
+            const mag = CFG.kbBase + m.base + m.dmg * CFG.kbDamageScale
+                      + o.percent * CFG.kbPercentScale * m.scale * 1.9;
+            o.applyKnockback(Math.cos(rad) * mag * dirX, -Math.sin(rad) * mag,
+                             m.dmg, mag, f);
+            f.stats.damageDealt += m.dmg;
+          }
+          FX.flash("#ffffff", 0.45);
+          FX.hitPause(16); FX.shake(28);
+          FX.ring(f.x, f.y, 20, 420, "#ffffff", 6);
+          FX.blade(f.x, f.y, 0, 40, 220, 6.28, f.ch.color, { w: 18, life: 20 });
+          Snd.superHit();
+        }
+      }
+    } },
+
+  /* ---- art: a duelist. Long coat tails, a faceted mirror mask, and a thin
+           blade she holds point-forward rather than swung. ---- */
+  draw(g, A) {
+    const c = this.color, c2 = this.color2, c3 = this.color3, ac = this.accent;
+    const body = A.flash ? "#ffffff" : c;
+    const dark = A.flash ? "#ffd3dc" : c2;
+    const deep = A.flash ? "#ffb3c2" : c3;
+    const sw = swing(A, -14, 46);
+    const guard = A.state === ST.ATTACK && (A.atkKind === "special" || A.atkKind === "super");
+
+    if (guard) aura(g, 0, -6, 44, ac, 0.3);
+    else aura(g, 0, -6, 30, c, 0.12);
+
+    /* --- coat tails, behind, lagging the motion --- */
+    for (let t = 0; t < 2; t++) {
+      g.save();
+      const path = () => {
+        g.beginPath(); g.moveTo(-4, -6 + t * 4);
+        for (let s = 1; s <= 4; s++)
+          g.lineTo(-4 - s * 7 - Math.abs(A.vx) * 0.7 * s * 0.3,
+                   -6 + t * 4 + Math.sin(A.time * 0.11 + s * 0.8 + t) * (2 + s * 1.7) + s * 4.5);
+      };
+      g.lineCap = "round"; g.lineJoin = "round";
+      path(); g.strokeStyle = INK; g.lineWidth = (t ? 3.6 : 5.6) + 1.8; g.stroke();
+      path(); g.strokeStyle = t ? deep : dark; g.lineWidth = t ? 3.6 : 5.6; g.stroke();
+      path(); g.strokeStyle = hexA(ac, 0.28); g.lineWidth = 1.3; g.stroke();
+      g.restore();
+    }
+
+    /* --- legs: a fencer's stance, front leg forward --- */
+    const st = Math.sin(A.runPhase) * (A.running ? 12 : 0);
+    jointLimb(g, -5, 9, -11 + st, 26, -4, 5.5, dark);
+    jointLimb(g, 6, 9, 13 - st, 26, 5, 5.5, dark);
+    plateRect(g, -17 + st, 24, 12, 6, 2, deep, { up: 0.16 });
+    plateRect(g, 8 - st, 24, 13, 6, 2, deep, { up: 0.16 });
+
+    /* --- torso: slim, with a sash and a high collar --- */
+    plate(g, [-9, -15, 10, -15, 8, 11, -8, 11], body, { up: 0.3, down: 0.34, under: true });
+    plate(g, [-7, -11, 8, -11, 6, 1, -6, 1], dark, { up: 0.12, down: 0.3, rimA: 0.28 });
+    plate(g, [-9, -3, 10, -11, 11, -6, -8, 2], deep, { up: 0.2, ink: 2.2, rimA: 0.35 });
+    // collar
+    plate(g, [-10, -15, 10, -15, 7, -21, -7, -21], deep, { up: 0.24, rim: false });
+
+    /* --- head: a faceted mirror mask. Reflective, not lit --- */
+    g.save(); g.translate(1, -26);
+    const maskPath = () => poly(g, [-6.5, -5, 6.5, -6.5, 8.5, 2.5, -6, 5]);
+    ink(g, maskPath, vol(g, -9, 7, body, 0.34, 0.3));
+    // the facets: hard-edged highlights that read as polished metal
+    g.save(); maskPath(); g.clip();
+    g.fillStyle = hexA("#ffffff", 0.42); poly(g, [-6.5, -5, 0.5, -6, -2.5, 5, -6, 4]); g.fill();
+    g.fillStyle = hexA("#ffffff", 0.18); poly(g, [2.5, -6, 6.5, -6, 7.5, 1, 3.5, 1.5]); g.fill();
+    g.fillStyle = hexA(INK, 0.4); poly(g, [-2, -1.5, 8.5, 0, 8.5, 2.5, -2.5, 3.5]); g.fill();
+    g.restore();
+    rim(g, maskPath, "#ffffff", 3, 0.6);
+    // one visor slit, dimmer than the others' — she is reading, not glowing
+    lens(g, () => poly(g, [0, -2.6, 7.6, -1.3, 7.6, 0.7, -1, 0]), ac, c, guard ? 18 : 9);
+    g.restore();
+
+    /* --- back arm tucked behind, as a fencer holds it --- */
+    jointLimb(g, -8, -11, -16, -15, -3, 5, dark);
+    g.fillStyle = mid_(c, c2); g.strokeStyle = INK; g.lineWidth = 2.2;
+    g.beginPath(); g.arc(-17.5, -16, 3.6, 0, 7); g.stroke(); g.fill();
+
+    /* --- sword arm: the blade is a line, held point-forward --- */
+    const ax = 16 + sw, ay = -8;
+    jointLimb(g, 8, -11, (8 + ax) / 2, ay - 1, 2.5, 5.5, dark);
+    limb(g, (8 + ax) / 2, ay - 1, ax - 2, ay, 7, mid_(c, c2));
+    g.save(); g.translate(ax, ay);
+    g.rotate(guard ? -0.5 : A.atkPhase >= 0 ? 0.06 : 0.18);
+    // guard and grip
+    plateRect(g, -5, -5, 9, 10, 3, deep, { up: 0.2, rim: false });
+    g.strokeStyle = INK; g.lineWidth = 4.5; g.lineCap = "round";
+    g.beginPath(); g.moveTo(4, -7); g.lineTo(4, 7); g.stroke();
+    g.strokeStyle = ac; g.lineWidth = 2.4;
+    g.beginPath(); g.moveTo(4, -7); g.lineTo(4, 7); g.stroke();
+    // the blade: ink line, bright core, hot tip
+    g.strokeStyle = INK; g.lineWidth = 5.5; g.lineCap = "butt";
+    g.beginPath(); g.moveTo(5, 0); g.lineTo(52, 0); g.stroke();
+    g.strokeStyle = mid_(c, "#ffffff"); g.lineWidth = 3;
+    g.beginPath(); g.moveTo(5, 0); g.lineTo(52, 0); g.stroke();
+    glow(g, ac, guard ? 16 : 7, () => {
+      g.strokeStyle = ac; g.lineWidth = 1.4;
+      g.beginPath(); g.moveTo(16, -0.6); g.lineTo(54, -0.6); g.stroke();
+    });
+    g.restore();
+
+    /* --- the counter window, drawn as a mirror shell around her --- */
+    if (guard) {
+      g.save();
+      g.globalCompositeOperation = "lighter";
+      const k = 0.5 + Math.sin(A.time * 0.4) * 0.3;
+      g.strokeStyle = hexA(ac, 0.5 * k); g.lineWidth = 2.4;
+      for (let i = 0; i < 6; i++) {
+        const a2 = (i / 6) * Math.PI * 2 + A.time * 0.05;
+        g.save(); g.rotate(a2);
+        g.beginPath(); g.moveTo(26, -7); g.lineTo(32, 0); g.lineTo(26, 7); g.stroke();
+        g.restore();
+      }
+      g.restore();
+    }
   },
 },
 ];

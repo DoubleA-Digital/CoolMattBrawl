@@ -256,77 +256,86 @@ const Game = {
   drawSelect() {
     Stage.def = STAGES[this.stageIndex];
     drawBackground();
-    g.save(); g.fillStyle = "rgba(6,5,14,.62)"; g.fillRect(0, 0, W, H); g.restore();
+    g.save(); g.fillStyle = "rgba(6,5,14,.68)"; g.fillRect(0, 0, W, H); g.restore();
     screenTitleBar("COOL MATT GAMES", "CHOOSE YOUR FIGHTERS");
 
-    const cw = 232, gap = 20;
-    let x = (W - (ROSTER.length * cw + (ROSTER.length - 1) * gap)) / 2;
-    const cy = 108;
+    /* Eight fighters will not fit in one row, so the roster is a 4x2 grid of
+       compact cards. The full write-up for whichever one you are pointing at
+       goes in the panel underneath, which is where there is actually room to
+       explain what a character does. */
+    const cols = 4, cw = 236, chh = 136, gapX = 18, gapY = 14;
+    const gridW = cols * cw + (cols - 1) * gapX;
+    const gx0 = (W - gridW) / 2, gy0 = 104;
+    let hoverChar = null;
 
-    ROSTER.forEach(c => {
-      const hov = Mouse.x > x && Mouse.x < x + cw && Mouse.y > cy && Mouse.y < cy + 284;
-      const picked = this.slots.map((s, i) => (s.mode !== "off" && s.charId === c.id) ? i : -1).filter(i => i >= 0);
+    ROSTER.forEach((c, i) => {
+      const col = i % cols, row = (i / cols) | 0;
+      const x = gx0 + col * (cw + gapX);
+      const cy = gy0 + row * (chh + gapY);
+      const hov = Mouse.x > x && Mouse.x < x + cw && Mouse.y > cy && Mouse.y < cy + chh;
+      if (hov) hoverChar = c;
+      const picked = this.slots.map((s, k) => (s.mode !== "off" && s.charId === c.id) ? k : -1)
+                               .filter(k => k >= 0);
 
       g.save();
-      g.translate(0, hov ? -4 : 0);
-      panel(g, x, cy, cw, 284, {
-        cut: 15, fill: "#110e24", accent: c.color,
-        accentA: hov ? 1 : 0.5, glow: hov ? 22 : 6,
+      g.translate(0, hov ? -3 : 0);
+      panel(g, x, cy, cw, chh, {
+        cut: 13, fill: "#110e24", accent: c.color,
+        accentA: hov ? 1 : picked.length ? 0.7 : 0.4,
+        glow: hov ? 20 : picked.length ? 10 : 0,
       });
-      // a wash of the fighter's colour rising from the card's foot
+      // colour wash + initial watermark
       g.save();
-      notchPath(g, x, cy, cw, 284, 15); g.clip();
-      const wq = g.createLinearGradient(0, cy + 284, 0, cy + 120);
-      wq.addColorStop(0, hexA(c.color, hov ? 0.22 : 0.12));
+      notchPath(g, x, cy, cw, chh, 13); g.clip();
+      const wq = g.createLinearGradient(0, cy + chh, 0, cy + 30);
+      wq.addColorStop(0, hexA(c.color, hov ? 0.22 : 0.1));
       wq.addColorStop(1, hexA(c.color, 0));
-      g.fillStyle = wq; g.fillRect(x, cy, cw, 284);
-      // The fighter's initial as a watermark, sitting high so the art covers
-      // most of it — at name height its glyph box showed as a pale block
-      // behind the lettering and muddied it.
-      g.globalAlpha = 0.055;
-      g.font = `900 190px ${FONT_DISPLAY}`; g.textAlign = "center";
+      g.fillStyle = wq; g.fillRect(x, cy, cw, chh);
+      g.globalAlpha = 0.06;
+      g.font = `900 120px ${FONT_DISPLAY}`; g.textAlign = "center";
       g.fillStyle = c.color;
-      g.fillText(c.name[0], x + cw / 2, cy + 168);
+      g.fillText(c.name[0], x + cw - 44, cy + 112);
       g.restore();
 
-      // full-size fighter art
+      /* Art on the left, text on the right. Clipped to the card: several
+         fighters are wider than their hurtbox (Kite's sail, Ballast's jib)
+         and spilled over the neighbouring card without this. */
       g.save();
-      // y places the fighter's feet just clear of the name plate below
-      g.translate(x + cw / 2, cy + 100);
-      const s = hov ? 2.1 : 1.95;
-      g.scale(s, s);
-      c.draw(g, { time: this.titleT * 0 + performance.now() / 16, runPhase: 0, running: false,
+      notchPath(g, x + 2, cy + 2, cw - 4, chh - 4, 12); g.clip();
+      g.translate(x + 58, cy + chh - 30);
+      const sc2 = hov ? 1.20 : 1.12;
+      g.scale(sc2, sc2);
+      c.draw(g, { time: performance.now() / 16, runPhase: 0, running: false,
                   air: false, vx: 0, vy: 0, state: ST.IDLE, flash: false, atkPhase: -1 });
       g.restore();
 
-      g.textAlign = "center";
-      g.font = `900 32px ${FONT_DISPLAY}`;
-      g.shadowColor = c.color; g.shadowBlur = 14;
-      outlineText(g, c.name, x + cw / 2, cy + 190, c.color, 7);
-      g.shadowBlur = 0;
-      g.font = `700 10px ${FONT_MONO}`;
-      g.fillStyle = "#8f8cb5"; g.fillText(c.tag, x + cw / 2, cy + 206);
-
-      const stats = [["WEIGHT", c.weight / 1.5], ["SPEED", c.speed / 6], ["JUMP", (c.jump - 11) / 2.2]];
-      let sy = cy + 220;
       g.textAlign = "left";
+      g.font = `900 24px ${FONT_DISPLAY}`;
+      g.shadowColor = c.color; g.shadowBlur = hov ? 14 : 8;
+      outlineText(g, c.name, x + 104, cy + 40, c.color, 6);
+      g.shadowBlur = 0;
+      g.font = `700 8px ${FONT_MONO}`;
+      g.fillStyle = "#8f8cb5"; g.fillText(c.tag, x + 104, cy + 54);
+
+      const stats = [["WGT", c.weight / 1.5], ["SPD", c.speed / 6], ["JMP", (c.jump - 10.5) / 3.2]];
+      let sy = cy + 68;
       stats.forEach(([label, v]) => {
-        g.font = `700 9px ${FONT_MONO}`;
-        g.fillStyle = "#6b6a85"; g.fillText(label, x + 16, sy + 8);
-        g.fillStyle = "rgba(255,255,255,.1)";
-        roundRect(g, x + 74, sy + 1, cw - 92, 7, 3); g.fill();
-        g.fillStyle = c.color;
-        roundRect(g, x + 74, sy + 1, (cw - 92) * clamp(v, 0.08, 1), 7, 3); g.fill();
-        sy += 15;
+        g.font = `700 8px ${FONT_MONO}`;
+        g.fillStyle = "#6b6a85"; g.fillText(label, x + 104, sy + 7);
+        slot(g, x + 130, sy + 1, cw - 146, 6, 3);
+        bar(g, x + 130, sy + 1, cw - 146, 6, clamp(v, 0.08, 1), c.color, { r: 3 });
+        sy += 13;
       });
 
       picked.forEach((pi, k) => {
+        g.save();
+        notchPath(g, x + cw - 34 - k * 32, cy + 8, 28, 17, 5);
         g.fillStyle = PLAYER_TINT[pi];
-        g.shadowColor = PLAYER_TINT[pi]; g.shadowBlur = 12;
-        roundRect(g, x + 10 + k * 34, cy + 10, 28, 18, 5); g.fill();
-        g.shadowBlur = 0;
-        g.fillStyle = "#07060f"; g.font = `700 11px ${FONT_MONO}`; g.textAlign = "center";
-        g.fillText("P" + (pi + 1), x + 24 + k * 34, cy + 23);
+        g.shadowColor = PLAYER_TINT[pi]; g.shadowBlur = 12; g.fill();
+        g.restore();
+        g.fillStyle = "#07060f"; g.font = `700 10px ${FONT_MONO}`; g.textAlign = "center";
+        g.fillText("P" + (pi + 1), x + cw - 20 - k * 32, cy + 20.5);
+        g.textAlign = "left";
       });
       g.restore();
 
@@ -336,88 +345,105 @@ const Game = {
         sl.charId = c.id;
         Snd.ui();
       }
-      x += cw + gap;
     });
 
     // ---- slot row ----
     const sw = 268, sgap = 16;
     let sx = (W - (4 * sw + 3 * sgap)) / 2;
-    const sy2 = 404;
+    const sy2 = gy0 + 2 * (chh + gapY) + 6;
     this.slots.forEach((s, i) => {
       const c = CHAR_BY_ID[s.charId];
       const sel = this.selIndex === i, off = s.mode === "off";
       g.save();
       g.globalAlpha = off ? 0.5 : 1;
-      panel(g, sx, sy2, sw, 104, {
+      panel(g, sx, sy2, sw, 92, {
         cut: 12, fill: sel ? mixColor("#14112a", PLAYER_TINT[i], 0.14) : "#110e22",
         accent: PLAYER_TINT[i], accentA: sel ? 1 : 0.45, glow: sel ? 20 : 0,
         only: { tl: 1, br: 1 },
       });
-      // a tint strip down the left edge identifies the slot at a glance
       g.save();
-      notchPath(g, sx, sy2, sw, 104, 12, { tl: 1, br: 1 }); g.clip();
+      notchPath(g, sx, sy2, sw, 92, 12, { tl: 1, br: 1 }); g.clip();
       g.fillStyle = hexA(PLAYER_TINT[i], off ? 0.25 : 0.7);
-      g.fillRect(sx, sy2, 4, 104);
+      g.fillRect(sx, sy2, 4, 92);
       g.restore();
       g.textAlign = "left";
-      g.font = `700 14px ${FONT_MONO}`; g.fillStyle = PLAYER_TINT[i];
-      g.fillText(`PLAYER ${i + 1}`, sx + 14, sy2 + 22);
-      g.font = `900 24px ${FONT_DISPLAY}`;
+      g.font = `700 12px ${FONT_MONO}`; g.fillStyle = PLAYER_TINT[i];
+      g.fillText(`PLAYER ${i + 1}`, sx + 14, sy2 + 19);
+      g.font = `900 21px ${FONT_DISPLAY}`;
       g.fillStyle = off ? "#4a4866" : c.color;
-      g.fillText(off ? "— EMPTY —" : c.name, sx + 14, sy2 + 48);
-      g.font = `400 9px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
+      g.fillText(off ? "— EMPTY —" : c.name, sx + 14, sy2 + 42);
+      g.font = `400 8px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
       const b = Settings.binds[i];
       g.fillText(`${keyLabel(b.left)}${keyLabel(b.right)} move · ${keyLabel(b.light)} ${keyLabel(b.heavy)} ${keyLabel(b.special)} · ${keyLabel(b.super)} super`,
-                 sx + 14, sy2 + 63);
+                 sx + 14, sy2 + 55);
       g.restore();
 
       [["OFF", "off"], ["HUMAN", "human"], ["CPU", "cpu"]].forEach(([lab, m], k) => {
-        if (btn(sx + 12 + k * 80, sy2 + 70, 74, 24, lab, {
+        if (btn(sx + 12 + k * 80, sy2 + 62, 74, 22, lab, {
           active: s.mode === m,
           color: m === "cpu" ? "#ffc83d" : m === "human" ? "#b6ff3b" : "#6b6a85",
-          font: `700 11px ${FONT_MONO}`,
+          font: `700 10px ${FONT_MONO}`,
         })) { s.mode = m; this.selIndex = i; Snd.ui(); }
       });
-      if (Mouse.x > sx && Mouse.x < sx + sw && Mouse.y > sy2 && Mouse.y < sy2 + 66 && Mouse.click) {
+      if (Mouse.x > sx && Mouse.x < sx + sw && Mouse.y > sy2 && Mouse.y < sy2 + 58 && Mouse.click) {
         this.selIndex = i; Snd.ui();
       }
       sx += sw + sgap;
     });
 
-    // ---- moveset readout for the highlighted fighter ----
-    const sc = CHAR_BY_ID[this.slots[this.selIndex].charId];
+    /* ---- the write-up: whoever you are pointing at, else your own slot ---- */
+    const sc = hoverChar || CHAR_BY_ID[this.slots[this.selIndex].charId];
+    const dy = sy2 + 104;
+    panel(g, 90, dy, W - 180, 112, {
+      cut: 14, fill: "#100d20", accent: sc.color, accentA: 0.6, glow: 8,
+    });
     g.save();
-    g.textAlign = "center";
-    g.font = `700 11px ${FONT_MONO}`;
-    const active = this.slots.filter(s => s.mode !== "off").length;
-    g.fillStyle = active >= 2 ? "#b6ff3b" : "#ff2e88";
-    g.fillText(active >= 2
-      ? `SELECTED SLOT: PLAYER ${this.selIndex + 1} — click a fighter card to assign`
-      : "NEED AT LEAST 2 FIGHTERS", W / 2, 532);
+    g.textAlign = "left";
+    g.font = `900 20px ${FONT_DISPLAY}`; g.fillStyle = sc.color;
+    g.fillText(sc.name, 110, dy + 27);
+    const nameW = g.measureText(sc.name).width;      // measured in THIS font
+    g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
+    g.fillText(sc.tag, 110 + nameW + 14, dy + 26);
+
+    g.font = `400 12px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
+    g.fillText(sc.blurb, 110, dy + 48);
+    if (sc.power) {
+      g.font = `700 8px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
+      g.fillText("POWER", 110, dy + 66);
+      g.font = `400 12px ${FONT_MONO}`; g.fillStyle = sc.accent;
+      g.fillText(sc.power, 158, dy + 66);
+    }
 
     const moves = [
-      ["LIGHT", sc.light.name, sc.color],
-      ["HEAVY", sc.heavy.name, sc.color],
+      ["LIGHT", sc.light.name, "#b7b4d4"],
+      ["HEAVY", sc.heavy.name, "#b7b4d4"],
       ["SPECIAL", sc.special.name, sc.accent],
       ["SUPER", sc.super.name, "#ffffff"],
     ];
-    let mx = W / 2 - 480;
+    let mx = 110;
     moves.forEach(([lab, nm, col]) => {
-      g.textAlign = "left";
-      g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
-      g.fillText(lab, mx, 558);
-      g.font = `700 13px ${FONT_MONO}`; g.fillStyle = col;
-      g.fillText(nm.toUpperCase(), mx, 574);
-      mx += 240;
+      g.font = `700 8px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
+      g.fillText(lab, mx, dy + 88);
+      g.font = `700 12px ${FONT_MONO}`; g.fillStyle = col;
+      g.fillText(nm.toUpperCase(), mx, dy + 103);
+      mx += 268;
     });
-    g.textAlign = "center";
-    g.font = `400 11px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
-    g.fillText(sc.super.desc, W / 2, 598);
     g.restore();
 
-    if (btn(W / 2 - 230, 620, 200, 44, "◀ BACK", { color: "#ff2e88" })) { this.screen = "title"; Snd.ui(); }
-    if (btn(W / 2 + 30, 620, 200, 44, "PICK STAGE ▶",
-        { color: active >= 2 ? "#b6ff3b" : "#444", disabled: active < 2, font: `700 17px ${FONT_MONO}` }))
+    const active = this.slots.filter(s => s.mode !== "off").length;
+    g.save();
+    g.textAlign = "center";
+    g.font = `700 10px ${FONT_MONO}`;
+    g.fillStyle = active >= 2 ? "#b6ff3b" : "#ff2e88";
+    g.fillText(active >= 2
+      ? `SELECTED SLOT: PLAYER ${this.selIndex + 1} — click a fighter to assign`
+      : "NEED AT LEAST 2 FIGHTERS", W / 2, dy + 128);
+    g.restore();
+
+    if (btn(W / 2 - 230, H - 62, 200, 42, "◀ BACK", { color: "#ff2e88" }))
+      { this.screen = "title"; Snd.ui(); }
+    if (btn(W / 2 + 30, H - 62, 200, 42, "PICK STAGE ▶",
+        { color: active >= 2 ? "#b6ff3b" : "#444", disabled: active < 2, font: `700 16px ${FONT_MONO}` }))
       { this.screen = "stage"; Snd.uiBig(); }
   },
 
