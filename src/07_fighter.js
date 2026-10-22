@@ -463,9 +463,6 @@ class Fighter {
                           ripo.dmg, m2, this);
       this.stats.damageDealt += ripo.dmg;
       this.addMeter(ripo.dmg * CFG.meter.onDeal);
-      /* The answer lands on the pivot too: the deck lurches toward whoever
-         just swung, which is Mira's version of bending the stage. */
-      Stage.nudge(Math.sign(from.x - Stage.pivot.x || 1) * 0.020);
       Stage.lastPusher = this;
       FX.banner("RIPOSTE", this.ch.accent);
       FX.hitPause(12); FX.shake(13);
@@ -499,6 +496,18 @@ class Fighter {
       Snd.shieldBreak();
     }
     if (this.pinned) { this.percent += dmg * 0.4; this.hitFlash = 4; return; }
+
+    // Orbit's Keel Anchor: full damage still lands, but the brace halves
+    // how far it sends her — survivability, not immunity.
+    if (this.anchorGlow > 0) { vx *= 0.55; vy *= 0.55; mag *= 0.55; }
+
+    // Kite's footing: a passive trait that used to be "doesn't slide on a
+    // tilted deck" and is now "doesn't fly as far or stay stunned as long" —
+    // the same idea of staying planted under her, without any slope to grip.
+    if (this.ch.slopeGrip) {
+      const k = 1 - this.ch.slopeGrip * 0.18;
+      vx *= k; vy *= k; mag *= k;
+    }
 
     this.percent = Math.min(999, this.percent + dmg);
     this.addMeter(dmg * CFG.meter.onTake);
@@ -565,14 +574,8 @@ class Fighter {
         FX.burst(this.x, this.feetY, 5, "#b9b6d8", 2.4);
       }
 
-      /* Slope: slide downhill and lose traction as it steepens. A fighter
-         with slopeGrip keeps its footing instead — that is the whole identity
-         of a character built to ignore the stage's tilt. */
-      const sA = Math.sin(best.angle);
-      this.vx += sA * CFG.slideStrength * (1 - (this.ch.slopeGrip || 0));
-      const loss = Math.abs(sA) * CFG.slopeFrictionLoss;
       if ([ST.IDLE, ST.LANDLAG, ST.SHIELD, ST.SHIELDBREAK].includes(this.state))
-        this.vx *= (CFG.groundFriction + loss * (1 - CFG.groundFriction));
+        this.vx *= CFG.groundFriction;
       this.vx = clamp(this.vx, -ch.speed * 2.4, ch.speed * 2.4);
     }
 

@@ -1,8 +1,8 @@
 /* ==========================================================================
-   5. ROSTER — four fighters, each with their own art and their own moveset
+   5. ROSTER — eight fighters, each with their own art and their own moveset
 
    Every character owns:
-     stats    weight / speed / jump, which also decide how hard they tilt a stage
+     stats    weight / speed / jump, which also decide how far they fly and recover
      moves    light, heavy, special and super — none of them shared templates
      draw()   a bespoke silhouette, not one body in four colours
 
@@ -214,8 +214,8 @@ const ROSTER = [
 /* ======================================================================== */
 {
   id: "BOLDER", name: "BOLDER", tag: "THE ANVIL",
-  blurb: "Walks like furniture, hits like a dropped engine. Heaviest body in the game.",
-  power: "Heaviest body in the game. His heavy and super both hit the whole deck around him.",
+  blurb: "Walks like furniture, hits like a dropped engine.",
+  power: "Heaviest fighter in the game — his heavy and super both hit everyone around him, not just one target.",
   color: "#ff2e88", color2: "#6d1038", color3: "#2b0a1a", accent: "#ffd0e4",
   weight: 1.42, speed: 3.05, accel: 0.52, jump: 11.6, airSpeed: 2.9, fallMul: 1.12,
   size: { w: 46, h: 60 }, hurt: 31,
@@ -415,7 +415,7 @@ const ROSTER = [
 {
   id: "ZIP", name: "ZIP", tag: "THE SPARK",
   blurb: "Lightest, fastest fighter in the game. Dies to one clean read.",
-  power: "Dashes clean through anyone standing in the way, dealing damage as she passes.",
+  power: "Dashes straight through anyone in her path, intangible for the whole dash.",
   color: "#00e5ff", color2: "#07475a", color3: "#04232e", accent: "#eafdff",
   weight: 0.74, speed: 5.65, accel: 1.05, jump: 12.9, airSpeed: 5.3, fallMul: 0.9,
   size: { w: 30, h: 50 }, hurt: 24,
@@ -459,31 +459,29 @@ const ROSTER = [
 
   special: { name: "Polarity Flip", startup: 4, active: 12, recovery: 12,
     dmg: 7, base: 2.6, scale: 0.6, angle: 58, ox: 24, oy: -6, r: 28,
-    desc: "Dashes clean through anyone in the way.",
+    desc: "Flips her own polarity and dashes through everyone — intangible for the whole dash, not just a hitbox.",
     onStart(f) { f.vx = f.facing * 15; f.vy *= 0.2; },
     tick(f, a) {
       const m = a.data;
       if (a.t <= m.startup + m.active) {
         f.vx = f.facing * 15 * (1 - (a.t / (m.startup + m.active)) * 0.5);
         f.vy *= 0.6;
-        FX.spark(f.x, f.y, f.ch.color);
+        f.invuln = Math.max(f.invuln, 2);   // intangible every frame of the dash
+        if (a.t % 2 === 0) FX.spark(f.x, f.y, f.ch.color);
       }
       if (a.t === m.startup + 1 && !a.fired) {
         a.fired = true;
-        Stage.flip(); Stage.lastPusher = f;
         f.flipGlow = 30; Snd.tone(300, 0.22, "square", 0.17, 1200);
-        FX.ring(Stage.pivot.x, Stage.pivot.y, 30, 440, f.ch.color, 3);
-        // two arcs chasing opposite ways: the tilt reversing, made visible
-        FX.blade(Stage.pivot.x, Stage.pivot.y, 0, 50, 180, 2.8, f.ch.color,
-                 { w: 13, life: 20, spin: 0.07 });
-        FX.blade(Stage.pivot.x, Stage.pivot.y, Math.PI, 50, 180, 2.8, f.ch.accent,
-                 { w: 13, life: 20, spin: -0.07 });
-        for (let i = 0; i < 5; i++)
-          FX.bolt(Stage.pivot.x, Stage.pivot.y,
-                  Stage.pivot.x + rnd(-240, 240), Stage.pivot.y + rnd(-60, 40),
-                  f.ch.color, { segs: 5, jag: 16, life: 11, w: 2.4 });
+        FX.ring(f.x, f.y, 14, 90, f.ch.color, 3);
+        // a flicker on her own silhouette, not the whole deck — this is a
+        // personal phase now, not an environmental flip
+        FX.blade(f.x, f.y, 0, 20, 70, 2.0, f.ch.color, { w: 10, life: 16, spin: 0.08 });
+        FX.blade(f.x, f.y, Math.PI, 20, 70, 2.0, f.ch.accent, { w: 10, life: 16, spin: -0.08 });
+        for (let i = 0; i < 4; i++)
+          FX.bolt(f.x, f.y, f.x + rnd(-60, 60), f.y + rnd(-40, 40),
+                  f.ch.color, { segs: 4, jag: 10, life: 10, w: 2 });
         FX.banner("POLARITY FLIP", f.ch.color);
-        FX.shake(9);
+        FX.shake(5);
       }
     } },
 
@@ -644,8 +642,8 @@ const ROSTER = [
 /* ======================================================================== */
 {
   id: "ORBIT", name: "ORBIT", tag: "THE KEEL",
-  blurb: "Fights at arm's length with orbs and a pull-everyone-in super.",
-  power: "Fires an orb down the deck on her special, and opens a well that drags fighters in for her super.",
+  blurb: "Fights at arm's length and braces when things get close.",
+  power: "Special fires an orb and braces against knockback for 3 seconds; super opens a well that drags everyone in.",
   color: "#b6ff3b", color2: "#2f5410", color3: "#152806", accent: "#f4ffdd",
   weight: 1.02, speed: 4.25, accel: 0.78, jump: 12.1, airSpeed: 4.0, fallMul: 1.0,
   size: { w: 36, h: 54 }, hurt: 27,
@@ -684,30 +682,24 @@ const ROSTER = [
 
   special: { name: "Keel Anchor", startup: 7, active: 6, recovery: 16,
     dmg: 6, base: 2.4, scale: 0.5, angle: 20, ox: 34, oy: -10, r: 24,
-    desc: "Fires an orb down the deck and throws up a three-second warning pulse where she's standing.",
+    desc: "Fires an orb and braces herself for three seconds, cutting the knockback from anything that hits her.",
     tick(f, a) {
       const m = a.data;
       if (a.t === m.startup && !a.fired) {
         a.fired = true;
-        // The orb always fires; the lock only takes if the stage is free, so
-        // two Orbits can't chain anchors and flatten the pivot all match.
-        if (Stage.anchorTimer <= 0) {
-          Stage.anchor();
-          f.anchorGlow = Stage.anchorFrames;
-          Snd.tone(120, 0.5, "sine", 0.2, 90); Snd.tone(240, 0.4, "triangle", 0.1, 180);
-          FX.ring(Stage.pivot.x, Stage.pivot.y, 20, 380, f.ch.color, 3);
-          FX.banner("KEEL ANCHOR", f.ch.color);
-          /* A horizon snapping into place: straight lines out along the level.
-             A narrow arc at that radius just rendered as a blob at each end of
-             the deck, because a blade's thickness is radial. */
-          for (const d of [-1, 1]) {
-            FX.streak(Stage.pivot.x, Stage.pivot.y,
-                      Stage.pivot.x + d * 340, Stage.pivot.y, f.ch.color);
-            FX.streak(Stage.pivot.x, Stage.pivot.y - 3,
-                      Stage.pivot.x + d * 300, Stage.pivot.y - 3, f.ch.accent);
-          }
-          FX.glyph(Stage.pivot.x, Stage.pivot.y - 40, "orbit", 40, f.ch.accent, 30);
+        // Personal brace, not a shared lock: two Orbits don't fight over it.
+        f.anchorGlow = Stage.anchorFrames;
+        Snd.tone(120, 0.5, "sine", 0.2, 90); Snd.tone(240, 0.4, "triangle", 0.1, 180);
+        FX.ring(f.x, f.feetY, 20, 380, f.ch.color, 3);
+        FX.banner("KEEL ANCHOR", f.ch.color);
+        /* A horizon snapping into place: straight lines out along the level.
+           A narrow arc at that radius just rendered as a blob at each end of
+           the deck, because a blade's thickness is radial. */
+        for (const d of [-1, 1]) {
+          FX.streak(f.x, f.feetY, f.x + d * 340, f.feetY, f.ch.color);
+          FX.streak(f.x, f.feetY - 3, f.x + d * 300, f.feetY - 3, f.ch.accent);
         }
+        FX.glyph(f.x, f.feetY - 40, "orbit", 40, f.ch.accent, 30);
         Entities.orb(f, f.x + f.facing * 30, f.y - 10, f.facing * 11, -1.2, m);
       }
     } },
@@ -853,7 +845,7 @@ const ROSTER = [
 /* ======================================================================== */
 {
   id: "PIVOT", name: "PIVOT", tag: "THE TRICKSTER",
-  blurb: "Does not fight you so much as fight the floor you are standing on.",
+  blurb: "A trickster who leans into every exchange and never lets up.",
   power: "A sustained swipe she can hold and aim, and a planted point-blank AoE for her super.",
   color: "#ffc83d", color2: "#5e3c05", color3: "#2c1c02", accent: "#fff6dc",
   weight: 0.88, speed: 4.6, accel: 0.9, jump: 12.4, airSpeed: 4.5, fallMul: 0.96,
@@ -915,7 +907,7 @@ const ROSTER = [
   super: { name: "Dead Weight",
     desc: "Drops every ounce of her weight into one spot and holds the floor there, immune and growing.",
     startup: 16, active: 54, recovery: 34,
-    dmg: 12, base: 4.4, scale: 0.9, angle: 72, ox: 0, oy: 0, r: 82,
+    dmg: 15, base: 5.0, scale: 0.95, angle: 72, ox: 0, oy: 0, r: 82,
     onStart(f) { Snd.superCharge(); FX.flash("#ffc83d", 0.3); },
     tick(f, a) {
       const m = a.data;
@@ -1046,13 +1038,13 @@ const ROSTER = [
 
 /* ======================================================================== */
 /* BALLAST — THE LOADER                                                      */
-/* The only fighter who can tilt the stage from somewhere they are not       */
-/* standing: its cubes are real weight on the pivot until they expire.       */
+/* The only fighter who can threaten a spot without standing in it: its      */
+/* cubes sit as live obstacles wherever they land until they expire.         */
 /* ======================================================================== */
 {
   id: "BALLAST", name: "BALLAST", tag: "THE LOADER",
-  blurb: "Dockyard loader. Drops cubes of real weight onto the deck as obstacles and zoning tools.",
-  power: "Places cubes remotely — they sit as obstacles and hazards even with nobody standing near them.",
+  blurb: "Dockyard loader who drops cubes of real weight onto the deck.",
+  power: "Places cubes remotely — they sit as live obstacles wherever they land, even far from where she's standing.",
   color: "#ffa424", color2: "#5a3708", color3: "#241502", accent: "#ffe6b0",
   weight: 1.18, speed: 3.40, accel: 0.60, jump: 11.4, airSpeed: 3.2, fallMul: 1.08,
   size: { w: 42, h: 58 }, hurt: 29,
@@ -1210,13 +1202,13 @@ const ROSTER = [
 
 /* ======================================================================== */
 /* KITE — THE DRIFTER                                                        */
-/* Barely registers on the pivot and barely slides on it either: her sail    */
-/* grips slopes everyone else falls down.                                    */
+/* Lightest fighter in the game. Flies a shorter distance per hit and sheds  */
+/* hitstun faster than anyone else, so she's hard to keep stunned or kill.   */
 /* ======================================================================== */
 {
   id: "KITE", name: "KITE", tag: "THE DRIFTER",
   blurb: "Rides the air instead of the floor. Almost weightless, and a nightmare to pin down.",
-  power: "Keeps her footing on slopes that slide everyone else, and makes updrafts that lift every fighter on stage.",
+  power: "Flies a shorter distance and shakes off hitstun faster than anyone else; her updrafts lift every fighter on stage.",
   color: "#5ff2d0", color2: "#0d5a4c", color3: "#042a23", accent: "#eafffa",
   weight: 0.62, speed: 4.90, accel: 1.00, jump: 13.6, airSpeed: 5.6, fallMul: 0.74,
   slopeGrip: 0.85,
@@ -1393,7 +1385,7 @@ const ROSTER = [
 
 /* ======================================================================== */
 /* HUSK — THE MILLSTONE                                                      */
-/* Can plant himself: immovable, and twice his own weight on the pivot.      */
+/* Can plant himself: immune to knockback outright while anchored.          */
 /* ======================================================================== */
 {
   id: "HUSK", name: "HUSK", tag: "THE MILLSTONE",
@@ -1611,7 +1603,7 @@ const ROSTER = [
 /* ======================================================================== */
 /* MIRA — THE ANSWER                                                         */
 /* The only fighter who wins by being hit: a live counter eats the blow and  */
-/* answers it, and the answer shoves the pivot toward whoever swung.          */
+/* answers it with a hit of her own, straight back at whoever swung.         */
 /* ======================================================================== */
 {
   id: "MIRA", name: "MIRA", tag: "THE ANSWER",

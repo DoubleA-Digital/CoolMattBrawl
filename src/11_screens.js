@@ -467,9 +467,11 @@ const Game = {
       : "NEED AT LEAST 2 FIGHTERS", W / 2, dy + 128);
     g.restore();
 
-    if (btn(W / 2 - 230, H - 62, 200, 42, "◀ BACK", { color: "#ff2e88" }))
+    if (btn(W / 2 - 350, H - 62, 160, 42, "◀ BACK", { color: "#ff2e88" }))
       { this.screen = "title"; Snd.ui(); }
-    if (btn(W / 2 + 30, H - 62, 200, 42, "PICK STAGE ▶",
+    if (btn(W / 2 - 175, H - 62, 170, 42, "FIGHTER GUIDE", { color: "#ffc83d" }))
+      { this.guidePage = ROSTER.indexOf(sc) + 1; this.screen = "guide"; Snd.ui(); }
+    if (btn(W / 2 + 10, H - 62, 220, 42, "PICK STAGE ▶",
         { color: active >= 2 ? "#b6ff3b" : "#444", disabled: active < 2, font: `700 16px ${FONT_MONO}` }))
       { this.screen = "stage"; Snd.uiBig(); }
   },
@@ -558,7 +560,7 @@ const Game = {
 
     g.save();
     g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
-    g.fillText("EVERY STAGE RETUNES THE PIVOT AND MOVES THE BLAST ZONES — THEY ARE NOT RESKINS", W / 2, 474);
+    g.fillText("EVERY STAGE MOVES ITS BLAST ZONES AND PLAYS DIFFERENTLY — THEY ARE NOT RESKINS", W / 2, 474);
     g.restore();
 
     if (btn(W / 2 - 230, 500, 200, 48, "◀ FIGHTERS", { color: "#ff2e88" })) { this.screen = "select"; Snd.ui(); }

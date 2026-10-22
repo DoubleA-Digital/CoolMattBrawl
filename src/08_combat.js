@@ -18,9 +18,8 @@ const Entities = {
   well(owner, x, y, move) {
     this.list.push({ kind: "well", owner, x, y, move, life: 62, r: 38, pull: 180, hitIds: [] });
   },
-  /** Ballast's cube: falls, lands on the deck, then sits there as real weight
-      on the pivot until it expires. The only way in the game to tilt a stage
-      from somewhere you are not standing. */
+  /** Ballast's cube: falls, lands on the deck, then sits there as a planted
+      obstacle that still hits anyone who walks into it until it expires. */
   ballast(owner, x, y, vx, w, life, move) {
     this.list.push({ kind: "ballast", owner, x, y, vx, vy: -2, w, move,
                      life, r: 22, landed: false, hitIds: [] });
@@ -59,17 +58,18 @@ const Entities = {
           if (e.y > CFG.world.h + 400) gone = true;
           if (!gone && !e.landed) gone = this._touch(e, fighters, false);
         } else {
-          /* Resting: ride the deck as it tilts, and press on the pivot. */
-          let sy = null, slope = 0;
+          /* Resting: a planted obstacle. Each fighter still eats one hit
+             walking into it (hitIds already dedupes), so it keeps mattering
+             for its whole lifetime instead of going inert the moment it lands. */
+          let sy = null;
           for (const seg of Stage.segs) {
             const y2 = Stage.surfaceY(seg, e.x);
-            if (y2 != null && (sy === null || y2 < sy)) { sy = y2; slope = seg.angle; }
+            if (y2 != null && (sy === null || y2 < sy)) sy = y2;
           }
-          if (sy === null) { e.landed = false; e.vy = 0; }   // the deck moved away
+          if (sy === null) { e.landed = false; e.vy = 0; }   // the platform it sat on is gone
           else {
             e.y = sy - e.r;
-            Stage.addWeight(e.x, e.y, e.w);
-            e.x += Math.sin(slope) * 1.6;                    // slides downhill
+            this._touch(e, fighters, false);
           }
         }
 
