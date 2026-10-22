@@ -872,8 +872,8 @@ const ROSTER = [
       Snd.tone(1100, 0.04, "triangle", 0.07, 1700);
     } },
 
-  /* Hitting with this also shoves the pivot, so her neutral feeds her gimmick —
-     and the effect says so: a crescent plus a balance stamped on the victim. */
+  /* A crescent plus a balance stamped on the victim — her whole kit still
+     reads as "the scale" even with the stage itself no longer tilting. */
   heavy: { name: "Scale Breaker", startup: 13, active: 4, recovery: 26,
     dmg: 13.5, base: 4.0, scale: 1.0, angle: 44, ox: 48, oy: -8, r: 29,
     vfx(f) {
@@ -886,38 +886,34 @@ const ROSTER = [
       Snd.tone(420, 0.1, "triangle", 0.11, 180);
     },
     onHit(f, def) {
-      Stage.nudge(Math.sign(def.x - Stage.pivot.x || 1) * 0.016);
-      Stage.lastPusher = f;
       FX.ring(def.x, def.y, 8, 90, f.ch.color, 2);
       FX.glyph(def.x, def.y - 16, "scale", 20, f.ch.accent, 22);
     } },
 
   special: { name: "Hand on the Scale", startup: 5, active: 40, recovery: 14,
     dmg: 5, base: 2.0, scale: 0.42, angle: 90, ox: 20, oy: -14, r: 26,
-    desc: "Hold to crank the tilt wherever she leans. Let go near the limit to force a Snap-Back.",
+    desc: "Hold to lean into a sustained swipe wherever she's pointed.",
     tick(f, a, inp) {
       const m = a.data;
       const lean = inp.ax !== 0 ? inp.ax : f.facing;
       if (a.t > m.startup && a.t <= m.startup + m.active) {
-        f.crankDir = lean;
-        Stage.lastPusher = f;
         f.vx *= 0.6; f.vy *= 0.8;
         if (a.t % 3 === 0) FX.spark(f.x + lean * 26, f.y - 10, f.ch.color);
-        /* A lever arm cranking the deck — drawn from her toward the pivot, so
-           you can see which way she is forcing it. */
+        /* A lever arm miming the old crank — drawn out in front of her now
+           instead of toward the stage pivot, which no longer moves. */
         if (a.t % 7 === 0) {
-          FX.streak(Stage.pivot.x, Stage.pivot.y,
-                    Stage.pivot.x + lean * 230, Stage.pivot.y - 10, f.ch.color);
-          FX.streak(Stage.pivot.x, Stage.pivot.y,
-                    Stage.pivot.x + lean * 180, Stage.pivot.y + 6, f.ch.accent);
+          FX.streak(f.x, f.y - 10,
+                    f.x + lean * 230, f.y - 20, f.ch.color);
+          FX.streak(f.x, f.y - 10,
+                    f.x + lean * 180, f.y - 4, f.ch.accent);
           FX.glyph(f.x + lean * 34, f.y - 14, "scale", 15, f.ch.accent, 14);
         }
         if (!inp.held("special")) a.t = m.startup + m.active + 1;
       }
     } },
 
-  super: { name: "Full Tilt",
-    desc: "Seizes the pivot outright and forces a Snap-Back. She is the only one bolted down for it.",
+  super: { name: "Dead Weight",
+    desc: "Drops every ounce of her weight into one spot and holds the floor there, immune and growing.",
     startup: 16, active: 54, recovery: 34,
     dmg: 12, base: 4.4, scale: 0.9, angle: 72, ox: 0, oy: 0, r: 82,
     onStart(f) { Snd.superCharge(); FX.flash("#ffc83d", 0.3); },
@@ -925,32 +921,19 @@ const ROSTER = [
       const m = a.data;
       if (a.t < m.startup) { f.vx *= 0.8; FX.spark(f.x + rnd(-26, 26), f.y + rnd(-30, 30), f.ch.color); }
       if (a.t === m.startup) {
-        FX.banner("FULL TILT", f.ch.color);
-        Stage.lastPusher = f;
+        FX.banner("DEAD WEIGHT", f.ch.color);
         Snd.superHit();
-        a.snapMark = Stage.snapCount;     // stop forcing once she's caused one
+        FX.shake(10);
       }
       if (a.t >= m.startup && a.t < m.startup + m.active) {
-        // ram the tilt to the limit; she is pinned to the pivot and immune
+        // planted and immune; she doesn't move, the hitbox does the work
         f.pinned = true;
-        f.x = lerp(f.x, Stage.pivot.x, 0.12);
-        f.y = lerp(f.y, Stage.pivot.y - 70, 0.12);
         f.vx = 0; f.vy = 0;
-        const dir = a.superDir || (a.superDir = Math.sign(f.facing) || 1);
-        // One Snap-Back, not a stream of them.
-        if (Stage.snapCount === a.snapMark) Stage.forceTilt(dir, 0.0075);
-        if (a.t % 4 === 0) {
-          FX.spark(Stage.pivot.x + rnd(-300, 300), Stage.pivot.y + rnd(-10, 20), f.ch.color);
-          FX.ring(Stage.pivot.x, Stage.pivot.y, 10, 160, f.ch.color, 2);
-        }
+        if (a.t % 4 === 0) FX.spark(f.x + rnd(-80, 80), f.y + rnd(-10, 20), f.ch.color);
         if (a.t % 9 === 0) {
-          FX.streak(Stage.pivot.x, Stage.pivot.y,
-                    Stage.pivot.x + dir * 330, Stage.pivot.y - 16, f.ch.color);
-          FX.streak(Stage.pivot.x, Stage.pivot.y,
-                    Stage.pivot.x + dir * 280, Stage.pivot.y + 10, f.ch.accent);
-          FX.glyph(Stage.pivot.x, Stage.pivot.y - 90, "scale", 34, f.ch.accent, 18);
+          FX.ring(f.x, f.y, 10, 160, f.ch.color, 2);
+          FX.glyph(f.x, f.y - 90, "scale", 34, f.ch.accent, 18);
         }
-        FX.shake(4);
       }
       if (a.t === m.startup + m.active) f.pinned = false;
     } },

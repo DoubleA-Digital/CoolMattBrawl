@@ -1604,8 +1604,8 @@ const ROSTER = [
       Snd.tone(1100, 0.04, "triangle", 0.07, 1700);
     } },
 
-  /* Hitting with this also shoves the pivot, so her neutral feeds her gimmick —
-     and the effect says so: a crescent plus a balance stamped on the victim. */
+  /* A crescent plus a balance stamped on the victim — her whole kit still
+     reads as "the scale" even with the stage itself no longer tilting. */
   heavy: { name: "Scale Breaker", startup: 13, active: 4, recovery: 26,
     dmg: 13.5, base: 4.0, scale: 1.0, angle: 44, ox: 48, oy: -8, r: 29,
     vfx(f) {
@@ -1618,38 +1618,34 @@ const ROSTER = [
       Snd.tone(420, 0.1, "triangle", 0.11, 180);
     },
     onHit(f, def) {
-      Stage.nudge(Math.sign(def.x - Stage.pivot.x || 1) * 0.016);
-      Stage.lastPusher = f;
       FX.ring(def.x, def.y, 8, 90, f.ch.color, 2);
       FX.glyph(def.x, def.y - 16, "scale", 20, f.ch.accent, 22);
     } },
 
   special: { name: "Hand on the Scale", startup: 5, active: 40, recovery: 14,
     dmg: 5, base: 2.0, scale: 0.42, angle: 90, ox: 20, oy: -14, r: 26,
-    desc: "Hold to crank the tilt wherever she leans. Let go near the limit to force a Snap-Back.",
+    desc: "Hold to lean into a sustained swipe wherever she's pointed.",
     tick(f, a, inp) {
       const m = a.data;
       const lean = inp.ax !== 0 ? inp.ax : f.facing;
       if (a.t > m.startup && a.t <= m.startup + m.active) {
-        f.crankDir = lean;
-        Stage.lastPusher = f;
         f.vx *= 0.6; f.vy *= 0.8;
         if (a.t % 3 === 0) FX.spark(f.x + lean * 26, f.y - 10, f.ch.color);
-        /* A lever arm cranking the deck — drawn from her toward the pivot, so
-           you can see which way she is forcing it. */
+        /* A lever arm miming the old crank — drawn out in front of her now
+           instead of toward the stage pivot, which no longer moves. */
         if (a.t % 7 === 0) {
-          FX.streak(Stage.pivot.x, Stage.pivot.y,
-                    Stage.pivot.x + lean * 230, Stage.pivot.y - 10, f.ch.color);
-          FX.streak(Stage.pivot.x, Stage.pivot.y,
-                    Stage.pivot.x + lean * 180, Stage.pivot.y + 6, f.ch.accent);
+          FX.streak(f.x, f.y - 10,
+                    f.x + lean * 230, f.y - 20, f.ch.color);
+          FX.streak(f.x, f.y - 10,
+                    f.x + lean * 180, f.y - 4, f.ch.accent);
           FX.glyph(f.x + lean * 34, f.y - 14, "scale", 15, f.ch.accent, 14);
         }
         if (!inp.held("special")) a.t = m.startup + m.active + 1;
       }
     } },
 
-  super: { name: "Full Tilt",
-    desc: "Seizes the pivot outright and forces a Snap-Back. She is the only one bolted down for it.",
+  super: { name: "Dead Weight",
+    desc: "Drops every ounce of her weight into one spot and holds the floor there, immune and growing.",
     startup: 16, active: 54, recovery: 34,
     dmg: 12, base: 4.4, scale: 0.9, angle: 72, ox: 0, oy: 0, r: 82,
     onStart(f) { Snd.superCharge(); FX.flash("#ffc83d", 0.3); },
@@ -1657,32 +1653,19 @@ const ROSTER = [
       const m = a.data;
       if (a.t < m.startup) { f.vx *= 0.8; FX.spark(f.x + rnd(-26, 26), f.y + rnd(-30, 30), f.ch.color); }
       if (a.t === m.startup) {
-        FX.banner("FULL TILT", f.ch.color);
-        Stage.lastPusher = f;
+        FX.banner("DEAD WEIGHT", f.ch.color);
         Snd.superHit();
-        a.snapMark = Stage.snapCount;     // stop forcing once she's caused one
+        FX.shake(10);
       }
       if (a.t >= m.startup && a.t < m.startup + m.active) {
-        // ram the tilt to the limit; she is pinned to the pivot and immune
+        // planted and immune; she doesn't move, the hitbox does the work
         f.pinned = true;
-        f.x = lerp(f.x, Stage.pivot.x, 0.12);
-        f.y = lerp(f.y, Stage.pivot.y - 70, 0.12);
         f.vx = 0; f.vy = 0;
-        const dir = a.superDir || (a.superDir = Math.sign(f.facing) || 1);
-        // One Snap-Back, not a stream of them.
-        if (Stage.snapCount === a.snapMark) Stage.forceTilt(dir, 0.0075);
-        if (a.t % 4 === 0) {
-          FX.spark(Stage.pivot.x + rnd(-300, 300), Stage.pivot.y + rnd(-10, 20), f.ch.color);
-          FX.ring(Stage.pivot.x, Stage.pivot.y, 10, 160, f.ch.color, 2);
-        }
+        if (a.t % 4 === 0) FX.spark(f.x + rnd(-80, 80), f.y + rnd(-10, 20), f.ch.color);
         if (a.t % 9 === 0) {
-          FX.streak(Stage.pivot.x, Stage.pivot.y,
-                    Stage.pivot.x + dir * 330, Stage.pivot.y - 16, f.ch.color);
-          FX.streak(Stage.pivot.x, Stage.pivot.y,
-                    Stage.pivot.x + dir * 280, Stage.pivot.y + 10, f.ch.accent);
-          FX.glyph(Stage.pivot.x, Stage.pivot.y - 90, "scale", 34, f.ch.accent, 18);
+          FX.ring(f.x, f.y, 10, 160, f.ch.color, 2);
+          FX.glyph(f.x, f.y - 90, "scale", 34, f.ch.accent, 18);
         }
-        FX.shake(4);
       }
       if (a.t === m.startup + m.active) f.pinned = false;
     } },
@@ -2568,12 +2551,10 @@ ROSTER.forEach(c => { CHAR_BY_ID[c.id] = c; });
 /* ==========================================================================
    6. STAGES — four maps that each play and read differently
 
-   Platforms are authored in stage-local space around the pivot and rotated by
-   the live tilt, so sloped ground needs no special case anywhere else.
-
-   Every stage retunes the pivot: the Foundry swings like a wrecking ball, the
-   Drift snaps back almost instantly, the Vault leans much further before it
-   lets go. Blast zones move too, so some maps kill far earlier than others.
+   Platforms are authored in stage-local space around a fixed pivot point and
+   never rotate — every deck stays flat. Side platforms still drift, heat up,
+   crumble, or retract on their own schedules, and blast zones move, so some
+   maps kill far earlier than others.
    ========================================================================== */
 
 const TILT_BASE = {
@@ -2586,8 +2567,8 @@ const STAGES = [
 
 /* ------------------------------------------------------------------ 1 --- */
 {
-  id: "YARD", name: "PIVOT YARD", tag: "NEON · BALANCED", deck: "neon",
-  blurb: "The proving ground. Even tilt, generous ledges, room to learn the swing.",
+  id: "YARD", name: "NEON YARD", tag: "NEON · BALANCED", deck: "neon",
+  blurb: "The proving ground. Flat deck, generous ledges, room to learn the swing.",
   pivot: { x: 800, y: 580 },
   blast: { left: -420, right: 2020, top: -520, bottom: 1420 },
   tilt: Object.assign({}, TILT_BASE),
@@ -2693,8 +2674,8 @@ const STAGES = [
 
 /* ------------------------------------------------------------------ 2 --- */
 {
-  id: "FOUNDRY", name: "CINDER FOUNDRY", tag: "MOLTEN · HEAVY SWING", deck: "cast",
-  blurb: "A casting beam over an open crucible. It swings like a wrecking ball and the floor is very close.",
+  id: "FOUNDRY", name: "CINDER FOUNDRY", tag: "MOLTEN · CLOSE QUARTERS", deck: "cast",
+  blurb: "A casting beam over an open crucible. Tight deck, the floor is very close, and the drop is fatal.",
   pivot: { x: 800, y: 560 },
   // the crucible is right below: far less room to recover underneath
   blast: { left: -430, right: 2030, top: -560, bottom: 1140 },
@@ -2865,7 +2846,7 @@ const STAGES = [
 /* ------------------------------------------------------------------ 3 --- */
 {
   id: "DRIFT", name: "CIRRUS DRIFT", tag: "DAWN · TWITCHY", deck: "cloud",
-  blurb: "Dawn above the cloud deck. The platform rights itself almost instantly, so tilts are jabs, not leans.",
+  blurb: "Dawn above the cloud deck. Side platforms drift fast, so footing never sits still for long.",
   pivot: { x: 800, y: 600 },
   // open sky: still the most forgiving map, but not so wide it stalemates
   // Tightened again: with damage output down across the board (stale moves,
@@ -3028,7 +3009,7 @@ const STAGES = [
 /* ------------------------------------------------------------------ 4 --- */
 {
   id: "VAULT", name: "NULL VAULT", tag: "CRAMPED · LETHAL", deck: "grate",
-  blurb: "A sealed test chamber. Tiny deck, walls right there, and the pivot leans a long way before it lets go.",
+  blurb: "A sealed test chamber. Tiny deck, walls right there, and nowhere far to run.",
   pivot: { x: 800, y: 560 },
   // walls are close — everything kills much earlier here
   blast: { left: -215, right: 1815, top: -360, bottom: 1250 },
@@ -3094,7 +3075,7 @@ const STAGES = [
     g.textAlign = "center"; g.fillStyle = "#39ff9e";
     g.fillText("VAULT 04", W / 2, H * 0.26);
     g.font = `700 13px ${FONT_MONO}`;
-    g.fillText("PIVOT TOLERANCE EXCEEDED · CONTAINMENT ADVISED", W / 2, H * 0.30);
+    g.fillText("STRUCTURAL TOLERANCE EXCEEDED · CONTAINMENT ADVISED", W / 2, H * 0.30);
     g.restore();
 
     // falling glyph columns
@@ -3308,31 +3289,22 @@ const Stage = {
     return seg.ay + t * (seg.by - seg.ay);
   },
 
-  nudge(amount) {
-    if (this.anchorTimer > 0) return;
-    this.angVel = clamp(this.angVel + amount, -this.cfg.maxAngVel, this.cfg.maxAngVel);
-  },
+  /* Tilt mechanic removed: every deck stays flat. These stay as harmless
+     no-ops so callers elsewhere (combat, net, the PIVOT character's special)
+     don't need to know the mechanic is gone. */
+  nudge(_amount) {},
   anchor() { this.anchorTimer = this.cfg.anchorFrames; this.angVel = 0; },
-  flip() {
-    if (this.anchorTimer > 0) return;
-    this.tilt = -this.tilt; this.angVel = -this.angVel;
-  },
-  /** Pivot's super: drive the tilt one way regardless of who is standing where. */
-  forceTilt(dir, power) {
-    this.anchorTimer = 0;
-    this.forcing = dir;
-    this.angVel = clamp(this.angVel + dir * power, -this.cfg.maxAngVel * 1.5, this.cfg.maxAngVel * 1.5);
-  },
-  balance() { return clamp(this.tilt / this.cfg.limit, -1, 1); },
+  flip() {},
+  forceTilt(_dir, _power) {},
+  balance() { return 0; },
 
   update(fighters) {
     this.prevTilt = this.tilt;
-    const C = this.cfg;
+    this.tilt = 0;
+    this.angVel = 0;
 
     if (this.anchorTimer > 0) {
       this.anchorTimer--;
-      this.tilt += (0 - this.tilt) * 0.22;
-      this.angVel = 0;
       this.platformTick(fighters);
       this.rebuild();
       this.platformDamage(fighters);
@@ -3340,34 +3312,8 @@ const Stage = {
       return;
     }
 
-    let torque = 0;
-    for (const f of fighters) {
-      if (!f.alive || !f.grounded || !f.groundSeg || !f.groundSeg.main) continue;
-      const arm = (f.x - this.pivot.x) * Math.cos(this.tilt) + (f.y - this.pivot.y) * Math.sin(this.tilt);
-      const w = f.ch.weight * (f.weightMul || 1);
-      torque += w * arm;
-      if (f.heavyStomp > 0) torque += w * arm * C.stompTorque;
-    }
-    for (const b of this.extraWeights) {
-      const arm = (b.x - this.pivot.x) * Math.cos(this.tilt) + (b.y - this.pivot.y) * Math.sin(this.tilt);
-      torque += b.w * arm;
-    }
     this.extraWeights.length = 0;
-    for (const f of fighters) if (f.alive && f.crankDir !== 0) torque += f.crankDir * C.crankTorque;
-    if (this.forcing) { torque += this.forcing * C.crankTorque * 2.4; this.forcing = 0; }
-
-    let acc = torque * C.torque - this.tilt * C.spring;
-    this.angVel = clamp((this.angVel + acc) * C.damp, -C.maxAngVel, C.maxAngVel);
-    this.tilt += this.angVel;
-
-    if (this.snapCooldown > 0) this.snapCooldown--;
-    if (Math.abs(this.tilt) > C.limit) {
-      if (this.snapCooldown > 0) {
-        // Still recovering from the last one: the deck just jams at its stop.
-        this.tilt = Math.sign(this.tilt) * C.limit;
-        this.angVel *= 0.5;
-      } else this.snapBack(fighters);
-    }
+    this.forcing = 0;
     if (this.snapFlash > 0) this.snapFlash--;
     this.platformTick(fighters);
     this.rebuild();
@@ -5285,7 +5231,7 @@ function drawDeckDetail(kind, len, th, depth, pal, main, near, t) {
   }
 }
 
-/* The column under the pivot. Same job on every map, four different machines. */
+/* The support column under the deck. Same job on every map, four different machines. */
 function drawPivotColumn(P, kind, pal, anch, t) {
   g.save();
   g.translate(P.x, P.y);
@@ -5512,26 +5458,6 @@ function drawStage(alpha) {
     }
     g.restore();
   });
-
-  /* ---- pivot hub ---- */
-  g.save();
-  g.translate(P.x, P.y); g.rotate(tilt);
-  const hubCol = anch ? "#b6ff3b" : shade(pal.plat, 0.3);
-  // housing
-  g.beginPath(); g.arc(0, 0, 18, 0, 7);
-  g.strokeStyle = pal.ink; g.lineWidth = 4; g.stroke();
-  g.fillStyle = hubCol;
-  g.shadowColor = anch ? "#b6ff3b" : pal.platEdge; g.shadowBlur = anch ? 30 : 14;
-  g.fill(); g.shadowBlur = 0;
-  // bolt ring, which visibly rotates with the deck
-  for (let i = 0; i < 6; i++) {
-    const a2 = (i / 6) * Math.PI * 2;
-    screw(g, Math.cos(a2) * 12, Math.sin(a2) * 12, 2, shade(pal.plat, -0.1));
-  }
-  g.fillStyle = anch ? "#b6ff3b" : pal.platEdge;
-  g.shadowColor = anch ? "#b6ff3b" : pal.platEdge; g.shadowBlur = 12;
-  g.beginPath(); g.arc(0, 0, 4.5, 0, 7); g.fill();
-  g.restore();
 
   if (anch) {
     // soft wash, not a box — a hard-edged rect read as a UI artifact
@@ -6907,11 +6833,8 @@ const Game = {
       ["b", "No health bars. Getting hit raises your damage %, and a higher % means you fly further."],
       ["b", "Knock opponents past the blast zones. Three stocks each. Last fighter standing wins."],
       ["", ""],
-      ["h2", "THE TILT STAGE"],
-      ["b", "The main platform balances on a pivot and leans toward whichever side holds more fighter weight."],
-      ["b", "Tilted ground slides you downhill and robs your traction, so camping a ledge is a gamble."],
-      ["b", "Big hits shove the pivot too. Watch the BALANCE BAR across the top of the screen."],
-      ["w", "If the stage tips past its limit it SNAPS BACK and launches everyone riding it. Weaponise that."],
+      ["h2", "THE STAGE"],
+      ["b", "Every stage's layout is fixed: drifting, crumbling, hot, and retracting platforms all still move, but the main deck itself stays flat."],
       ["", ""],
       ["h3", "SKILL"],
       ["b", "TIP — connect with the outer edge of your swing and it hits harder. Spacing pays."],
@@ -7088,14 +7011,13 @@ const Game = {
     g.shadowBlur = 0;
     g.restore();
 
-    // live readout of the thing that matters while stopped: the pivot
+    // live readout of the stage, while stopped
     g.save();
     const pw = 420, px2 = W / 2 - pw / 2;
     panel(g, px2, 164, pw, 34, { cut: 9, fill: "#120f26", accent: "#00e5ff", accentA: 0.4 });
     g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`;
     g.fillStyle = UI.dim;
-    g.fillText(`${Stage.def.name}   ·   BALANCE ${(Stage.balance() * 100).toFixed(0)}%   ·   SNAP-BACKS ${Stage.snapCount}`,
-               W / 2, 185);
+    g.fillText(Stage.def.name, W / 2, 185);
     g.restore();
 
     const bx = W / 2 - 130;

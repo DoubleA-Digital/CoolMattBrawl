@@ -104,7 +104,7 @@ function drawDeckDetail(kind, len, th, depth, pal, main, near, t) {
   }
 }
 
-/* The column under the pivot. Same job on every map, four different machines. */
+/* The support column under the deck. Same job on every map, four different machines. */
 function drawPivotColumn(P, kind, pal, anch, t) {
   g.save();
   g.translate(P.x, P.y);
@@ -331,26 +331,6 @@ function drawStage(alpha) {
     }
     g.restore();
   });
-
-  /* ---- pivot hub ---- */
-  g.save();
-  g.translate(P.x, P.y); g.rotate(tilt);
-  const hubCol = anch ? "#b6ff3b" : shade(pal.plat, 0.3);
-  // housing
-  g.beginPath(); g.arc(0, 0, 18, 0, 7);
-  g.strokeStyle = pal.ink; g.lineWidth = 4; g.stroke();
-  g.fillStyle = hubCol;
-  g.shadowColor = anch ? "#b6ff3b" : pal.platEdge; g.shadowBlur = anch ? 30 : 14;
-  g.fill(); g.shadowBlur = 0;
-  // bolt ring, which visibly rotates with the deck
-  for (let i = 0; i < 6; i++) {
-    const a2 = (i / 6) * Math.PI * 2;
-    screw(g, Math.cos(a2) * 12, Math.sin(a2) * 12, 2, shade(pal.plat, -0.1));
-  }
-  g.fillStyle = anch ? "#b6ff3b" : pal.platEdge;
-  g.shadowColor = anch ? "#b6ff3b" : pal.platEdge; g.shadowBlur = 12;
-  g.beginPath(); g.arc(0, 0, 4.5, 0, 7); g.fill();
-  g.restore();
 
   if (anch) {
     // soft wash, not a box — a hard-edged rect read as a UI artifact
