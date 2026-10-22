@@ -767,11 +767,8 @@ const Game = {
       ["b", "No health bars. Getting hit raises your damage %, and a higher % means you fly further."],
       ["b", "Knock opponents past the blast zones. Three stocks each. Last fighter standing wins."],
       ["", ""],
-      ["h2", "THE TILT STAGE"],
-      ["b", "The main platform balances on a pivot and leans toward whichever side holds more fighter weight."],
-      ["b", "Tilted ground slides you downhill and robs your traction, so camping a ledge is a gamble."],
-      ["b", "Big hits shove the pivot too. Watch the BALANCE BAR across the top of the screen."],
-      ["w", "If the stage tips past its limit it SNAPS BACK and launches everyone riding it. Weaponise that."],
+      ["h2", "THE STAGE"],
+      ["b", "Every stage's layout is fixed: drifting, crumbling, hot, and retracting platforms all still move, but the main deck itself stays flat."],
       ["", ""],
       ["h3", "SKILL"],
       ["b", "TIP — connect with the outer edge of your swing and it hits harder. Spacing pays."],
@@ -948,14 +945,13 @@ const Game = {
     g.shadowBlur = 0;
     g.restore();
 
-    // live readout of the thing that matters while stopped: the pivot
+    // live readout of the stage, while stopped
     g.save();
     const pw = 420, px2 = W / 2 - pw / 2;
     panel(g, px2, 164, pw, 34, { cut: 9, fill: "#120f26", accent: "#00e5ff", accentA: 0.4 });
     g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`;
     g.fillStyle = UI.dim;
-    g.fillText(`${Stage.def.name}   ·   BALANCE ${(Stage.balance() * 100).toFixed(0)}%   ·   SNAP-BACKS ${Stage.snapCount}`,
-               W / 2, 185);
+    g.fillText(Stage.def.name, W / 2, 185);
     g.restore();
 
     const bx = W / 2 - 130;

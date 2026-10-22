@@ -1,12 +1,10 @@
 /* ==========================================================================
    6. STAGES — four maps that each play and read differently
 
-   Platforms are authored in stage-local space around the pivot and rotated by
-   the live tilt, so sloped ground needs no special case anywhere else.
-
-   Every stage retunes the pivot: the Foundry swings like a wrecking ball, the
-   Drift snaps back almost instantly, the Vault leans much further before it
-   lets go. Blast zones move too, so some maps kill far earlier than others.
+   Platforms are authored in stage-local space around a fixed pivot point and
+   never rotate — every deck stays flat. Side platforms still drift, heat up,
+   crumble, or retract on their own schedules, and blast zones move, so some
+   maps kill far earlier than others.
    ========================================================================== */
 
 const TILT_BASE = {
@@ -19,8 +17,8 @@ const STAGES = [
 
 /* ------------------------------------------------------------------ 1 --- */
 {
-  id: "YARD", name: "PIVOT YARD", tag: "NEON · BALANCED", deck: "neon",
-  blurb: "The proving ground. Even tilt, generous ledges, room to learn the swing.",
+  id: "YARD", name: "NEON YARD", tag: "NEON · BALANCED", deck: "neon",
+  blurb: "The proving ground. Flat deck, generous ledges, room to learn the swing.",
   pivot: { x: 800, y: 580 },
   blast: { left: -420, right: 2020, top: -520, bottom: 1420 },
   tilt: Object.assign({}, TILT_BASE),
@@ -126,8 +124,8 @@ const STAGES = [
 
 /* ------------------------------------------------------------------ 2 --- */
 {
-  id: "FOUNDRY", name: "CINDER FOUNDRY", tag: "MOLTEN · HEAVY SWING", deck: "cast",
-  blurb: "A casting beam over an open crucible. It swings like a wrecking ball and the floor is very close.",
+  id: "FOUNDRY", name: "CINDER FOUNDRY", tag: "MOLTEN · CLOSE QUARTERS", deck: "cast",
+  blurb: "A casting beam over an open crucible. Tight deck, the floor is very close, and the drop is fatal.",
   pivot: { x: 800, y: 560 },
   // the crucible is right below: far less room to recover underneath
   blast: { left: -430, right: 2030, top: -560, bottom: 1140 },
@@ -298,7 +296,7 @@ const STAGES = [
 /* ------------------------------------------------------------------ 3 --- */
 {
   id: "DRIFT", name: "CIRRUS DRIFT", tag: "DAWN · TWITCHY", deck: "cloud",
-  blurb: "Dawn above the cloud deck. The platform rights itself almost instantly, so tilts are jabs, not leans.",
+  blurb: "Dawn above the cloud deck. Side platforms drift fast, so footing never sits still for long.",
   pivot: { x: 800, y: 600 },
   // open sky: still the most forgiving map, but not so wide it stalemates
   // Tightened again: with damage output down across the board (stale moves,
@@ -461,7 +459,7 @@ const STAGES = [
 /* ------------------------------------------------------------------ 4 --- */
 {
   id: "VAULT", name: "NULL VAULT", tag: "CRAMPED · LETHAL", deck: "grate",
-  blurb: "A sealed test chamber. Tiny deck, walls right there, and the pivot leans a long way before it lets go.",
+  blurb: "A sealed test chamber. Tiny deck, walls right there, and nowhere far to run.",
   pivot: { x: 800, y: 560 },
   // walls are close — everything kills much earlier here
   blast: { left: -215, right: 1815, top: -360, bottom: 1250 },
@@ -527,7 +525,7 @@ const STAGES = [
     g.textAlign = "center"; g.fillStyle = "#39ff9e";
     g.fillText("VAULT 04", W / 2, H * 0.26);
     g.font = `700 13px ${FONT_MONO}`;
-    g.fillText("PIVOT TOLERANCE EXCEEDED · CONTAINMENT ADVISED", W / 2, H * 0.30);
+    g.fillText("STRUCTURAL TOLERANCE EXCEEDED · CONTAINMENT ADVISED", W / 2, H * 0.30);
     g.restore();
 
     // falling glyph columns
@@ -741,31 +739,22 @@ const Stage = {
     return seg.ay + t * (seg.by - seg.ay);
   },
 
-  nudge(amount) {
-    if (this.anchorTimer > 0) return;
-    this.angVel = clamp(this.angVel + amount, -this.cfg.maxAngVel, this.cfg.maxAngVel);
-  },
+  /* Tilt mechanic removed: every deck stays flat. These stay as harmless
+     no-ops so callers elsewhere (combat, net, the PIVOT character's special)
+     don't need to know the mechanic is gone. */
+  nudge(_amount) {},
   anchor() { this.anchorTimer = this.cfg.anchorFrames; this.angVel = 0; },
-  flip() {
-    if (this.anchorTimer > 0) return;
-    this.tilt = -this.tilt; this.angVel = -this.angVel;
-  },
-  /** Pivot's super: drive the tilt one way regardless of who is standing where. */
-  forceTilt(dir, power) {
-    this.anchorTimer = 0;
-    this.forcing = dir;
-    this.angVel = clamp(this.angVel + dir * power, -this.cfg.maxAngVel * 1.5, this.cfg.maxAngVel * 1.5);
-  },
-  balance() { return clamp(this.tilt / this.cfg.limit, -1, 1); },
+  flip() {},
+  forceTilt(_dir, _power) {},
+  balance() { return 0; },
 
   update(fighters) {
     this.prevTilt = this.tilt;
-    const C = this.cfg;
+    this.tilt = 0;
+    this.angVel = 0;
 
     if (this.anchorTimer > 0) {
       this.anchorTimer--;
-      this.tilt += (0 - this.tilt) * 0.22;
-      this.angVel = 0;
       this.platformTick(fighters);
       this.rebuild();
       this.platformDamage(fighters);
@@ -773,34 +762,8 @@ const Stage = {
       return;
     }
 
-    let torque = 0;
-    for (const f of fighters) {
-      if (!f.alive || !f.grounded || !f.groundSeg || !f.groundSeg.main) continue;
-      const arm = (f.x - this.pivot.x) * Math.cos(this.tilt) + (f.y - this.pivot.y) * Math.sin(this.tilt);
-      const w = f.ch.weight * (f.weightMul || 1);
-      torque += w * arm;
-      if (f.heavyStomp > 0) torque += w * arm * C.stompTorque;
-    }
-    for (const b of this.extraWeights) {
-      const arm = (b.x - this.pivot.x) * Math.cos(this.tilt) + (b.y - this.pivot.y) * Math.sin(this.tilt);
-      torque += b.w * arm;
-    }
     this.extraWeights.length = 0;
-    for (const f of fighters) if (f.alive && f.crankDir !== 0) torque += f.crankDir * C.crankTorque;
-    if (this.forcing) { torque += this.forcing * C.crankTorque * 2.4; this.forcing = 0; }
-
-    let acc = torque * C.torque - this.tilt * C.spring;
-    this.angVel = clamp((this.angVel + acc) * C.damp, -C.maxAngVel, C.maxAngVel);
-    this.tilt += this.angVel;
-
-    if (this.snapCooldown > 0) this.snapCooldown--;
-    if (Math.abs(this.tilt) > C.limit) {
-      if (this.snapCooldown > 0) {
-        // Still recovering from the last one: the deck just jams at its stop.
-        this.tilt = Math.sign(this.tilt) * C.limit;
-        this.angVel *= 0.5;
-      } else this.snapBack(fighters);
-    }
+    this.forcing = 0;
     if (this.snapFlash > 0) this.snapFlash--;
     this.platformTick(fighters);
     this.rebuild();
