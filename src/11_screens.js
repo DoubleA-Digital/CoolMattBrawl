@@ -146,6 +146,11 @@ const Game = {
       case "controls": if (Keys.pressed["Escape"] && !this.rebind) { this.screen = this.returnTo; Snd.ui(); } break;
       case "settings": if (Keys.pressed["Escape"]) { this.screen = this.returnTo; Snd.ui(); } break;
       case "howto":    if (Keys.pressed["Escape"] || Keys.pressed["Enter"]) { this.screen = "title"; Snd.ui(); } break;
+      case "guide":
+        if (Keys.pressed["Escape"]) { this.screen = "title"; Snd.ui(); break; }
+        if (Keys.pressed["ArrowLeft"])  { this.guidePage = Math.max(0, (this.guidePage || 0) - 1); Snd.ui(); }
+        if (Keys.pressed["ArrowRight"]) { this.guidePage = Math.min(ROSTER.length, (this.guidePage || 0) + 1); Snd.ui(); }
+        break;
       case "online":   this.updateOnline(); break;
       case "match":
         /* Online play pauses nobody: the other player is still fighting, so
@@ -173,6 +178,7 @@ const Game = {
       case "controls": this.drawControls(); break;
       case "settings": this.drawSettings(); break;
       case "howto":    this.drawHowto(); break;
+      case "guide":    this.drawGuide(); break;
       case "online":   this.drawOnline(); break;
       case "match":    this.match.draw(alpha); break;
       case "pause":    this.match.draw(alpha); this.drawPause(); break;
@@ -802,9 +808,104 @@ const Game = {
     }
     g.restore();
 
-    if (btn(W / 2 - 210, H - 76, 190, 44, "CONTROLS", { color: "#00e5ff" }))
+    if (btn(W / 2 - 320, H - 76, 190, 44, "CONTROLS", { color: "#00e5ff" }))
       { this.returnTo = "howto"; this.screen = "controls"; Snd.ui(); }
-    if (btn(W / 2 + 20, H - 76, 190, 44, "BACK", { color: "#ff2e88" })) { this.screen = "title"; Snd.ui(); }
+    if (btn(W / 2 - 100, H - 76, 200, 44, "FIGHTER GUIDE", { color: "#ffc83d" }))
+      { this.guidePage = 0; this.screen = "guide"; Snd.ui(); }
+    if (btn(W / 2 + 130, H - 76, 190, 44, "BACK", { color: "#ff2e88" })) { this.screen = "title"; Snd.ui(); }
+  },
+
+  /* ================================================================ GUIDE
+     Page 0 is the mechanics explainer; pages 1..ROSTER.length are one
+     fighter each, built straight from their own move data so it can never
+     drift out of sync with what the move actually does. */
+  drawGuide() {
+    Stage.def = STAGES[0];
+    drawBackground();
+    g.save(); g.fillStyle = "rgba(5,4,12,.88)"; g.fillRect(0, 0, W, H); g.restore();
+
+    const page = this.guidePage || 0;
+    const lines = [];
+
+    if (page === 0) {
+      screenTitleBar("COOL MATT GAMES", "BASIC MECHANICS", "#ffc83d");
+      lines.push(
+        ["h", "DAMAGE & STOCKS"],
+        ["b", "No health bars. Getting hit raises your damage %; a higher % means you fly further on the next hit."],
+        ["b", "Three stocks each. Get knocked past a blast zone and you lose one. Last fighter standing wins."],
+        ["", ""],
+        ["h2", "OFFENSE"],
+        ["b", "TIP — connect with the outer edge of a swing and it hits harder. Spacing pays."],
+        ["b", "STALE — repeating one move makes it weaker. Rotate your attacks to keep your damage up."],
+        ["b", "Landing a hit refunds some of your recovery; whiffing pays all of it, so you stay open."],
+        ["", ""],
+        ["h3", "DEFENSE"],
+        ["b", "Shield — hold to block. Add a direction to roll, hold Down to spot dodge, or air-dodge in the air."],
+        ["b", "Grab — beats a held shield. Press a direction to throw, or Light to pummel."],
+        ["b", "A few moves (Husk's Dead Weight, Mira's Riposte/Perfect Answer) make you immune to knockback"],
+        ["b", "outright while they're active — those are the exception, not the rule."],
+        ["", ""],
+        ["h4", "METER & SUPERS"],
+        ["b", "Dealing and taking damage fills your super meter — the bar across the foot of your card."],
+        ["b", "At full, Super fires a move only your fighter has. You have armor while it runs,"],
+        ["w", "but that armor BREAKS under enough damage. A super can be contested, not just dodged."],
+        ["", ""],
+        ["h3", "WEIGHT"],
+        ["b", "Heavier fighters fly less far from the same hit, but take more time to get moving in the first place."],
+      );
+    } else {
+      const ch = ROSTER[page - 1];
+      screenTitleBar(ch.tag, ch.name, ch.color);
+      lines.push(
+        ["b", ch.blurb],
+        ["", ""],
+        ["h2", "KIT"],
+        ["b", ch.power],
+        ["", ""],
+      );
+      for (const slot of ["light", "heavy", "special", "super"]) {
+        const m = ch[slot];
+        if (!m) continue;
+        const label = slot.toUpperCase();
+        lines.push(["h3", `${label} — ${m.name}`]);
+        if (m.desc) {
+          lines.push(["b", m.desc]);
+        } else if (m.dmg) {
+          lines.push(["b", `Deals ${m.dmg} damage. Startup ${m.startup} / active ${m.active} / recovery ${m.recovery} frames.`]);
+        } else {
+          lines.push(["b", `Startup ${m.startup} / active ${m.active} / recovery ${m.recovery} frames.`]);
+        }
+        lines.push(["", ""]);
+      }
+    }
+
+    let y = 112;
+    g.save();
+    g.textAlign = "left";
+    for (const [k, t] of lines) {
+      if (!t) { y += 8; continue; }
+      if (k === "b") { g.font = `400 13px ${FONT_MONO}`; g.fillStyle = "#b7b4d4"; }
+      else if (k === "w") { g.font = `700 13px ${FONT_MONO}`; g.fillStyle = "#ff2e88"; }
+      else {
+        g.font = `700 16px ${FONT_MONO}`;
+        g.fillStyle = k === "h" ? "#ffffff" : k === "h2" ? "#b6ff3b" : k === "h3" ? "#ffc83d" : "#00e5ff";
+      }
+      g.fillText(t, 150, y);
+      y += (k === "b" || k === "w") ? 20 : 24;
+    }
+    g.restore();
+
+    // page dots
+    g.save();
+    g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
+    g.fillText(page === 0 ? "MECHANICS" : `${page} / ${ROSTER.length}  ·  ◀ / ▶ TO PAGE`, W / 2, H - 94);
+    g.restore();
+
+    if (btn(W / 2 - 320, H - 76, 150, 44, "◀ PREV", { color: "#00e5ff", disabled: page === 0 }))
+      { this.guidePage = Math.max(0, page - 1); Snd.ui(); }
+    if (btn(W / 2 - 160, H - 76, 150, 44, "NEXT ▶", { color: "#00e5ff", disabled: page === ROSTER.length }))
+      { this.guidePage = Math.min(ROSTER.length, page + 1); Snd.ui(); }
+    if (btn(W / 2 + 30, H - 76, 290, 44, "BACK", { color: "#ff2e88" })) { this.screen = "howto"; Snd.ui(); }
   },
 
   /* =============================================================== ONLINE */

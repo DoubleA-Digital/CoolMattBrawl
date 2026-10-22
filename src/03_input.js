@@ -10,7 +10,7 @@ const ACTIONS = [
   { id: "down",    name: "Crouch / Drop",  desc: "Drop through a soft platform. In the air, fast-fall." },
   { id: "light",   name: "Light Attack",   desc: "Fast, low commitment. Your bread and butter at low damage." },
   { id: "heavy",   name: "Heavy Attack",   desc: "Slow smash with big knockback. This is what closes stocks." },
-  { id: "special", name: "Special",        desc: "Your signature move. Every fighter's special bends the stage tilt." },
+  { id: "special", name: "Special",        desc: "Your signature move. Every fighter's special works differently." },
   { id: "super",   name: "Super",          desc: "Costs a full meter. One huge, character-defining move." },
   { id: "shield",  name: "Shield",         desc: "Hold to block. With a direction, roll. With down, spot dodge. In air, air dodge." },
   { id: "grab",    name: "Grab",           desc: "Beats shields. Then press a direction to throw, or Light to pummel." },

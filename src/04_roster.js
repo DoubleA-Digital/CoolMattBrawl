@@ -214,8 +214,8 @@ const ROSTER = [
 /* ======================================================================== */
 {
   id: "BOLDER", name: "BOLDER", tag: "THE ANVIL",
-  blurb: "Walks like furniture, hits like a dropped engine. His weight alone bends the stage.",
-  power: "Heaviest body in the game. Slams the deck to hammer the tilt toward whichever side he is standing on.",
+  blurb: "Walks like furniture, hits like a dropped engine. Heaviest body in the game.",
+  power: "Heaviest body in the game. His heavy and super both hit the whole deck around him.",
   color: "#ff2e88", color2: "#6d1038", color3: "#2b0a1a", accent: "#ffd0e4",
   weight: 1.42, speed: 3.05, accel: 0.52, jump: 11.6, airSpeed: 2.9, fallMul: 1.12,
   size: { w: 46, h: 60 }, hurt: 31,
@@ -255,7 +255,7 @@ const ROSTER = [
 
   special: { name: "Quake Drop", startup: 8, active: 10, recovery: 20,
     dmg: 13, base: 4.0, scale: 0.86, angle: 78, ox: 0, oy: 30, r: 76,
-    desc: "Drops like an anvil. The impact hammers the stage's tilt toward his side.",
+    desc: "Drops like an anvil. The impact shakes the whole deck.",
     onStart(f) { f.vy = f.grounded ? -3 : 4; },
     tick(f, a) {
       const m = a.data;
@@ -277,7 +277,7 @@ const ROSTER = [
     } },
 
   super: { name: "Tectonic Verdict",
-    desc: "Rears up and splits the stage. Two shockwaves run the whole deck and the pivot takes everything.",
+    desc: "Rears up and splits the stage. Two shockwaves run the whole deck.",
     startup: 24, active: 26, recovery: 40,
     dmg: 17, base: 5.8, scale: 1.12, angle: 50, ox: 0, oy: 26, r: 104,
     onStart(f) { f.vy = -9; Snd.superCharge(); FX.flash("#ff2e88", 0.35); },
@@ -414,8 +414,8 @@ const ROSTER = [
 /* ======================================================================== */
 {
   id: "ZIP", name: "ZIP", tag: "THE SPARK",
-  blurb: "Barely registers on the pivot and barely stays still. Dies to one clean read.",
-  power: "Inverts the stage's tilt outright — whatever lean you just built, she hands straight back to you.",
+  blurb: "Lightest, fastest fighter in the game. Dies to one clean read.",
+  power: "Dashes clean through anyone standing in the way, dealing damage as she passes.",
   color: "#00e5ff", color2: "#07475a", color3: "#04232e", accent: "#eafdff",
   weight: 0.74, speed: 5.65, accel: 1.05, jump: 12.9, airSpeed: 5.3, fallMul: 0.9,
   size: { w: 30, h: 50 }, hurt: 24,
@@ -459,7 +459,7 @@ const ROSTER = [
 
   special: { name: "Polarity Flip", startup: 4, active: 12, recovery: 12,
     dmg: 7, base: 2.6, scale: 0.6, angle: 58, ox: 24, oy: -6, r: 28,
-    desc: "Dashes clean through anyone in the way and inverts the stage's tilt on the spot.",
+    desc: "Dashes clean through anyone in the way.",
     onStart(f) { f.vx = f.facing * 15; f.vy *= 0.2; },
     tick(f, a) {
       const m = a.data;
@@ -644,8 +644,8 @@ const ROSTER = [
 /* ======================================================================== */
 {
   id: "ORBIT", name: "ORBIT", tag: "THE KEEL",
-  blurb: "Fights at arm's length and can bolt the pivot flat when the stage stops cooperating.",
-  power: "Bolts the pivot dead level for three seconds, switching the whole gimmick off while it holds.",
+  blurb: "Fights at arm's length with orbs and a pull-everyone-in super.",
+  power: "Fires an orb down the deck on her special, and opens a well that drags fighters in for her super.",
   color: "#b6ff3b", color2: "#2f5410", color3: "#152806", accent: "#f4ffdd",
   weight: 1.02, speed: 4.25, accel: 0.78, jump: 12.1, airSpeed: 4.0, fallMul: 1.0,
   size: { w: 36, h: 54 }, hurt: 27,
@@ -684,7 +684,7 @@ const ROSTER = [
 
   special: { name: "Keel Anchor", startup: 7, active: 6, recovery: 16,
     dmg: 6, base: 2.4, scale: 0.5, angle: 20, ox: 34, oy: -10, r: 24,
-    desc: "Bolts the stage dead level for three seconds and fires an orb down the flat deck.",
+    desc: "Fires an orb down the deck and throws up a three-second warning pulse where she's standing.",
     tick(f, a) {
       const m = a.data;
       if (a.t === m.startup && !a.fired) {
@@ -854,7 +854,7 @@ const ROSTER = [
 {
   id: "PIVOT", name: "PIVOT", tag: "THE TRICKSTER",
   blurb: "Does not fight you so much as fight the floor you are standing on.",
-  power: "Cranks the tilt by hand and can force a Snap-Back on demand — the only fighter immune to her own.",
+  power: "A sustained swipe she can hold and aim, and a planted point-blank AoE for her super.",
   color: "#ffc83d", color2: "#5e3c05", color3: "#2c1c02", accent: "#fff6dc",
   weight: 0.88, speed: 4.6, accel: 0.9, jump: 12.4, airSpeed: 4.5, fallMul: 0.96,
   size: { w: 34, h: 52 }, hurt: 26,
@@ -1051,8 +1051,8 @@ const ROSTER = [
 /* ======================================================================== */
 {
   id: "BALLAST", name: "BALLAST", tag: "THE LOADER",
-  blurb: "Dockyard loader. Drops cubes of real weight onto the deck and lets the pivot do the killing.",
-  power: "Places weight remotely — a resting cube leans the stage even with nobody on that side.",
+  blurb: "Dockyard loader. Drops cubes of real weight onto the deck as obstacles and zoning tools.",
+  power: "Places cubes remotely — they sit as obstacles and hazards even with nobody standing near them.",
   color: "#ffa424", color2: "#5a3708", color3: "#241502", accent: "#ffe6b0",
   weight: 1.18, speed: 3.40, accel: 0.60, jump: 11.4, airSpeed: 3.2, fallMul: 1.08,
   size: { w: 42, h: 58 }, hurt: 29,
@@ -1084,7 +1084,7 @@ const ROSTER = [
 
   special: { name: "Drop Anchor", startup: 10, active: 6, recovery: 22,
     dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
-    desc: "Lobs a ballast cube. Where it lands it keeps pressing on the pivot for eight seconds.",
+    desc: "Lobs a ballast cube that sits where it lands as an obstacle for eight seconds.",
     onStart(f) { Snd.whoosh(1.1); },
     tick(f, a) {
       const m = a.data;
@@ -1099,7 +1099,7 @@ const ROSTER = [
     } },
 
   super: { name: "Overload",
-    desc: "Buries the deck under three cubes at once. Whatever side they land on is going down.",
+    desc: "Buries the deck under three cubes at once.",
     startup: 22, active: 30, recovery: 38,
     dmg: 10, base: 3.4, scale: 0.8, angle: 60, ox: 0, oy: -20, r: 60,
     onStart(f) { Snd.superCharge(); FX.flash("#ffa424", 0.3); f.vy = -6; },
@@ -1215,8 +1215,8 @@ const ROSTER = [
 /* ======================================================================== */
 {
   id: "KITE", name: "KITE", tag: "THE DRIFTER",
-  blurb: "Rides the air instead of the floor. Almost weightless on the pivot and almost unbothered by its tilt.",
-  power: "Keeps her footing on slopes that slide everyone else, and makes updrafts that lift the whole stage's worth of fighters.",
+  blurb: "Rides the air instead of the floor. Almost weightless, and a nightmare to pin down.",
+  power: "Keeps her footing on slopes that slide everyone else, and makes updrafts that lift every fighter on stage.",
   color: "#5ff2d0", color2: "#0d5a4c", color3: "#042a23", accent: "#eafffa",
   weight: 0.62, speed: 4.90, accel: 1.00, jump: 13.6, airSpeed: 5.6, fallMul: 0.74,
   slopeGrip: 0.85,
@@ -1265,9 +1265,9 @@ const ROSTER = [
     } },
 
   super: { name: "Monsoon",
-    desc: "Turns the whole deck into rising air. Everyone goes up — she is the only one who can steer it.",
+    desc: "Turns the whole deck into rising air, then rides it down as a real hit — unlike Updraft, this one is built to land.",
     startup: 16, active: 70, recovery: 30,
-    dmg: 8, base: 2.6, scale: 0.7, angle: 82, ox: 0, oy: 0, r: 70,
+    dmg: 19, base: 6.2, scale: 1.05, angle: 78, ox: 0, oy: 0, r: 92,
     onStart(f) { Snd.superCharge(); FX.flash("#5ff2d0", 0.3); },
     tick(f, a) {
       const m = a.data;
@@ -1398,11 +1398,11 @@ const ROSTER = [
 {
   id: "HUSK", name: "HUSK", tag: "THE MILLSTONE",
   blurb: "Something old and heavy wearing cracked stone. Slow everywhere, and impossible to move when it decides to stop.",
-  power: "Plants itself: cannot be knocked back and counts as more than double its weight, so the deck goes where it stands.",
+  power: "Plants itself: cannot be knocked back at all while anchored, no matter what hits it.",
   color: "#a764ff", color2: "#361a5e", color3: "#160a28", accent: "#e8d6ff",
   weight: 1.30, speed: 3.25, accel: 0.58, jump: 10.8, airSpeed: 3.0, fallMul: 1.20,
   size: { w: 46, h: 62 }, hurt: 32,
-  specialCooldown: 240,
+  specialCooldown: 170,
 
   light: { name: "Knuckle", startup: 5, active: 3, recovery: 12,
     dmg: 5.0, base: 2.4, scale: 0.56, angle: 44, ox: 42, oy: -6, r: 25,
@@ -1433,7 +1433,7 @@ const ROSTER = [
 
   special: { name: "Dead Weight", startup: 6, active: 150, recovery: 20,
     dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
-    desc: "Plants itself. Cannot be knocked back and weighs more than double, so the stage leans wherever it chose to stand.",
+    desc: "Plants itself. Cannot be knocked back at all while this is active — stand your ground and tank it.",
     tick(f, a) {
       const m = a.data;
       if (a.t === m.startup) {
@@ -1445,7 +1445,7 @@ const ROSTER = [
         Stage.lastPusher = f;
       }
       if (a.t >= m.startup && a.t < m.startup + m.active) {
-        f.pinned = true;                 // nothing shifts it, Snap-Backs included
+        f.pinned = true;                 // nothing shifts it — knockback, pushes, anything
         f.weightMul = 2.4;
         f.vx = 0;
         if (!f.grounded) f.vy = Math.min(f.vy + 1.4, 20);   // it still falls
@@ -1616,7 +1616,7 @@ const ROSTER = [
 {
   id: "MIRA", name: "MIRA", tag: "THE ANSWER",
   blurb: "A duelist who would rather you swung first. Reads the attack, eats it, and sends it back harder.",
-  power: "Counters: a hit during her stance is cancelled and answered, and the answer lurches the deck toward the attacker.",
+  power: "Counters: a hit during her stance is cancelled and answered on the spot, hard.",
   color: "#ff4d6d", color2: "#5e1024", color3: "#2a0710", accent: "#ffe3ea",
   weight: 0.94, speed: 4.40, accel: 0.92, jump: 12.0, airSpeed: 4.2, fallMul: 1.00,
   riposte: { dmg: 12, base: 5.8, scale: 1.15, angle: 42 },
@@ -1650,7 +1650,7 @@ const ROSTER = [
 
   special: { name: "Riposte", startup: 4, active: 26, recovery: 26,
     dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
-    desc: "A stance. Anything that hits her during it is cancelled and answered, and the deck lurches toward whoever swung.",
+    desc: "A stance. Anything that hits her during it is cancelled and answered on the spot.",
     onStart(f) { Snd.tone(600, 0.14, "sine", 0.1, 1100); },
     tick(f, a) {
       const m = a.data;
@@ -1665,7 +1665,7 @@ const ROSTER = [
     } },
 
   super: { name: "Perfect Answer",
-    desc: "A long stance that answers everything. One hit during it and the whole stage pays for it.",
+    desc: "A long stance that answers everything. One hit during it and they pay for it hard.",
     startup: 12, active: 60, recovery: 34,
     dmg: 16, base: 5.4, scale: 1.05, angle: 46, ox: 0, oy: 0, r: 150,
     onStart(f) { Snd.superCharge(); FX.flash("#ff4d6d", 0.3); },
