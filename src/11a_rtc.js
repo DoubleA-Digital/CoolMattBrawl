@@ -30,6 +30,7 @@ const RTC = {
   helloEvery: 1500,       // a guest repeats its hello until the host answers
   findTimeout: 8000,      // no host answered at all: wrong code
   connectTimeout: 20000,  // a host answered but no direct link formed
+  serverTimeout: 10000,   // the matchmaking channel itself never came up
 };
 
 let _supa = null;
@@ -119,6 +120,9 @@ class RtcPeer extends Emitter {
       });
       this.ch.on("broadcast", { event: "sig" }, m => this.onSignal(m.payload || {}));
       let settled = false;
+      setTimeout(() => {
+        if (!settled) { settled = true; rej(new Error("couldn't reach the matchmaking server — check your internet, or try a hotspot")); }
+      }, RTC.serverTimeout);
       this.ch.subscribe(st => {
         if (settled) return;
         if (st === "SUBSCRIBED") { settled = true; res(); }
@@ -166,6 +170,7 @@ class RtcPeer extends Emitter {
     }
     if (!c) return;
     if (d.t === "offer" && !this.isHost) {
+      this.emit("found");
       await c.pc.setRemoteDescription(d.sdp);
       await c.flushIce();
       const ans = await c.pc.createAnswer();

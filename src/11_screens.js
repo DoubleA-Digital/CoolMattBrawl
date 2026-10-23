@@ -1050,7 +1050,7 @@ const Game = {
         g.fillText(Net.ping ? `CONNECTED  ·  ${Net.ping} ms round trip` : "CONNECTED", cx, 338);
         if (Net.isGuest) {
           g.font = `400 13px ${FONT_MONO}`; g.fillStyle = UI.dim;
-          g.fillText("Taking a seat in the lobby…", cx, 366);
+          g.fillText("If this takes more than a few seconds, ask the host to switch back to the game tab.", cx, 366);
         }
       }
       g.restore();

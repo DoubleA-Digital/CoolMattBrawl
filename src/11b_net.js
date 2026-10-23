@@ -44,6 +44,7 @@ const NET = {
   roomEvery: 15,          // frames between room-state rebroadcasts
   pickEvery: 20,          // frames between a guest's pick resends
   silence: 10000,         // ms without a word from a link before it is treated as gone
+  seatTimeout: 8000,      // ms a linked guest waits for a seat before giving up
 };
 
 /** A Pad fed by the wire instead of a keyboard. Same surface as Pad, so a
@@ -146,8 +147,8 @@ const Net = {
     this.slot = 0; this.frame = 0; this.delayBuf = []; this.events = [];
     this.phase = "lobby"; this.mid = 0; this.setup = null; this.dirty = false;
     this.seated = false; this.room = null; this.want = null;
-    this.snapCur = this.lastSeen = null;
-    this.ping = 0; this.heard = 0;
+    this.snapCur = this.lastSeen = null; this.snapAt = 0;
+    this.ping = 0; this.heard = 0; this.linkedAt = 0;
     if (wasOnline && Game.screen !== "match") Game.match = null;
   },
 
@@ -197,8 +198,9 @@ const Net = {
     c.on("open", () => {
       const slot = this.freeSeat();
       if (slot < 0 || this.guests.length >= NET.maxGuests) {
-        try { c.send({ t: "full" }); } catch (e) {}
-        setTimeout(() => { try { c.close(); } catch (e) {} }, 300);
+        // said three times: the channel may drop any single message
+        for (let i = 0; i < 3; i++) setTimeout(() => { try { c.send({ t: "full" }); } catch (e) {} }, i * 100);
+        setTimeout(() => { try { c.close(); } catch (e) {} }, 600);
         return;
       }
       const gu = { conn: c, slot, ping: 0, lastPingAt: 0, heard: performance.now() };
@@ -206,7 +208,11 @@ const Net = {
       const s = Game.slots[slot];
       Game.slots[slot] = { charId: s.mode === "off" ? ROSTER[slot % ROSTER.length].id : s.charId,
                            mode: "human", team: s.team == null ? slot % 2 : s.team };
-      this.dirty = true;
+      /* Seat them right now, from this event, rather than waiting for the
+         next frame: the host has usually switched away to send the code, and
+         a background tab runs no frames at all. */
+      this.dirty = false;
+      this.broadcastRoom();
       FX.banner(`P${slot + 1} JOINED`, PLAYER_TINT[slot]);
       Snd.uiBig();
     });
@@ -263,6 +269,7 @@ const Net = {
         if ((d.team === 0 || d.team === 1) && Game.slots[gu.slot].team !== d.team) {
           Game.slots[gu.slot].team = d.team; this.dirty = true;
         }
+        if (this.dirty && document.hidden) { this.dirty = false; this.broadcastRoom(); }
         break;
       case "in": {
         if (this.phase !== "match" || !Game.match || d.m !== this.mid) break;
@@ -345,7 +352,7 @@ const Net = {
     this.reset();
     this.role = "guest"; this.mode = "joining";
     this.code = (code || "").toUpperCase();
-    this.status = "connecting to " + this.code + "...";
+    this.status = "looking for room " + this.code;
     this.want = { charId: Game.slots[0].charId };
     this.loadLib().then(() => {
       this.peer = this.makePeer();
@@ -354,13 +361,14 @@ const Net = {
         this.fail((e && e.type === "peer-unavailable") ? "no game found with that code"
                                                        : (e && e.message) || "connection error");
       });
+      this.peer.on("found", () => { if (this.mode === "joining") this.status = "found the room — linking up"; });
       this.peer.on("open", () => {
         const c = this.peer.connect(this.code);
         this.conn = c;
         c.on("open", () => {
           this.mode = "connected";
-          this.status = "connected — taking a seat";
-          this.heard = performance.now();
+          this.status = "linked up — waiting for the host to seat you";
+          this.heard = this.linkedAt = performance.now();
           this.startHeartbeat();
           Snd.uiBig();
         });
@@ -397,6 +405,7 @@ const Net = {
         if (d.m !== this.mid) break;
         if (this.snapCur && this.snapCur.f >= d.f) break;
         this.snapCur = d;
+        this.snapAt = performance.now();
         break;
       case "ping": this.send({ t: "pong", ts: d.ts }); break;
       case "pong": this.ping = Math.round(performance.now() - d.ts); break;
@@ -445,6 +454,7 @@ const Net = {
     Game.match = new Match(Game.slots, STAGES[setup.stage], { teams: setup.teams });
     Game.screen = "match";
     this.snapCur = this.lastSeen = null;
+    this.snapAt = performance.now();
     /* Every human fighter on the host is driven by a NetPad: the guests' by
        their input messages, the host's own by its delayed local input. */
     for (const f of Game.match.fighters) if (!f.isCPU) f.pad = new NetPad(f.slot);
@@ -475,12 +485,19 @@ const Net = {
   heartbeat() {
     if (!this.active) return;
     this.measurePing();
+    // a backgrounded host still keeps everyone's lobby up to date
+    if (this.isHost && document.hidden) { this.dirty = false; this.broadcastRoom(); }
     /* A closed tab or a dead Wi-Fi does not always close the data channel
        promptly, so a link that has gone silent is dropped by timeout. */
     const now = performance.now();
     if (this.isHost) {
       for (const gu of this.guests.slice())
         if (now - gu.heard > NET.silence) { try { gu.conn.close(); } catch (e) {} this.dropGuest(gu.conn); }
+    } else if (!this.seated && this.linkedAt && now - this.linkedAt > NET.seatTimeout) {
+      // linked, yet never seated: never leave someone on the connecting screen
+      this.error = "connected, but the host never seated you — the room may be full, or the host closed the game";
+      try { this.conn.close(); } catch (e) {}
+      this.onHostGone();
     } else if (this.heard && now - this.heard > NET.silence) {
       this.error = "lost the connection to the host";
       try { this.conn.close(); } catch (e) {}
@@ -529,6 +546,13 @@ const Net = {
     this.applySnapshot();
     FX.update(Game.match.fighters);
     return true;
+  },
+
+  /** Guest: true while the host's match has stopped arriving — almost always
+      because the host switched away from the game tab, which freezes it. */
+  get hostStalled() {
+    return this.isGuest && this.active && Game.screen === "match" &&
+           this.snapAt && performance.now() - this.snapAt > 1200;
   },
 
   /** Host: FX.banner calls this so the text reaches the guests too. */

@@ -164,6 +164,15 @@ class Match {
     Light.post(g, cv, W, H);
 
     FX.drawOverlay(g);
+    if (Net.hostStalled) {
+      g.save();
+      g.fillStyle = "rgba(6,5,14,.55)"; g.fillRect(0, H / 2 - 44, W, 70);
+      g.textAlign = "center"; g.font = `900 26px ${FONT_DISPLAY}`;
+      outlineText(g, "WAITING FOR THE HOST", W / 2, H / 2 - 6, "#ffc83d", 6);
+      g.font = `400 12px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
+      g.fillText("The match pauses while the host's game tab is in the background.", W / 2, H / 2 + 16);
+      g.restore();
+    }
     drawOffscreenMarkers(this.fighters, cam);
     drawClock(this.timeLeft);
     drawPlayerHUD(this.fighters);
