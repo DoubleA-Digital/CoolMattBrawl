@@ -274,8 +274,14 @@ const ROSTER = [
       }
     } },
 
+  /* The old version dived at full speed and waited to pass the stage's
+     pivot height to count as "landed" -- so used anywhere but the main deck
+     it either fired early or drove him straight into the blast zone. He now
+     only commits to the dive when there is a floor under him, the shockwaves
+     run along whichever platform he actually hit, and used over open air it
+     detonates where he is instead of killing him. */
   super: { name: "Tectonic Verdict",
-    desc: "Rears up and splits the stage. Two shockwaves run the whole deck.",
+    desc: "Rears up and drives himself into the floor under him: the landing blasts everyone close, and two shockwaves run out along that platform. Over open air, it detonates on the spot.",
     startup: 24, active: 26, recovery: 40,
     dmg: 17, base: 5.8, scale: 1.12, angle: 50, ox: 0, oy: 26, r: 104,
     onStart(f) { f.vy = -9; Snd.superCharge(); FX.flash("#ff2e88", 0.35); },
@@ -283,22 +289,25 @@ const ROSTER = [
       const m = a.data;
       if (a.t < m.startup) { f.vx *= 0.8; f.vy = Math.max(f.vy, -9) + 0.35; FX.spark(f.x + rnd(-30, 30), f.y + rnd(-40, 40), f.ch.color); }
       if (a.t === m.startup) {
-        f.vy = 32;                                    // the drop
+        a.floor = Stage.floorBelow(f.x, f.feetY);
+        f.vy = a.floor !== null ? 32 : 3;             // the drop -- only if there is a floor
+        f.vx = 0;
         FX.flash("#ffffff", 0.5);
       }
-      if (a.t > m.startup && a.t < m.startup + 10 && !a.landed) {
-        if (f.grounded || f.y > Stage.pivot.y) {
-          a.landed = true;
-          Snd.superHit(); FX.shake(34); FX.hitPause(14);
-          FX.ring(f.x, f.feetY, 20, 520, "#ffffff", 5);
-          FX.ring(f.x, f.feetY, 10, 340, f.ch.color, 4);
-          FX.burst(f.x, f.feetY, 46, f.ch.color, 13);
+      if (a.t > m.startup && !a.landed && (f.grounded || a.t >= m.startup + 12)) {
+        a.landed = true;
+        Snd.superHit(); FX.shake(34); FX.hitPause(14);
+        FX.ring(f.x, f.feetY, 20, 520, "#ffffff", 5);
+        FX.ring(f.x, f.feetY, 10, 340, f.ch.color, 4);
+        FX.burst(f.x, f.feetY, 46, f.ch.color, 13);
+        FX.blade(f.x, f.feetY - 10, 0, 40, 260, 6.28, "#ffffff", { w: 16, life: 20 });
+        FX.glyph(f.x, f.feetY - 60, "wedge", 44, f.ch.accent, 26);
+        if (f.grounded && f.groundSeg) {
+          const plat = f.groundSeg.local;
           FX.crack(f.x, f.feetY - 2, 1, 90, "#ffffff", 5);
           FX.crack(f.x, f.feetY - 2, -1, 90, "#ffffff", 5);
-          FX.blade(f.x, f.feetY - 10, 0, 40, 260, 6.28, "#ffffff", { w: 16, life: 20 });
-          FX.glyph(f.x, f.feetY - 60, "wedge", 44, f.ch.accent, 26);
-          Entities.shockwave(f, f.x, f.feetY, -1, m);
-          Entities.shockwave(f, f.x, f.feetY, 1, m);
+          Entities.shockwave(f, f.x, f.feetY, -1, m, plat);
+          Entities.shockwave(f, f.x, f.feetY, 1, m, plat);
         }
       }
     } },
@@ -684,7 +693,7 @@ const ROSTER = [
       if (a.t === m.startup && !a.fired) {
         a.fired = true;
         // Personal brace, not a shared lock: two Orbits don't fight over it.
-        f.anchorGlow = Stage.anchorFrames;
+        f.anchorGlow = ANCHOR_FRAMES;
         Snd.tone(120, 0.5, "sine", 0.2, 90); Snd.tone(240, 0.4, "triangle", 0.1, 180);
         FX.ring(f.x, f.feetY, 20, 380, f.ch.color, 3);
         FX.banner("KEEL ANCHOR", f.ch.color);
@@ -701,7 +710,7 @@ const ROSTER = [
     } },
 
   super: { name: "Event Horizon",
-    desc: "Opens a well that drags every fighter in, holds them there, then collapses.",
+    desc: "Opens a well that drags every foe in, holds them there, then collapses on them. Lands on the nearest foe within reach, or in front of her.",
     startup: 18, active: 74, recovery: 36,
     dmg: 19, base: 6.0, scale: 1.05, angle: 62, ox: 0, oy: 0, r: 0,
     onStart(f) { Snd.superCharge(); FX.flash("#b6ff3b", 0.3); },
@@ -710,7 +719,11 @@ const ROSTER = [
       if (a.t < m.startup) { f.vx *= 0.8; FX.spark(f.x + rnd(-30, 30), f.y + rnd(-30, 30), f.ch.color); }
       if (a.t === m.startup && !a.fired) {
         a.fired = true;
-        const wx = f.x + f.facing * 150, wy = f.y - 40;
+        /* Opened on the nearest foe within reach rather than a fixed spot in
+           front of her: aimed at empty air, the old well was usually wasted. */
+        const tgt = Combat.nearestFoe(f, 300);
+        const wx = tgt ? tgt.x : f.x + f.facing * 150;
+        const wy = tgt ? tgt.y - 20 : f.y - 40;
         Entities.well(f, wx, wy, m);
         FX.banner("EVENT HORIZON", f.ch.color);
         FX.shake(10);
@@ -841,12 +854,12 @@ const ROSTER = [
 /* ======================================================================== */
 {
   id: "PIVOT", name: "PIVOT", tag: "THE TRICKSTER",
-  blurb: "A trickster who leans into every exchange and never lets up.",
-  power: "A sustained swipe she can hold and aim, and a planted point-blank AoE for her super.",
+  blurb: "Never fights fair. Trades places with you, then tips you off your own side of the stage.",
+  power: "Her lever swaps places with the first foe it catches — save yourself off-stage, or strand them there.",
   color: "#ffc83d", color2: "#5e3c05", color3: "#2c1c02", accent: "#fff6dc",
   weight: 0.88, speed: 4.6, accel: 0.9, jump: 12.4, airSpeed: 4.5, fallMul: 0.96,
   size: { w: 34, h: 52 }, hurt: 26,
-  specialCooldown: 110,
+  specialCooldown: 150,
 
   /* A fan, so the effect is three thin leaves opening at once. */
   light: { name: "Fan Slice", startup: 3, active: 3, recovery: 9,
@@ -878,52 +891,94 @@ const ROSTER = [
       FX.glyph(def.x, def.y - 16, "scale", 20, f.ch.accent, 22);
     } },
 
-  special: { name: "Hand on the Scale", startup: 5, active: 40, recovery: 14,
-    dmg: 5, base: 2.0, scale: 0.42, angle: 90, ox: 20, oy: -14, r: 26,
-    desc: "Hold to lean into a sustained swipe wherever she's pointed.",
-    tick(f, a, inp) {
+  /* Her whole kit used to be about cranking the stage over. With a deck that
+     never tilts, the trick moved onto the fighters: she swaps places with
+     them, and her super tips them off the stage instead of tipping the stage.
+
+     Trade Places throws the lever out in a line that grows over the active
+     frames. The first foe it reaches swaps positions with her outright. Used
+     off-stage it is a recovery that strands someone else out there. */
+  special: { name: "Trade Places", startup: 8, active: 12, recovery: 20,
+    dmg: 4, base: 2.2, scale: 0.2, angle: 80, ox: 0, oy: 0, r: 0,
+    reach: 290,
+    desc: "Throws her lever out in a line. The first foe it catches swaps places with her and is left reeling — save yourself off-stage, or strand them there.",
+    onStart(f) { f.vy = Math.min(f.vy, 0) * 0.3; Snd.tone(520, 0.12, "triangle", 0.1, 900); },
+    tick(f, a) {
       const m = a.data;
-      const lean = inp.ax !== 0 ? inp.ax : f.facing;
-      if (a.t > m.startup && a.t <= m.startup + m.active) {
-        f.vx *= 0.6; f.vy *= 0.8;
-        if (a.t % 3 === 0) FX.spark(f.x + lean * 26, f.y - 10, f.ch.color);
-        /* A lever arm miming the old crank — drawn out in front of her now
-           instead of toward the stage pivot, which no longer moves. */
-        if (a.t % 7 === 0) {
-          FX.streak(f.x, f.y - 10,
-                    f.x + lean * 230, f.y - 20, f.ch.color);
-          FX.streak(f.x, f.y - 10,
-                    f.x + lean * 180, f.y - 4, f.ch.accent);
-          FX.glyph(f.x + lean * 34, f.y - 14, "scale", 15, f.ch.accent, 14);
-        }
-        if (!inp.held("special")) a.t = m.startup + m.active + 1;
+      if (a.t <= m.startup) { f.vx *= 0.7; f.vy *= 0.7; return; }
+      if (a.t > m.startup + m.active || a.caught) return;
+      f.vx *= 0.6; f.vy *= 0.6;
+      const reach = m.reach * (a.t - m.startup) / m.active;
+      FX.streak(f.x + f.facing * 14, f.y - 8, f.x + f.facing * reach, f.y - 8, f.ch.color);
+      if ((a.t - m.startup) % 4 === 0)
+        FX.glyph(f.x + f.facing * reach, f.y - 8, "scale", 12, f.ch.accent, 10);
+
+      let tgt = null, best = Infinity;
+      for (const o of Combat.foes(f)) {
+        const ahead = (o.x - f.x) * f.facing;
+        if (ahead < 0 || ahead > reach + o.ch.hurt || Math.abs(o.y - f.y) > 44) continue;
+        if (o.intangible() || o.state === ST.GRABBED) continue;
+        if (ahead < best) { best = ahead; tgt = o; }
       }
+      if (!tgt) return;
+      a.caught = true;
+
+      // a live counter answers the lever instead of being moved by it
+      if (tgt.counter > 0) { tgt.applyKnockback(0, 0, 0, 0, f); return; }
+
+      const fx0 = f.x, fy0 = f.y, tx0 = tgt.x, ty0 = tgt.y;
+      FX.streak(fx0, fy0, tx0, ty0, f.ch.accent);
+      FX.ring(fx0, fy0, 6, 70, f.ch.color, 3);
+      FX.ring(tx0, ty0, 6, 70, f.ch.color, 3);
+      f.x = f.px = tx0; f.y = f.py = ty0 + (tgt.h - f.h) * 0.5;
+      tgt.x = tgt.px = fx0; tgt.y = tgt.py = fy0 + (f.h - tgt.h) * 0.5;
+      f.vx = 0; f.vy = 0; f.grounded = false; f.groundSeg = null;
+      f.facing = -f.facing;                        // now facing the foe she swapped with
+      f.invuln = Math.max(f.invuln, 12);
+      if (tgt.grabTarget) tgt.releaseGrab();
+      tgt.attack = null; tgt.pinned = false;
+      tgt.applyKnockback(0, -3.5, m.dmg, 8, f);    // left reeling where she was
+      f.stats.damageDealt += m.dmg;
+      f.addMeter(m.dmg * CFG.meter.onDeal);
+      FX.glyph(f.x, f.y - 40, "scale", 22, f.ch.accent, 22);
+      FX.banner("TRADE PLACES", f.ch.color);
+      FX.shake(6);
+      Snd.tone(880, 0.1, "square", 0.12, 440); Snd.tone(440, 0.14, "square", 0.1, 880, 0.06);
+      a.t = m.startup + m.active;                   // straight into recovery
     } },
 
-  super: { name: "Dead Weight",
-    desc: "Drops every ounce of her weight into one spot and holds the floor there, immune and growing.",
-    startup: 16, active: 54, recovery: 34,
-    dmg: 15, base: 5.0, scale: 0.95, angle: 72, ox: 0, oy: 0, r: 82,
+  /* The old Snap-Back, as a move. The stage used to tip and throw everyone
+     off its low side; now she does it herself. Every foe in range is thrown
+     outward, away from the middle of the stage -- toward whichever blast
+     zone they were already nearest -- on a low, flat angle that kills. */
+  super: { name: "Tipping Point",
+    desc: "Slams her lever down and tips the world: every foe in range is thrown flat toward the edge of the stage they're already on.",
+    startup: 18, active: 6, recovery: 32,
+    dmg: 14, base: 6.6, scale: 1.12, angle: 22, ox: 0, oy: 0, r: 0,
+    radius: 300,
     onStart(f) { Snd.superCharge(); FX.flash("#ffc83d", 0.3); },
     tick(f, a) {
       const m = a.data;
-      if (a.t < m.startup) { f.vx *= 0.8; FX.spark(f.x + rnd(-26, 26), f.y + rnd(-30, 30), f.ch.color); }
-      if (a.t === m.startup) {
-        FX.banner("DEAD WEIGHT", f.ch.color);
-        Snd.superHit();
-        FX.shake(10);
+      if (a.t < m.startup) {
+        f.vx *= 0.7; f.vy *= 0.7;
+        FX.spark(f.x + rnd(-26, 26), f.y + rnd(-30, 30), f.ch.color);
+        if (a.t % 6 === 0) FX.glyph(f.x, f.y - 70, "scale", 30, f.ch.accent, 10);
+        return;
       }
-      if (a.t >= m.startup && a.t < m.startup + m.active) {
-        // planted and immune; she doesn't move, the hitbox does the work
-        f.pinned = true;
-        f.vx = 0; f.vy = 0;
-        if (a.t % 4 === 0) FX.spark(f.x + rnd(-80, 80), f.y + rnd(-10, 20), f.ch.color);
-        if (a.t % 9 === 0) {
-          FX.ring(f.x, f.y, 10, 160, f.ch.color, 2);
-          FX.glyph(f.x, f.y - 90, "scale", 34, f.ch.accent, 18);
-        }
+      if (a.t !== m.startup) return;
+      FX.banner("TIPPING POINT", f.ch.color);
+      Snd.superHit(); FX.shake(26); FX.hitPause(10);
+      FX.flash("#ffffff", 0.3); FX.punch(0.8);
+      FX.ring(f.x, f.y, 20, m.radius, "#ffffff", 5);
+      FX.ring(f.x, f.y, 10, m.radius * 0.8, f.ch.color, 4);
+      FX.glyph(f.x, f.y - 80, "scale", 54, f.ch.accent, 30);
+      Stage.flashT = 26;
+      for (const o of Combat.foes(f)) {
+        if (o.intangible() || dist(f.x, f.y, o.x, o.y) > m.radius) continue;
+        const out = Math.sign(o.x - Stage.pivot.x) || (o.x >= f.x ? 1 : -1);
+        Combat.land(f, o, m, o.x, o.y, 0, out);
+        FX.streak(o.x, o.y, o.x + out * 160, o.y - 30, f.ch.accent);
       }
-      if (a.t === m.startup + m.active) f.pinned = false;
     } },
 
   /* ---- art: deliberately lopsided — one huge gauntlet, one bare hand, a
@@ -1079,32 +1134,38 @@ const ROSTER = [
       if (a.t === m.startup && !a.fired) {
         a.fired = true;
         Entities.ballast(f, f.x + f.facing * 34, f.y - 40, f.facing * 7.2, 2.4, 480, m);
-        Stage.lastPusher = f;
         FX.banner("DROP ANCHOR", f.ch.color);
         FX.ring(f.x + f.facing * 34, f.y - 40, 10, 90, f.ch.accent, 3);
         Snd.tone(150, 0.2, "triangle", 0.14, 70);
       }
     } },
 
+  /* Used to drop three cubes on fixed spots around the stage centre, which
+     only mattered on the main deck and were easy to stand clear of. Each cube
+     is now called down over a foe, leading where they are heading, with a
+     reticle on the floor so it can still be dodged. */
   super: { name: "Overload",
-    desc: "Buries the deck under three cubes at once.",
+    desc: "Calls a ballast cube down on top of every foe — three drops, each with a warning reticle — and the cubes stay put as obstacles once they land.",
     startup: 22, active: 30, recovery: 38,
-    dmg: 10, base: 3.4, scale: 0.8, angle: 60, ox: 0, oy: -20, r: 60,
+    dmg: 11, base: 3.8, scale: 0.9, angle: 60, ox: 0, oy: -20, r: 60,
     onStart(f) { Snd.superCharge(); FX.flash("#ffa424", 0.3); f.vy = -6; },
     tick(f, a) {
       const m = a.data;
       if (a.t < m.startup) { f.vx *= 0.82; FX.spark(f.x + rnd(-30, 30), f.y + rnd(-40, 20), f.ch.color); }
       if (a.t >= m.startup && (a.t - m.startup) % 9 === 0 && (a.dropped || 0) < 3) {
         a.dropped = (a.dropped || 0) + 1;
-        const off = (a.dropped - 2) * 150;
-        Entities.ballast(f, Stage.pivot.x + off, Stage.pivot.y - 320, 0, 3.1, 420, m);
+        const foes = Combat.foes(f).sort((p, q) =>
+          dist(f.x, f.y, p.x, p.y) - dist(f.x, f.y, q.x, q.y));
+        const tgt = foes.length ? foes[(a.dropped - 1) % foes.length] : null;
+        const x = tgt ? clamp(tgt.x + tgt.vx * 14, 40, CFG.world.w - 40)
+                      : Stage.pivot.x + (a.dropped - 2) * 150;
+        const y = Math.min(tgt ? tgt.y - 300 : Stage.pivot.y - 320, Stage.pivot.y - 200);
+        Entities.ballast(f, x, y, 0, 3.1, 420, m, tgt ? tgt.feetY - 30 : undefined);
+        FX.streak(f.x, f.y - 30, x, y, f.ch.accent);
         FX.shake(9);
         Snd.tone(120 - a.dropped * 14, 0.2, "sawtooth", 0.14, 48);
       }
-      if (a.t === m.startup) {
-        FX.banner("OVERLOAD", f.ch.color);
-        Stage.lastPusher = f;
-      }
+      if (a.t === m.startup) FX.banner("OVERLOAD", f.ch.color);
     } },
 
   /* ---- art: a dockyard loader. Boxy chassis, a shoulder jib with a hook,
@@ -1207,7 +1268,7 @@ const ROSTER = [
   power: "Flies a shorter distance and shakes off hitstun faster than anyone else; her updrafts lift every fighter on stage.",
   color: "#5ff2d0", color2: "#0d5a4c", color3: "#042a23", accent: "#eafffa",
   weight: 0.62, speed: 4.90, accel: 1.00, jump: 13.6, airSpeed: 5.6, fallMul: 0.74,
-  slopeGrip: 0.85,
+  footing: 0.85,
   size: { w: 30, h: 50 }, hurt: 23,
   specialCooldown: 150,
 
@@ -1252,24 +1313,53 @@ const ROSTER = [
       }
     } },
 
+  /* The old Monsoon planted three columns at fixed spots across the main
+     deck and gave her a hitbox for the whole 70 frames while she floated up
+     and away from everyone -- it rarely touched anybody. Now a storm column
+     opens under each foe and carries them up helpless, she rises with them,
+     and then she actually dives on the closest one: the dive is the hit. */
   super: { name: "Monsoon",
-    desc: "Turns the whole deck into rising air, then rides it down as a real hit — unlike Updraft, this one is built to land.",
-    startup: 16, active: 70, recovery: 30,
-    dmg: 19, base: 6.2, scale: 1.05, angle: 78, ox: 0, oy: 0, r: 92,
+    desc: "Opens a storm column under every foe and lifts them helpless into the air, then dives on the closest one as the hit.",
+    startup: 14, active: 66, recovery: 28,
+    dmg: 18, base: 6.0, scale: 1.08, angle: 74, ox: 0, oy: 4, r: 0,
     onStart(f) { Snd.superCharge(); FX.flash("#5ff2d0", 0.3); },
     tick(f, a) {
       const m = a.data;
-      if (a.t < m.startup) { f.vy *= 0.8; FX.spark(f.x + rnd(-30, 30), f.y + rnd(-40, 40), f.ch.color); }
-      if (a.t === m.startup) {
+      const s = a.t - m.startup;
+      if (s < 0) { f.vy *= 0.8; FX.spark(f.x + rnd(-30, 30), f.y + rnd(-40, 40), f.ch.color); return; }
+      if (s === 0) {
         FX.banner("MONSOON", f.ch.color);
-        for (let i = -1; i <= 1; i++)
-          Entities.updraft(f, Stage.pivot.x + i * 190, Stage.pivot.y, 150);
+        for (const o of Combat.foes(f))
+          Entities.updraft(f, o.x, o.y + 60, 48, true);
+        Snd.noise(0.6, 0.18, 2600, 0.8, "bandpass");
         FX.shake(12);
       }
-      if (a.t > m.startup) {
-        f.vy = Math.max(f.vy - 0.5, -9);                 // she rides her own storm
+      if (s < 40) {
+        // she rises with her storm, holding position
+        f.vx *= 0.88;
+        f.vy = Math.max(f.vy - 0.5, -5);
         if (a.t % 5 === 0) FX.spark(f.x + rnd(-40, 40), f.y + rnd(-10, 50), f.ch.accent);
+        return;
       }
+      if (s === 40) {
+        a.tgt = Combat.nearestFoe(f);
+        m.r = 62;                                    // the hitbox exists only for the dive
+        a.hitIds = null;
+        Snd.whoosh(1.8);
+        FX.ring(f.x, f.y, 10, 120, f.ch.accent, 3);
+      }
+      const t = a.tgt;
+      if (a.hitIds && a.hitIds.length) {
+        // connected: pull up out of the dive
+        f.vx *= 0.8; f.vy *= 0.8;
+      } else if (t && t.alive && t.state !== ST.DEAD) {
+        const dx = t.x - f.x, dy = t.y - f.y, d = Math.hypot(dx, dy) || 1;
+        f.vx = dx / d * 17; f.vy = dy / d * 17;
+        f.facing = dx >= 0 ? 1 : -1;
+      } else {
+        f.vy = 14;                                   // nobody left: dive straight down
+      }
+      if (a.t % 2 === 0) FX.streak(f.x, f.y, f.x - f.vx * 3, f.y - f.vy * 3, f.ch.accent);
     } },
 
   /* ---- art: a slender glider. A sail-wing frames her, streamers trail off
@@ -1430,14 +1520,12 @@ const ROSTER = [
         if (f.grounded) FX.crack(f.x, f.feetY - 2, 1, 40, f.ch.color, 3);
         if (f.grounded) FX.crack(f.x, f.feetY - 2, -1, 40, f.ch.color, 3);
         FX.shake(12); Snd.bigHit();
-        Stage.lastPusher = f;
       }
       if (a.t >= m.startup && a.t < m.startup + m.active) {
         f.pinned = true;                 // nothing shifts it — knockback, pushes, anything
         f.weightMul = 2.4;
         f.vx = 0;
         if (!f.grounded) f.vy = Math.min(f.vy + 1.4, 20);   // it still falls
-        Stage.lastPusher = f;
         if (a.t % 10 === 0) {
           FX.spark(f.x + rnd(-24, 24), f.feetY - rnd(0, 10), f.ch.accent);
           FX.ring(f.x, f.feetY, 6, 48, f.ch.color, 2);
@@ -1448,42 +1536,62 @@ const ROSTER = [
       if (a.t >= m.startup + m.active) { f.pinned = false; f.weightMul = 1; }
     } },
 
+  /* Two problems with the old chain. Its data carried a 74-unit hitbox, so
+     reeling someone in dragged them through a full-damage hit before the
+     slam even happened. And the slam drove them straight down, which on a
+     floor that no longer tips just bounced them in place. It now reels from
+     a set range, and the slam reads the ground: over a floor it smashes them
+     into it and they rebound sky-high; over open air it spikes them down. */
   super: { name: "Mortal Coil",
-    desc: "Throws a chain, drags the nearest fighter in, and puts them through the deck.",
+    desc: "Throws a chain at the nearest foe in range and reels them in. Over solid ground it smashes them into the floor and they rebound sky-high; over open air it spikes them straight down.",
     startup: 18, active: 46, recovery: 34,
-    dmg: 21, base: 6.4, scale: 1.1, angle: 68, ox: 0, oy: 0, r: 74,
+    dmg: 21, base: 6.6, scale: 1.12, angle: 84, ox: 0, oy: 0, r: 0,
+    range: 480,
     onStart(f) { Snd.superCharge(); FX.flash("#a764ff", 0.32); },
     tick(f, a) {
       const m = a.data;
       if (a.t < m.startup) { f.vx *= 0.8; FX.spark(f.x + rnd(-30, 30), f.y + rnd(-40, 30), f.ch.color); }
       if (a.t === m.startup) {
-        a.grabbed = Combat.nearestFoe(f) || null;
+        const t = Combat.nearestFoe(f, m.range);
+        a.grabbed = t && !t.intangible() ? t : null;
         FX.banner("MORTAL COIL", f.ch.color);
-        Stage.lastPusher = f;
-        Snd.grab();
+        if (a.grabbed) {
+          Snd.grab();
+          if (a.grabbed.grabTarget) a.grabbed.releaseGrab();
+          if (a.grabbed.grabbedBy) a.grabbed.grabbedBy.releaseGrab();
+          a.grabbed.attack = null;
+        } else {
+          // whiffed: the chain lashes out at nothing
+          FX.streak(f.x, f.y - 10, f.x + f.facing * m.range * 0.6, f.y - 20, f.ch.accent);
+          Snd.whoosh(1.4);
+        }
       }
       const t = a.grabbed;
-      if (t && t.alive && a.t > m.startup && a.t < m.startup + m.active) {
+      if (t && t.alive && t.state !== ST.DEAD && a.t > m.startup && a.t < m.startup + m.active) {
         const phase = (a.t - m.startup) / m.active;
-        // reel them in, hold them, then drive them down
+        // reel them in, hold them overhead, then bring them down
         if (phase < 0.55) {
           t.x = lerp(t.x, f.x + f.facing * 46, 0.16);
           t.y = lerp(t.y, f.y - 36, 0.16);
-          t.vx = 0; t.vy = 0; t.hitstun = 6;
+          t.vx = 0; t.vy = 0;
+          t.setState(ST.HITSTUN); t.hitstun = 6;
+          t.grounded = false; t.groundSeg = null;
           if (a.t % 4 === 0) FX.spark(t.x, t.y, f.ch.accent);
         } else if (!a.slammed) {
           a.slammed = true;
-          t.applyKnockback(f.facing * 7, 20, m.dmg, 16, f);
-          f.stats.damageDealt += m.dmg;
-          f.addMeter(m.dmg * CFG.meter.onDeal);
+          const floor = Stage.floorBelow(t.x, t.y);
+          const grounded = floor !== null && floor - t.y < 260;
+          m.angle = grounded ? 84 : -72;            // rebound up, or spike down
+          Combat.land(f, t, m, t.x, t.y);
           FX.hitPause(14); FX.shake(26);
           FX.burst(t.x, t.y, 34, f.ch.color, 11);
           FX.ring(t.x, t.y, 14, 240, "#ffffff", 5);
-          if (f.grounded) FX.crack(t.x, f.feetY - 2, 1, 60, f.ch.color, 4);
+          if (grounded) FX.crack(t.x, floor - 2, 1, 60, f.ch.color, 4);
+          if (grounded) FX.crack(t.x, floor - 2, -1, 60, f.ch.color, 4);
           Snd.superHit();
         }
         // the chain itself
-        if (a.t % 2 === 0)
+        if (a.t % 2 === 0 && !a.slammed)
           FX.streak(f.x + f.facing * 14, f.y - 10, t.x, t.y, f.ch.accent);
       }
     } },
@@ -1652,10 +1760,17 @@ const ROSTER = [
       }
     } },
 
+  /* Its data carried r:150 as if it were a hitbox, so during the "stance"
+     anyone within 150 was simply hit for 16 -- the counter almost never got
+     the chance to fire. The answer radius is its own field now, and if the
+     window closes with nothing to answer she cuts forward anyway, so the bar
+     is never spent on nothing. */
   super: { name: "Perfect Answer",
-    desc: "A long stance that answers everything. One hit during it and they pay for it hard.",
+    desc: "A long stance. One hit during it is answered with a blast that hits every foe around her. If nobody swings, she closes the stance with a lunging cut.",
     startup: 12, active: 60, recovery: 34,
-    dmg: 16, base: 5.4, scale: 1.05, angle: 46, ox: 0, oy: 0, r: 150,
+    dmg: 16, base: 5.4, scale: 1.05, angle: 46, ox: 0, oy: 0, r: 0,
+    radius: 150,
+    closer: { name: "Final Word", dmg: 10, base: 4.6, scale: 1.0, angle: 38 },
     onStart(f) { Snd.superCharge(); FX.flash("#ff4d6d", 0.3); },
     tick(f, a) {
       const m = a.data;
@@ -1675,9 +1790,8 @@ const ROSTER = [
            the super learns that its counter actually fired */
         if (f.counterFlash > 20) {
           a.answered = true;
-          for (const o of Match.current.fighters) {
-            if (o === f || !o.alive || o.state === ST.DEAD) continue;
-            if (dist(o.x, o.y, f.x, f.y) > m.r) continue;
+          for (const o of Combat.foes(f)) {
+            if (dist(o.x, o.y, f.x, f.y) > m.radius || o.intangible()) continue;
             const dirX = o.x >= f.x ? 1 : -1;
             const rad = m.angle * Math.PI / 180;
             const mag = CFG.kbBase + m.base + m.dmg * CFG.kbDamageScale
@@ -1691,6 +1805,19 @@ const ROSTER = [
           FX.ring(f.x, f.y, 20, 420, "#ffffff", 6);
           FX.blade(f.x, f.y, 0, 40, 220, 6.28, f.ch.color, { w: 18, life: 20 });
           Snd.superHit();
+        }
+      }
+      // nobody swung: close the stance with a lunging cut
+      if (a.t === m.startup + m.active && !a.answered) {
+        a.answered = true;
+        f.vx = f.facing * 9;
+        FX.blade(f.x + f.facing * 8, f.y - 6, faceAng(f), 36, 110, 0.3, f.ch.color, { w: 26, life: 14 });
+        FX.streak(f.x, f.y - 6, f.x + f.facing * 120, f.y - 6, f.ch.accent);
+        Snd.tone(900, 0.1, "sawtooth", 0.12, 240);
+        for (const o of Combat.foes(f)) {
+          const ahead = (o.x - f.x) * f.facing;
+          if (ahead < -10 || ahead > 120 || Math.abs(o.y - f.y) > 50 || o.intangible()) continue;
+          Combat.land(f, o, m.closer, o.x, o.y);
         }
       }
     } },

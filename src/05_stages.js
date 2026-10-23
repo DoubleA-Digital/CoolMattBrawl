@@ -7,12 +7,6 @@
    maps kill far earlier than others.
    ========================================================================== */
 
-const TILT_BASE = {
-  limit: 0.42, torque: 0.0000035, spring: 0.0070, damp: 0.962,
-  maxAngVel: 0.055, hitNudge: 0.0008, snapVel: 0.062, snapLaunch: 17.5,
-  snapDamage: 6, anchorFrames: 180, crankTorque: 3400, stompTorque: 6,
-};
-
 const STAGES = [
 
 /* ------------------------------------------------------------------ 1 --- */
@@ -21,7 +15,6 @@ const STAGES = [
   blurb: "The proving ground. Flat deck, generous ledges, room to learn the swing.",
   pivot: { x: 800, y: 580 },
   blast: { left: -420, right: 2020, top: -520, bottom: 1420 },
-  tilt: Object.assign({}, TILT_BASE),
   pal: { a: "#00e5ff", b: "#ff2e88", plat: "#1b1536", platEdge: "#00e5ff",
          soft: "#8a7fff", ink: "#07060f" },
   music: { bpm: 124, root: 196, scale: [0, 3, 5, 7, 10], wave: "triangle", hats: true,
@@ -129,14 +122,6 @@ const STAGES = [
   pivot: { x: 800, y: 560 },
   // the crucible is right below: far less room to recover underneath
   blast: { left: -430, right: 2030, top: -560, bottom: 1140 },
-  tilt: Object.assign({}, TILT_BASE, {
-    torque: 0.0000052,    // heavier beam, leans further under weight
-    spring: 0.0048,       // and is slow to right itself
-    damp: 0.975,
-    limit: 0.46,
-    snapLaunch: 19.5,
-    snapDamage: 8,
-  }),
   pal: { a: "#ff8a1f", b: "#ff3b1f", plat: "#241711", platEdge: "#ff8a1f",
          soft: "#c2683a", ink: "#140a06" },
   music: { bpm: 104, root: 147, scale: [0, 2, 3, 7, 8], wave: "sawtooth", hats: false,
@@ -303,15 +288,6 @@ const STAGES = [
   // smaller hitboxes, nerfed supers) the most forgiving stage started running
   // to the clock -- 3 of 12 test matches timed out at 106s average.
   blast: { left: -380, right: 1980, top: -620, bottom: 1235 },
-  tilt: Object.assign({}, TILT_BASE, {
-    torque: 0.0000030,
-    spring: 0.0138,      // snaps level fast
-    damp: 0.930,         // and does not keep ringing
-    maxAngVel: 0.072,
-    limit: 0.36,
-    snapLaunch: 15.5,
-    snapDamage: 4,
-  }),
   pal: { a: "#ffb4d6", b: "#8fd7ff", plat: "#efe3f3", platEdge: "#ff9ec7",
          soft: "#b89ede", ink: "#2b2140" },
   music: { bpm: 96, root: 262, scale: [0, 2, 4, 7, 9], wave: "sine", hats: false,
@@ -463,14 +439,6 @@ const STAGES = [
   pivot: { x: 800, y: 560 },
   // walls are close — everything kills much earlier here
   blast: { left: -215, right: 1815, top: -360, bottom: 1250 },
-  tilt: Object.assign({}, TILT_BASE, {
-    torque: 0.0000044,
-    spring: 0.0052,
-    limit: 0.60,         // leans dramatically far before snapping
-    snapVel: 0.075,
-    snapLaunch: 20,
-    snapDamage: 9,
-  }),
   pal: { a: "#39ff9e", b: "#17c0ff", plat: "#0a1a14", platEdge: "#39ff9e",
          soft: "#1e7a56", ink: "#030a07" },
   music: { bpm: 140, root: 165, scale: [0, 1, 5, 7, 8], wave: "square", hats: true,
@@ -596,20 +564,13 @@ STAGES.forEach(s => { STAGE_BY_ID[s.id] = s; });
 /* ========================================================================== */
 const Stage = {
   def: STAGES[0],
+  /* The deck's centre. Still called pivot because every stage stands on a
+     support column there, but nothing rotates about it any more. */
   pivot: { x: 800, y: 580 },
-  tilt: 0, prevTilt: 0, angVel: 0,
-  anchorTimer: 0, snapFlash: 0, snapCount: 0, snapCooldown: 0,
-  lastPusher: null,
+  flashT: 0,          // frames left on a deck-edge flash (Pivot's Tipping Point)
   segs: [],
   pfx: [], platT: 0,
-  forcing: 0,
-  /* Weight on the deck that is not a fighter. Ballast's cubes register here
-     each frame and Stage.update consumes the list, so a cube tilts the stage
-     exactly as a body of the same mass standing in that spot would. */
-  extraWeights: [],
 
-  get cfg() { return this.def.tilt; },
-  get anchorFrames() { return this.def.tilt.anchorFrames; },
   get blast() { return this.def.blast; },
   get pal() { return this.def.pal; },
 
@@ -619,17 +580,23 @@ const Stage = {
     this.reset();
   },
   reset() {
-    this.tilt = 0; this.prevTilt = 0; this.angVel = 0;
+    this.flashT = 0;
     this.resetPlatforms();
-    this.anchorTimer = 0; this.snapFlash = 0; this.snapCount = 0; this.snapCooldown = 0;
-    this.lastPusher = null; this.forcing = 0;
-    this.extraWeights.length = 0;
     this.rebuild();
   },
 
-  toWorld(lx, ly) {
-    const c = Math.cos(this.tilt), s = Math.sin(this.tilt);
-    return { x: this.pivot.x + lx * c - ly * s, y: this.pivot.y + lx * s + ly * c };
+  toWorld(lx, ly) { return { x: this.pivot.x + lx, y: this.pivot.y + ly }; },
+
+  /** The highest walkable surface at x that is at or below y, or null when
+      there is only open air underneath. Supers use it to check there is a
+      floor to land on before committing to a dive or a slam. */
+  floorBelow(x, y) {
+    let best = null;
+    for (const seg of this.segs) {
+      const sy = this.surfaceY(seg, x);
+      if (sy !== null && sy >= y - 2 && (best === null || sy < best)) best = sy;
+    }
+    return best;
   },
 
   /* ---------------------------------------------------- platform state ----
@@ -739,66 +706,10 @@ const Stage = {
     return seg.ay + t * (seg.by - seg.ay);
   },
 
-  /* Tilt mechanic removed: every deck stays flat. These stay as harmless
-     no-ops so callers elsewhere (combat, net, the PIVOT character's special)
-     don't need to know the mechanic is gone. */
-  nudge(_amount) {},
-  anchor() { this.anchorTimer = this.cfg.anchorFrames; this.angVel = 0; },
-  flip() {},
-  forceTilt(_dir, _power) {},
-  balance() { return 0; },
-
   update(fighters) {
-    this.prevTilt = this.tilt;
-    this.tilt = 0;
-    this.angVel = 0;
-
-    if (this.anchorTimer > 0) {
-      this.anchorTimer--;
-      this.platformTick(fighters);
-      this.rebuild();
-      this.platformDamage(fighters);
-      if (this.snapFlash > 0) this.snapFlash--;
-      return;
-    }
-
-    this.extraWeights.length = 0;
-    this.forcing = 0;
-    if (this.snapFlash > 0) this.snapFlash--;
+    if (this.flashT > 0) this.flashT--;
     this.platformTick(fighters);
     this.rebuild();
     this.platformDamage(fighters);
   },
-
-  snapBack(fighters) {
-    const C = this.cfg;
-    const sign = Math.sign(this.tilt);
-    /* The rebound has to BLEED energy. At full strength it carried the deck
-       clean across to the opposite limit, which snapped again, forever. It now
-       keeps less than half its swing and can't re-trigger for a moment. */
-    this.tilt = sign * C.limit * 0.9;
-    this.angVel = -sign * C.snapVel * 0.45;
-    this.snapCooldown = 48;
-    this.snapFlash = 26;
-    this.snapCount++;
-    Snd.snapback();
-    FX.shake(26); FX.hitPause(8);
-    FX.flash("#ffffff", 0.25);
-    FX.punch(0.85);
-
-    for (const f of fighters) {
-      if (!f.alive || !f.grounded || !f.groundSeg || f.pinned) continue;
-      const lean = clamp((f.x - this.pivot.x) / 310, -1, 1);
-      f.applyKnockback(lean * 7.5 - sign * 3.0,
-        -C.snapLaunch * (1.15 - Math.abs(lean) * 0.3), C.snapDamage, 26, null);
-      FX.burst(f.x, f.y + f.ch.size.h * 0.5, 16, "#ffffff", 7);
-    }
-    const culprit = this.lastPusher;
-    if (culprit && culprit.alive) { culprit.stats.snapbacks++; culprit.addMeter(CFG.meter.onSnapback); }
-    FX.banner("SNAP-BACK!", "#ffffff");
-    FX.ring(this.pivot.x, this.pivot.y, 60, 560, "#ffffff", 5);
-  },
 };
-
-/** Register non-fighter weight on the deck for this frame. */
-Stage.addWeight = function (x, y, w) { this.extraWeights.push({ x, y, w }); };

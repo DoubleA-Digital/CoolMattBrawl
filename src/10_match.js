@@ -3,13 +3,16 @@
    ========================================================================== */
 
 class Match {
-  constructor(slots, stageDef) {
+  /** opts.teams turns on 2v2: each slot's team field picks its side. */
+  constructor(slots, stageDef, opts) {
     Match.current = this;
     Stage.select(stageDef);
+    this.teams = !!(opts && opts.teams);
     this.fighters = [];
     slots.forEach((s, i) => {
       if (s.mode === "off") return;
-      this.fighters.push(new Fighter(i, s.charId, s.mode === "cpu"));
+      this.fighters.push(new Fighter(i, s.charId, s.mode === "cpu",
+                                     this.teams ? (s.team || 0) : null));
     });
     Entities.reset();
     FX.reset();
@@ -17,36 +20,84 @@ class Match {
     this.over = false; this.endTimer = 0;
     this.frames = 0; this.lastCount = -1;
     this.timeLeft = CFG.matchSeconds * 60;
-    this.endedBy = null; this.winner = null;
+    this.endedBy = null; this.winner = null; this.winTeam = null;
+    this.frenzy = false; this.suddenDeath = false;
     Snd.startMusic(stageDef);
   }
 
+  /* A "side" is a team in 2v2 and a single fighter in free-for-all, so the
+     win checks below are written once for both modes. */
+  sideOf(f) { return this.teams ? "t" + f.team : "p" + f.slot; }
+  sides() {
+    const map = new Map();
+    for (const f of this.fighters) {
+      const k = this.sideOf(f);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k).push(f);
+    }
+    return [...map.values()];
+  }
+
   onKO() {
-    const standing = this.fighters.filter(x => x.stocks > 0);
-    if (standing.length <= 1) this.endMatch(standing[0] || null, "ko");
+    const standing = this.sides().filter(side => side.some(f => f.stocks > 0));
+    if (standing.length <= 1) {
+      const side = standing[0];
+      this.endMatch(side ? side.find(f => f.stocks > 0) : null, "ko");
+    }
   }
 
   endOnTime() {
-    const live = this.fighters.filter(f => f.stocks > 0);
-    let best = null, tie = false;
-    for (const f of live) {
-      if (!best) { best = f; continue; }
-      if (f.stocks > best.stocks) { best = f; tie = false; }
-      else if (f.stocks === best.stocks) {
-        if (f.percent < best.percent) { best = f; tie = false; }
-        else if (f.percent === best.percent) tie = true;
+    const live = this.sides().filter(side => side.some(f => f.stocks > 0));
+
+    if (this.suddenDeath) {
+      // sudden death ran out too: the least damaged side takes it
+      const pct = side => Math.min(...side.filter(f => f.stocks > 0).map(f => f.percent));
+      live.sort((a, b) => pct(a) - pct(b));
+      const tie = live.length > 1 && pct(live[0]) === pct(live[1]);
+      this.endMatch(tie || !live.length ? null : live[0].find(f => f.stocks > 0), "time");
+      return;
+    }
+
+    if (!live.length) { this.endMatch(null, "time"); return; }
+    const stocks = side => side.reduce((n, f) => n + Math.max(0, f.stocks), 0);
+    const top = Math.max(...live.map(stocks));
+    const leaders = live.filter(side => stocks(side) === top);
+    if (leaders.length === 1) this.endMatch(leaders[0].find(f => f.stocks > 0), "time");
+    else this.startSuddenDeath(leaders);
+  }
+
+  /* Level on stocks at the buzzer: everyone still standing on a tied side
+     comes back on one stock at high damage, and the next KO ends it. */
+  startSuddenDeath(sides) {
+    const tied = new Set(sides.flat());
+    for (const f of this.fighters) {
+      if (f.stocks <= 0) continue;
+      if (tied.has(f)) {
+        f.stocks = 1;
+        f.respawn();
+        f.percent = CFG.suddenDeathPercent;
+        f.attack = null;
+      } else {
+        f.stocks = 0; f.alive = false; f.setState(ST.DEAD); f.respawnTimer = 0;
       }
     }
-    this.endMatch(tie ? null : best, "time");
+    Entities.reset();
+    this.suddenDeath = true; this.frenzy = false;
+    this.timeLeft = CFG.suddenDeathSeconds * 60;
+    FX.banner("SUDDEN DEATH", "#ff2e88");
+    FX.flash("#ff2e88", 0.35); FX.shake(18);
+    Snd.superCharge();
   }
 
   endMatch(winner, reason) {
     if (this.over) return;
     this.over = true; this.endTimer = 120;
     this.winner = winner; this.endedBy = reason;
+    this.winTeam = winner && this.teams ? winner.team : null;
     Snd.stopMusic();
     FX.flash("#ffffff", 0.3);
-    if (reason === "time") FX.banner("TIME!", "#ffc83d");
+    if (reason === "time" && !winner) FX.banner("TIME — DRAW", "#ffc83d");
+    else if (this.winTeam != null) FX.banner(`${TEAM_NAME[this.winTeam]} TEAM WINS`, TEAM_TINT[this.winTeam]);
     else FX.banner(winner ? `${winner.ch.name} WINS` : "DRAW", winner ? winner.tint : "#fff");
   }
 
@@ -77,6 +128,12 @@ class Match {
 
     this.frames++;
     if (--this.timeLeft <= 0) { this.timeLeft = 0; this.endOnTime(); }
+    else if (!this.suddenDeath && this.timeLeft === CFG.frenzySeconds * 60) {
+      this.frenzy = true;
+      FX.banner("FRENZY!", "#ffc83d");
+      FX.flash("#ffc83d", 0.25);
+      Snd.superCharge();
+    }
     else if (this.timeLeft === 10 * 60) FX.banner("10 SECONDS", "#ffc83d");
 
     for (const f of this.fighters) f.update(this);
@@ -97,7 +154,7 @@ class Match {
     g.restore();
 
     /* The banner and the countdown are drawn before the post pass rather than
-       after it, so SNAP-BACK! and BRAWL! bloom like everything else in the
+       after it, so the banners and BRAWL! bloom like everything else in the
        world. The HUD stays after it and therefore stays crisp. */
     drawBanner();
     this.drawCountdown();

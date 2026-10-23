@@ -95,6 +95,16 @@ const CFG = {
   respawnFrames: 60,
   respawnInvuln: 110,
   matchSeconds:  180,
+  /* The last stretch of the clock is a FRENZY: meter fills twice as fast, so
+     the end of a close match is decided by supers instead of running down. */
+  frenzySeconds: 30,
+  /* A time-out with the stocks level is not a draw any more. The tied sides
+     come back on one stock at suddenDeathPercent and fight it out. */
+  suddenDeathPercent: 150,
+  suddenDeathSeconds: 45,
+  /* A hit with at least this much knockback is announced as a SMASH: it is
+     very likely to take a stock, and the player should feel that. */
+  smashKb: 15.5,
 
   // ---- SUPER METER ----
   /* ---- SUPER METER ----
@@ -106,8 +116,8 @@ const CFG = {
     max:          100,
     onDeal:       0.80,   // per point of damage dealt (was 1.25)
     onTake:       0.50,   // per point taken (comebacks) (was 0.75)
-    onSnapback:   12,     // for causing a Snap-Back (was 18)
     passive:      0.004,  // a safety net, not a source (was 0.016)
+    frenzyMul:    2.0,    // every gain is doubled in the final stretch
     superArmor:   true,   // supers resist knockback during their active window
     superArmorHp: 16,     // ...but that armour BREAKS above this much damage,
                           //    so a committed super can be contested
@@ -166,6 +176,17 @@ const W = CFG.view.w, H = CFG.view.h;
 
 /* Per-player accent used for tags, stock pips and slot cards. */
 const PLAYER_TINT = ["#ff5fa2", "#4fe8ff", "#caff6e", "#ffd76b"];
+
+/* 2v2: in a team match every fighter's tag, ring and card wear their team's
+   colour instead of their player colour, so sides read at a glance. */
+const TEAM_TINT = ["#ff4f6a", "#3fa8ff"];
+const TEAM_NAME = ["RED", "BLUE"];
+
+/** True when two fighters are on the same side. Free-for-all has no teams,
+    so there the only ally a fighter has is itself. */
+function allies(a, b) {
+  return a === b || (a.team != null && a.team === b.team);
+}
 
 
 /* ===== src/01_util.js ===== */
@@ -342,10 +363,6 @@ const Snd = {
     this.noise(0.5, 0.4, 900, 0.7, "lowpass", 0, 1);
     [760, 570, 430, 300].forEach((f, i) => this.tone(f, 0.25, "square", 0.15, f * 0.6, i * 0.07, 0.5));
   },
-  snapback() {
-    this.noise(0.6, 0.5, 260, 0.8, "lowpass", 0, 1);
-    [180, 260, 380, 520, 720].forEach((f, i) => this.tone(f, 0.3, "sawtooth", 0.13, f * 1.6, i * 0.045, 0.4));
-  },
   superCharge() {
     [220, 330, 440, 660].forEach((f, i) => this.tone(f, 0.5, "sine", 0.1, f * 2, i * 0.06, 0.8));
     this.noise(0.6, 0.2, 400, 1, "highpass", 0, 1);
@@ -512,7 +529,7 @@ const Light = {
     ctx.restore();
   },
 
-  /** Red/blue separation. Used on heavy impacts, Snap-Backs and KOs. */
+  /** Red/blue separation. Used on heavy impacts, supers and KOs. */
   chroma(ctx, canvas, w, h, amount) {
     if (amount <= 0.02) return;
     const shift = amount * 7;
@@ -999,8 +1016,14 @@ const ROSTER = [
       }
     } },
 
+  /* The old version dived at full speed and waited to pass the stage's
+     pivot height to count as "landed" -- so used anywhere but the main deck
+     it either fired early or drove him straight into the blast zone. He now
+     only commits to the dive when there is a floor under him, the shockwaves
+     run along whichever platform he actually hit, and used over open air it
+     detonates where he is instead of killing him. */
   super: { name: "Tectonic Verdict",
-    desc: "Rears up and splits the stage. Two shockwaves run the whole deck.",
+    desc: "Rears up and drives himself into the floor under him: the landing blasts everyone close, and two shockwaves run out along that platform. Over open air, it detonates on the spot.",
     startup: 24, active: 26, recovery: 40,
     dmg: 17, base: 5.8, scale: 1.12, angle: 50, ox: 0, oy: 26, r: 104,
     onStart(f) { f.vy = -9; Snd.superCharge(); FX.flash("#ff2e88", 0.35); },
@@ -1008,22 +1031,25 @@ const ROSTER = [
       const m = a.data;
       if (a.t < m.startup) { f.vx *= 0.8; f.vy = Math.max(f.vy, -9) + 0.35; FX.spark(f.x + rnd(-30, 30), f.y + rnd(-40, 40), f.ch.color); }
       if (a.t === m.startup) {
-        f.vy = 32;                                    // the drop
+        a.floor = Stage.floorBelow(f.x, f.feetY);
+        f.vy = a.floor !== null ? 32 : 3;             // the drop -- only if there is a floor
+        f.vx = 0;
         FX.flash("#ffffff", 0.5);
       }
-      if (a.t > m.startup && a.t < m.startup + 10 && !a.landed) {
-        if (f.grounded || f.y > Stage.pivot.y) {
-          a.landed = true;
-          Snd.superHit(); FX.shake(34); FX.hitPause(14);
-          FX.ring(f.x, f.feetY, 20, 520, "#ffffff", 5);
-          FX.ring(f.x, f.feetY, 10, 340, f.ch.color, 4);
-          FX.burst(f.x, f.feetY, 46, f.ch.color, 13);
+      if (a.t > m.startup && !a.landed && (f.grounded || a.t >= m.startup + 12)) {
+        a.landed = true;
+        Snd.superHit(); FX.shake(34); FX.hitPause(14);
+        FX.ring(f.x, f.feetY, 20, 520, "#ffffff", 5);
+        FX.ring(f.x, f.feetY, 10, 340, f.ch.color, 4);
+        FX.burst(f.x, f.feetY, 46, f.ch.color, 13);
+        FX.blade(f.x, f.feetY - 10, 0, 40, 260, 6.28, "#ffffff", { w: 16, life: 20 });
+        FX.glyph(f.x, f.feetY - 60, "wedge", 44, f.ch.accent, 26);
+        if (f.grounded && f.groundSeg) {
+          const plat = f.groundSeg.local;
           FX.crack(f.x, f.feetY - 2, 1, 90, "#ffffff", 5);
           FX.crack(f.x, f.feetY - 2, -1, 90, "#ffffff", 5);
-          FX.blade(f.x, f.feetY - 10, 0, 40, 260, 6.28, "#ffffff", { w: 16, life: 20 });
-          FX.glyph(f.x, f.feetY - 60, "wedge", 44, f.ch.accent, 26);
-          Entities.shockwave(f, f.x, f.feetY, -1, m);
-          Entities.shockwave(f, f.x, f.feetY, 1, m);
+          Entities.shockwave(f, f.x, f.feetY, -1, m, plat);
+          Entities.shockwave(f, f.x, f.feetY, 1, m, plat);
         }
       }
     } },
@@ -1409,7 +1435,7 @@ const ROSTER = [
       if (a.t === m.startup && !a.fired) {
         a.fired = true;
         // Personal brace, not a shared lock: two Orbits don't fight over it.
-        f.anchorGlow = Stage.anchorFrames;
+        f.anchorGlow = ANCHOR_FRAMES;
         Snd.tone(120, 0.5, "sine", 0.2, 90); Snd.tone(240, 0.4, "triangle", 0.1, 180);
         FX.ring(f.x, f.feetY, 20, 380, f.ch.color, 3);
         FX.banner("KEEL ANCHOR", f.ch.color);
@@ -1426,7 +1452,7 @@ const ROSTER = [
     } },
 
   super: { name: "Event Horizon",
-    desc: "Opens a well that drags every fighter in, holds them there, then collapses.",
+    desc: "Opens a well that drags every foe in, holds them there, then collapses on them. Lands on the nearest foe within reach, or in front of her.",
     startup: 18, active: 74, recovery: 36,
     dmg: 19, base: 6.0, scale: 1.05, angle: 62, ox: 0, oy: 0, r: 0,
     onStart(f) { Snd.superCharge(); FX.flash("#b6ff3b", 0.3); },
@@ -1435,7 +1461,11 @@ const ROSTER = [
       if (a.t < m.startup) { f.vx *= 0.8; FX.spark(f.x + rnd(-30, 30), f.y + rnd(-30, 30), f.ch.color); }
       if (a.t === m.startup && !a.fired) {
         a.fired = true;
-        const wx = f.x + f.facing * 150, wy = f.y - 40;
+        /* Opened on the nearest foe within reach rather than a fixed spot in
+           front of her: aimed at empty air, the old well was usually wasted. */
+        const tgt = Combat.nearestFoe(f, 300);
+        const wx = tgt ? tgt.x : f.x + f.facing * 150;
+        const wy = tgt ? tgt.y - 20 : f.y - 40;
         Entities.well(f, wx, wy, m);
         FX.banner("EVENT HORIZON", f.ch.color);
         FX.shake(10);
@@ -1566,12 +1596,12 @@ const ROSTER = [
 /* ======================================================================== */
 {
   id: "PIVOT", name: "PIVOT", tag: "THE TRICKSTER",
-  blurb: "A trickster who leans into every exchange and never lets up.",
-  power: "A sustained swipe she can hold and aim, and a planted point-blank AoE for her super.",
+  blurb: "Never fights fair. Trades places with you, then tips you off your own side of the stage.",
+  power: "Her lever swaps places with the first foe it catches — save yourself off-stage, or strand them there.",
   color: "#ffc83d", color2: "#5e3c05", color3: "#2c1c02", accent: "#fff6dc",
   weight: 0.88, speed: 4.6, accel: 0.9, jump: 12.4, airSpeed: 4.5, fallMul: 0.96,
   size: { w: 34, h: 52 }, hurt: 26,
-  specialCooldown: 110,
+  specialCooldown: 150,
 
   /* A fan, so the effect is three thin leaves opening at once. */
   light: { name: "Fan Slice", startup: 3, active: 3, recovery: 9,
@@ -1603,52 +1633,94 @@ const ROSTER = [
       FX.glyph(def.x, def.y - 16, "scale", 20, f.ch.accent, 22);
     } },
 
-  special: { name: "Hand on the Scale", startup: 5, active: 40, recovery: 14,
-    dmg: 5, base: 2.0, scale: 0.42, angle: 90, ox: 20, oy: -14, r: 26,
-    desc: "Hold to lean into a sustained swipe wherever she's pointed.",
-    tick(f, a, inp) {
+  /* Her whole kit used to be about cranking the stage over. With a deck that
+     never tilts, the trick moved onto the fighters: she swaps places with
+     them, and her super tips them off the stage instead of tipping the stage.
+
+     Trade Places throws the lever out in a line that grows over the active
+     frames. The first foe it reaches swaps positions with her outright. Used
+     off-stage it is a recovery that strands someone else out there. */
+  special: { name: "Trade Places", startup: 8, active: 12, recovery: 20,
+    dmg: 4, base: 2.2, scale: 0.2, angle: 80, ox: 0, oy: 0, r: 0,
+    reach: 290,
+    desc: "Throws her lever out in a line. The first foe it catches swaps places with her and is left reeling — save yourself off-stage, or strand them there.",
+    onStart(f) { f.vy = Math.min(f.vy, 0) * 0.3; Snd.tone(520, 0.12, "triangle", 0.1, 900); },
+    tick(f, a) {
       const m = a.data;
-      const lean = inp.ax !== 0 ? inp.ax : f.facing;
-      if (a.t > m.startup && a.t <= m.startup + m.active) {
-        f.vx *= 0.6; f.vy *= 0.8;
-        if (a.t % 3 === 0) FX.spark(f.x + lean * 26, f.y - 10, f.ch.color);
-        /* A lever arm miming the old crank — drawn out in front of her now
-           instead of toward the stage pivot, which no longer moves. */
-        if (a.t % 7 === 0) {
-          FX.streak(f.x, f.y - 10,
-                    f.x + lean * 230, f.y - 20, f.ch.color);
-          FX.streak(f.x, f.y - 10,
-                    f.x + lean * 180, f.y - 4, f.ch.accent);
-          FX.glyph(f.x + lean * 34, f.y - 14, "scale", 15, f.ch.accent, 14);
-        }
-        if (!inp.held("special")) a.t = m.startup + m.active + 1;
+      if (a.t <= m.startup) { f.vx *= 0.7; f.vy *= 0.7; return; }
+      if (a.t > m.startup + m.active || a.caught) return;
+      f.vx *= 0.6; f.vy *= 0.6;
+      const reach = m.reach * (a.t - m.startup) / m.active;
+      FX.streak(f.x + f.facing * 14, f.y - 8, f.x + f.facing * reach, f.y - 8, f.ch.color);
+      if ((a.t - m.startup) % 4 === 0)
+        FX.glyph(f.x + f.facing * reach, f.y - 8, "scale", 12, f.ch.accent, 10);
+
+      let tgt = null, best = Infinity;
+      for (const o of Combat.foes(f)) {
+        const ahead = (o.x - f.x) * f.facing;
+        if (ahead < 0 || ahead > reach + o.ch.hurt || Math.abs(o.y - f.y) > 44) continue;
+        if (o.intangible() || o.state === ST.GRABBED) continue;
+        if (ahead < best) { best = ahead; tgt = o; }
       }
+      if (!tgt) return;
+      a.caught = true;
+
+      // a live counter answers the lever instead of being moved by it
+      if (tgt.counter > 0) { tgt.applyKnockback(0, 0, 0, 0, f); return; }
+
+      const fx0 = f.x, fy0 = f.y, tx0 = tgt.x, ty0 = tgt.y;
+      FX.streak(fx0, fy0, tx0, ty0, f.ch.accent);
+      FX.ring(fx0, fy0, 6, 70, f.ch.color, 3);
+      FX.ring(tx0, ty0, 6, 70, f.ch.color, 3);
+      f.x = f.px = tx0; f.y = f.py = ty0 + (tgt.h - f.h) * 0.5;
+      tgt.x = tgt.px = fx0; tgt.y = tgt.py = fy0 + (f.h - tgt.h) * 0.5;
+      f.vx = 0; f.vy = 0; f.grounded = false; f.groundSeg = null;
+      f.facing = -f.facing;                        // now facing the foe she swapped with
+      f.invuln = Math.max(f.invuln, 12);
+      if (tgt.grabTarget) tgt.releaseGrab();
+      tgt.attack = null; tgt.pinned = false;
+      tgt.applyKnockback(0, -3.5, m.dmg, 8, f);    // left reeling where she was
+      f.stats.damageDealt += m.dmg;
+      f.addMeter(m.dmg * CFG.meter.onDeal);
+      FX.glyph(f.x, f.y - 40, "scale", 22, f.ch.accent, 22);
+      FX.banner("TRADE PLACES", f.ch.color);
+      FX.shake(6);
+      Snd.tone(880, 0.1, "square", 0.12, 440); Snd.tone(440, 0.14, "square", 0.1, 880, 0.06);
+      a.t = m.startup + m.active;                   // straight into recovery
     } },
 
-  super: { name: "Dead Weight",
-    desc: "Drops every ounce of her weight into one spot and holds the floor there, immune and growing.",
-    startup: 16, active: 54, recovery: 34,
-    dmg: 15, base: 5.0, scale: 0.95, angle: 72, ox: 0, oy: 0, r: 82,
+  /* The old Snap-Back, as a move. The stage used to tip and throw everyone
+     off its low side; now she does it herself. Every foe in range is thrown
+     outward, away from the middle of the stage -- toward whichever blast
+     zone they were already nearest -- on a low, flat angle that kills. */
+  super: { name: "Tipping Point",
+    desc: "Slams her lever down and tips the world: every foe in range is thrown flat toward the edge of the stage they're already on.",
+    startup: 18, active: 6, recovery: 32,
+    dmg: 14, base: 6.6, scale: 1.12, angle: 22, ox: 0, oy: 0, r: 0,
+    radius: 300,
     onStart(f) { Snd.superCharge(); FX.flash("#ffc83d", 0.3); },
     tick(f, a) {
       const m = a.data;
-      if (a.t < m.startup) { f.vx *= 0.8; FX.spark(f.x + rnd(-26, 26), f.y + rnd(-30, 30), f.ch.color); }
-      if (a.t === m.startup) {
-        FX.banner("DEAD WEIGHT", f.ch.color);
-        Snd.superHit();
-        FX.shake(10);
+      if (a.t < m.startup) {
+        f.vx *= 0.7; f.vy *= 0.7;
+        FX.spark(f.x + rnd(-26, 26), f.y + rnd(-30, 30), f.ch.color);
+        if (a.t % 6 === 0) FX.glyph(f.x, f.y - 70, "scale", 30, f.ch.accent, 10);
+        return;
       }
-      if (a.t >= m.startup && a.t < m.startup + m.active) {
-        // planted and immune; she doesn't move, the hitbox does the work
-        f.pinned = true;
-        f.vx = 0; f.vy = 0;
-        if (a.t % 4 === 0) FX.spark(f.x + rnd(-80, 80), f.y + rnd(-10, 20), f.ch.color);
-        if (a.t % 9 === 0) {
-          FX.ring(f.x, f.y, 10, 160, f.ch.color, 2);
-          FX.glyph(f.x, f.y - 90, "scale", 34, f.ch.accent, 18);
-        }
+      if (a.t !== m.startup) return;
+      FX.banner("TIPPING POINT", f.ch.color);
+      Snd.superHit(); FX.shake(26); FX.hitPause(10);
+      FX.flash("#ffffff", 0.3); FX.punch(0.8);
+      FX.ring(f.x, f.y, 20, m.radius, "#ffffff", 5);
+      FX.ring(f.x, f.y, 10, m.radius * 0.8, f.ch.color, 4);
+      FX.glyph(f.x, f.y - 80, "scale", 54, f.ch.accent, 30);
+      Stage.flashT = 26;
+      for (const o of Combat.foes(f)) {
+        if (o.intangible() || dist(f.x, f.y, o.x, o.y) > m.radius) continue;
+        const out = Math.sign(o.x - Stage.pivot.x) || (o.x >= f.x ? 1 : -1);
+        Combat.land(f, o, m, o.x, o.y, 0, out);
+        FX.streak(o.x, o.y, o.x + out * 160, o.y - 30, f.ch.accent);
       }
-      if (a.t === m.startup + m.active) f.pinned = false;
     } },
 
   /* ---- art: deliberately lopsided — one huge gauntlet, one bare hand, a
@@ -1804,32 +1876,38 @@ const ROSTER = [
       if (a.t === m.startup && !a.fired) {
         a.fired = true;
         Entities.ballast(f, f.x + f.facing * 34, f.y - 40, f.facing * 7.2, 2.4, 480, m);
-        Stage.lastPusher = f;
         FX.banner("DROP ANCHOR", f.ch.color);
         FX.ring(f.x + f.facing * 34, f.y - 40, 10, 90, f.ch.accent, 3);
         Snd.tone(150, 0.2, "triangle", 0.14, 70);
       }
     } },
 
+  /* Used to drop three cubes on fixed spots around the stage centre, which
+     only mattered on the main deck and were easy to stand clear of. Each cube
+     is now called down over a foe, leading where they are heading, with a
+     reticle on the floor so it can still be dodged. */
   super: { name: "Overload",
-    desc: "Buries the deck under three cubes at once.",
+    desc: "Calls a ballast cube down on top of every foe — three drops, each with a warning reticle — and the cubes stay put as obstacles once they land.",
     startup: 22, active: 30, recovery: 38,
-    dmg: 10, base: 3.4, scale: 0.8, angle: 60, ox: 0, oy: -20, r: 60,
+    dmg: 11, base: 3.8, scale: 0.9, angle: 60, ox: 0, oy: -20, r: 60,
     onStart(f) { Snd.superCharge(); FX.flash("#ffa424", 0.3); f.vy = -6; },
     tick(f, a) {
       const m = a.data;
       if (a.t < m.startup) { f.vx *= 0.82; FX.spark(f.x + rnd(-30, 30), f.y + rnd(-40, 20), f.ch.color); }
       if (a.t >= m.startup && (a.t - m.startup) % 9 === 0 && (a.dropped || 0) < 3) {
         a.dropped = (a.dropped || 0) + 1;
-        const off = (a.dropped - 2) * 150;
-        Entities.ballast(f, Stage.pivot.x + off, Stage.pivot.y - 320, 0, 3.1, 420, m);
+        const foes = Combat.foes(f).sort((p, q) =>
+          dist(f.x, f.y, p.x, p.y) - dist(f.x, f.y, q.x, q.y));
+        const tgt = foes.length ? foes[(a.dropped - 1) % foes.length] : null;
+        const x = tgt ? clamp(tgt.x + tgt.vx * 14, 40, CFG.world.w - 40)
+                      : Stage.pivot.x + (a.dropped - 2) * 150;
+        const y = Math.min(tgt ? tgt.y - 300 : Stage.pivot.y - 320, Stage.pivot.y - 200);
+        Entities.ballast(f, x, y, 0, 3.1, 420, m, tgt ? tgt.feetY - 30 : undefined);
+        FX.streak(f.x, f.y - 30, x, y, f.ch.accent);
         FX.shake(9);
         Snd.tone(120 - a.dropped * 14, 0.2, "sawtooth", 0.14, 48);
       }
-      if (a.t === m.startup) {
-        FX.banner("OVERLOAD", f.ch.color);
-        Stage.lastPusher = f;
-      }
+      if (a.t === m.startup) FX.banner("OVERLOAD", f.ch.color);
     } },
 
   /* ---- art: a dockyard loader. Boxy chassis, a shoulder jib with a hook,
@@ -1932,7 +2010,7 @@ const ROSTER = [
   power: "Flies a shorter distance and shakes off hitstun faster than anyone else; her updrafts lift every fighter on stage.",
   color: "#5ff2d0", color2: "#0d5a4c", color3: "#042a23", accent: "#eafffa",
   weight: 0.62, speed: 4.90, accel: 1.00, jump: 13.6, airSpeed: 5.6, fallMul: 0.74,
-  slopeGrip: 0.85,
+  footing: 0.85,
   size: { w: 30, h: 50 }, hurt: 23,
   specialCooldown: 150,
 
@@ -1977,24 +2055,53 @@ const ROSTER = [
       }
     } },
 
+  /* The old Monsoon planted three columns at fixed spots across the main
+     deck and gave her a hitbox for the whole 70 frames while she floated up
+     and away from everyone -- it rarely touched anybody. Now a storm column
+     opens under each foe and carries them up helpless, she rises with them,
+     and then she actually dives on the closest one: the dive is the hit. */
   super: { name: "Monsoon",
-    desc: "Turns the whole deck into rising air, then rides it down as a real hit — unlike Updraft, this one is built to land.",
-    startup: 16, active: 70, recovery: 30,
-    dmg: 19, base: 6.2, scale: 1.05, angle: 78, ox: 0, oy: 0, r: 92,
+    desc: "Opens a storm column under every foe and lifts them helpless into the air, then dives on the closest one as the hit.",
+    startup: 14, active: 66, recovery: 28,
+    dmg: 18, base: 6.0, scale: 1.08, angle: 74, ox: 0, oy: 4, r: 0,
     onStart(f) { Snd.superCharge(); FX.flash("#5ff2d0", 0.3); },
     tick(f, a) {
       const m = a.data;
-      if (a.t < m.startup) { f.vy *= 0.8; FX.spark(f.x + rnd(-30, 30), f.y + rnd(-40, 40), f.ch.color); }
-      if (a.t === m.startup) {
+      const s = a.t - m.startup;
+      if (s < 0) { f.vy *= 0.8; FX.spark(f.x + rnd(-30, 30), f.y + rnd(-40, 40), f.ch.color); return; }
+      if (s === 0) {
         FX.banner("MONSOON", f.ch.color);
-        for (let i = -1; i <= 1; i++)
-          Entities.updraft(f, Stage.pivot.x + i * 190, Stage.pivot.y, 150);
+        for (const o of Combat.foes(f))
+          Entities.updraft(f, o.x, o.y + 60, 48, true);
+        Snd.noise(0.6, 0.18, 2600, 0.8, "bandpass");
         FX.shake(12);
       }
-      if (a.t > m.startup) {
-        f.vy = Math.max(f.vy - 0.5, -9);                 // she rides her own storm
+      if (s < 40) {
+        // she rises with her storm, holding position
+        f.vx *= 0.88;
+        f.vy = Math.max(f.vy - 0.5, -5);
         if (a.t % 5 === 0) FX.spark(f.x + rnd(-40, 40), f.y + rnd(-10, 50), f.ch.accent);
+        return;
       }
+      if (s === 40) {
+        a.tgt = Combat.nearestFoe(f);
+        m.r = 62;                                    // the hitbox exists only for the dive
+        a.hitIds = null;
+        Snd.whoosh(1.8);
+        FX.ring(f.x, f.y, 10, 120, f.ch.accent, 3);
+      }
+      const t = a.tgt;
+      if (a.hitIds && a.hitIds.length) {
+        // connected: pull up out of the dive
+        f.vx *= 0.8; f.vy *= 0.8;
+      } else if (t && t.alive && t.state !== ST.DEAD) {
+        const dx = t.x - f.x, dy = t.y - f.y, d = Math.hypot(dx, dy) || 1;
+        f.vx = dx / d * 17; f.vy = dy / d * 17;
+        f.facing = dx >= 0 ? 1 : -1;
+      } else {
+        f.vy = 14;                                   // nobody left: dive straight down
+      }
+      if (a.t % 2 === 0) FX.streak(f.x, f.y, f.x - f.vx * 3, f.y - f.vy * 3, f.ch.accent);
     } },
 
   /* ---- art: a slender glider. A sail-wing frames her, streamers trail off
@@ -2155,14 +2262,12 @@ const ROSTER = [
         if (f.grounded) FX.crack(f.x, f.feetY - 2, 1, 40, f.ch.color, 3);
         if (f.grounded) FX.crack(f.x, f.feetY - 2, -1, 40, f.ch.color, 3);
         FX.shake(12); Snd.bigHit();
-        Stage.lastPusher = f;
       }
       if (a.t >= m.startup && a.t < m.startup + m.active) {
         f.pinned = true;                 // nothing shifts it — knockback, pushes, anything
         f.weightMul = 2.4;
         f.vx = 0;
         if (!f.grounded) f.vy = Math.min(f.vy + 1.4, 20);   // it still falls
-        Stage.lastPusher = f;
         if (a.t % 10 === 0) {
           FX.spark(f.x + rnd(-24, 24), f.feetY - rnd(0, 10), f.ch.accent);
           FX.ring(f.x, f.feetY, 6, 48, f.ch.color, 2);
@@ -2173,42 +2278,62 @@ const ROSTER = [
       if (a.t >= m.startup + m.active) { f.pinned = false; f.weightMul = 1; }
     } },
 
+  /* Two problems with the old chain. Its data carried a 74-unit hitbox, so
+     reeling someone in dragged them through a full-damage hit before the
+     slam even happened. And the slam drove them straight down, which on a
+     floor that no longer tips just bounced them in place. It now reels from
+     a set range, and the slam reads the ground: over a floor it smashes them
+     into it and they rebound sky-high; over open air it spikes them down. */
   super: { name: "Mortal Coil",
-    desc: "Throws a chain, drags the nearest fighter in, and puts them through the deck.",
+    desc: "Throws a chain at the nearest foe in range and reels them in. Over solid ground it smashes them into the floor and they rebound sky-high; over open air it spikes them straight down.",
     startup: 18, active: 46, recovery: 34,
-    dmg: 21, base: 6.4, scale: 1.1, angle: 68, ox: 0, oy: 0, r: 74,
+    dmg: 21, base: 6.6, scale: 1.12, angle: 84, ox: 0, oy: 0, r: 0,
+    range: 480,
     onStart(f) { Snd.superCharge(); FX.flash("#a764ff", 0.32); },
     tick(f, a) {
       const m = a.data;
       if (a.t < m.startup) { f.vx *= 0.8; FX.spark(f.x + rnd(-30, 30), f.y + rnd(-40, 30), f.ch.color); }
       if (a.t === m.startup) {
-        a.grabbed = Combat.nearestFoe(f) || null;
+        const t = Combat.nearestFoe(f, m.range);
+        a.grabbed = t && !t.intangible() ? t : null;
         FX.banner("MORTAL COIL", f.ch.color);
-        Stage.lastPusher = f;
-        Snd.grab();
+        if (a.grabbed) {
+          Snd.grab();
+          if (a.grabbed.grabTarget) a.grabbed.releaseGrab();
+          if (a.grabbed.grabbedBy) a.grabbed.grabbedBy.releaseGrab();
+          a.grabbed.attack = null;
+        } else {
+          // whiffed: the chain lashes out at nothing
+          FX.streak(f.x, f.y - 10, f.x + f.facing * m.range * 0.6, f.y - 20, f.ch.accent);
+          Snd.whoosh(1.4);
+        }
       }
       const t = a.grabbed;
-      if (t && t.alive && a.t > m.startup && a.t < m.startup + m.active) {
+      if (t && t.alive && t.state !== ST.DEAD && a.t > m.startup && a.t < m.startup + m.active) {
         const phase = (a.t - m.startup) / m.active;
-        // reel them in, hold them, then drive them down
+        // reel them in, hold them overhead, then bring them down
         if (phase < 0.55) {
           t.x = lerp(t.x, f.x + f.facing * 46, 0.16);
           t.y = lerp(t.y, f.y - 36, 0.16);
-          t.vx = 0; t.vy = 0; t.hitstun = 6;
+          t.vx = 0; t.vy = 0;
+          t.setState(ST.HITSTUN); t.hitstun = 6;
+          t.grounded = false; t.groundSeg = null;
           if (a.t % 4 === 0) FX.spark(t.x, t.y, f.ch.accent);
         } else if (!a.slammed) {
           a.slammed = true;
-          t.applyKnockback(f.facing * 7, 20, m.dmg, 16, f);
-          f.stats.damageDealt += m.dmg;
-          f.addMeter(m.dmg * CFG.meter.onDeal);
+          const floor = Stage.floorBelow(t.x, t.y);
+          const grounded = floor !== null && floor - t.y < 260;
+          m.angle = grounded ? 84 : -72;            // rebound up, or spike down
+          Combat.land(f, t, m, t.x, t.y);
           FX.hitPause(14); FX.shake(26);
           FX.burst(t.x, t.y, 34, f.ch.color, 11);
           FX.ring(t.x, t.y, 14, 240, "#ffffff", 5);
-          if (f.grounded) FX.crack(t.x, f.feetY - 2, 1, 60, f.ch.color, 4);
+          if (grounded) FX.crack(t.x, floor - 2, 1, 60, f.ch.color, 4);
+          if (grounded) FX.crack(t.x, floor - 2, -1, 60, f.ch.color, 4);
           Snd.superHit();
         }
         // the chain itself
-        if (a.t % 2 === 0)
+        if (a.t % 2 === 0 && !a.slammed)
           FX.streak(f.x + f.facing * 14, f.y - 10, t.x, t.y, f.ch.accent);
       }
     } },
@@ -2377,10 +2502,17 @@ const ROSTER = [
       }
     } },
 
+  /* Its data carried r:150 as if it were a hitbox, so during the "stance"
+     anyone within 150 was simply hit for 16 -- the counter almost never got
+     the chance to fire. The answer radius is its own field now, and if the
+     window closes with nothing to answer she cuts forward anyway, so the bar
+     is never spent on nothing. */
   super: { name: "Perfect Answer",
-    desc: "A long stance that answers everything. One hit during it and they pay for it hard.",
+    desc: "A long stance. One hit during it is answered with a blast that hits every foe around her. If nobody swings, she closes the stance with a lunging cut.",
     startup: 12, active: 60, recovery: 34,
-    dmg: 16, base: 5.4, scale: 1.05, angle: 46, ox: 0, oy: 0, r: 150,
+    dmg: 16, base: 5.4, scale: 1.05, angle: 46, ox: 0, oy: 0, r: 0,
+    radius: 150,
+    closer: { name: "Final Word", dmg: 10, base: 4.6, scale: 1.0, angle: 38 },
     onStart(f) { Snd.superCharge(); FX.flash("#ff4d6d", 0.3); },
     tick(f, a) {
       const m = a.data;
@@ -2400,9 +2532,8 @@ const ROSTER = [
            the super learns that its counter actually fired */
         if (f.counterFlash > 20) {
           a.answered = true;
-          for (const o of Match.current.fighters) {
-            if (o === f || !o.alive || o.state === ST.DEAD) continue;
-            if (dist(o.x, o.y, f.x, f.y) > m.r) continue;
+          for (const o of Combat.foes(f)) {
+            if (dist(o.x, o.y, f.x, f.y) > m.radius || o.intangible()) continue;
             const dirX = o.x >= f.x ? 1 : -1;
             const rad = m.angle * Math.PI / 180;
             const mag = CFG.kbBase + m.base + m.dmg * CFG.kbDamageScale
@@ -2416,6 +2547,19 @@ const ROSTER = [
           FX.ring(f.x, f.y, 20, 420, "#ffffff", 6);
           FX.blade(f.x, f.y, 0, 40, 220, 6.28, f.ch.color, { w: 18, life: 20 });
           Snd.superHit();
+        }
+      }
+      // nobody swung: close the stance with a lunging cut
+      if (a.t === m.startup + m.active && !a.answered) {
+        a.answered = true;
+        f.vx = f.facing * 9;
+        FX.blade(f.x + f.facing * 8, f.y - 6, faceAng(f), 36, 110, 0.3, f.ch.color, { w: 26, life: 14 });
+        FX.streak(f.x, f.y - 6, f.x + f.facing * 120, f.y - 6, f.ch.accent);
+        Snd.tone(900, 0.1, "sawtooth", 0.12, 240);
+        for (const o of Combat.foes(f)) {
+          const ahead = (o.x - f.x) * f.facing;
+          if (ahead < -10 || ahead > 120 || Math.abs(o.y - f.y) > 50 || o.intangible()) continue;
+          Combat.land(f, o, m.closer, o.x, o.y);
         }
       }
     } },
@@ -2538,12 +2682,6 @@ ROSTER.forEach(c => { CHAR_BY_ID[c.id] = c; });
    maps kill far earlier than others.
    ========================================================================== */
 
-const TILT_BASE = {
-  limit: 0.42, torque: 0.0000035, spring: 0.0070, damp: 0.962,
-  maxAngVel: 0.055, hitNudge: 0.0008, snapVel: 0.062, snapLaunch: 17.5,
-  snapDamage: 6, anchorFrames: 180, crankTorque: 3400, stompTorque: 6,
-};
-
 const STAGES = [
 
 /* ------------------------------------------------------------------ 1 --- */
@@ -2552,7 +2690,6 @@ const STAGES = [
   blurb: "The proving ground. Flat deck, generous ledges, room to learn the swing.",
   pivot: { x: 800, y: 580 },
   blast: { left: -420, right: 2020, top: -520, bottom: 1420 },
-  tilt: Object.assign({}, TILT_BASE),
   pal: { a: "#00e5ff", b: "#ff2e88", plat: "#1b1536", platEdge: "#00e5ff",
          soft: "#8a7fff", ink: "#07060f" },
   music: { bpm: 124, root: 196, scale: [0, 3, 5, 7, 10], wave: "triangle", hats: true,
@@ -2660,14 +2797,6 @@ const STAGES = [
   pivot: { x: 800, y: 560 },
   // the crucible is right below: far less room to recover underneath
   blast: { left: -430, right: 2030, top: -560, bottom: 1140 },
-  tilt: Object.assign({}, TILT_BASE, {
-    torque: 0.0000052,    // heavier beam, leans further under weight
-    spring: 0.0048,       // and is slow to right itself
-    damp: 0.975,
-    limit: 0.46,
-    snapLaunch: 19.5,
-    snapDamage: 8,
-  }),
   pal: { a: "#ff8a1f", b: "#ff3b1f", plat: "#241711", platEdge: "#ff8a1f",
          soft: "#c2683a", ink: "#140a06" },
   music: { bpm: 104, root: 147, scale: [0, 2, 3, 7, 8], wave: "sawtooth", hats: false,
@@ -2834,15 +2963,6 @@ const STAGES = [
   // smaller hitboxes, nerfed supers) the most forgiving stage started running
   // to the clock -- 3 of 12 test matches timed out at 106s average.
   blast: { left: -380, right: 1980, top: -620, bottom: 1235 },
-  tilt: Object.assign({}, TILT_BASE, {
-    torque: 0.0000030,
-    spring: 0.0138,      // snaps level fast
-    damp: 0.930,         // and does not keep ringing
-    maxAngVel: 0.072,
-    limit: 0.36,
-    snapLaunch: 15.5,
-    snapDamage: 4,
-  }),
   pal: { a: "#ffb4d6", b: "#8fd7ff", plat: "#efe3f3", platEdge: "#ff9ec7",
          soft: "#b89ede", ink: "#2b2140" },
   music: { bpm: 96, root: 262, scale: [0, 2, 4, 7, 9], wave: "sine", hats: false,
@@ -2994,14 +3114,6 @@ const STAGES = [
   pivot: { x: 800, y: 560 },
   // walls are close — everything kills much earlier here
   blast: { left: -215, right: 1815, top: -360, bottom: 1250 },
-  tilt: Object.assign({}, TILT_BASE, {
-    torque: 0.0000044,
-    spring: 0.0052,
-    limit: 0.60,         // leans dramatically far before snapping
-    snapVel: 0.075,
-    snapLaunch: 20,
-    snapDamage: 9,
-  }),
   pal: { a: "#39ff9e", b: "#17c0ff", plat: "#0a1a14", platEdge: "#39ff9e",
          soft: "#1e7a56", ink: "#030a07" },
   music: { bpm: 140, root: 165, scale: [0, 1, 5, 7, 8], wave: "square", hats: true,
@@ -3127,20 +3239,13 @@ STAGES.forEach(s => { STAGE_BY_ID[s.id] = s; });
 /* ========================================================================== */
 const Stage = {
   def: STAGES[0],
+  /* The deck's centre. Still called pivot because every stage stands on a
+     support column there, but nothing rotates about it any more. */
   pivot: { x: 800, y: 580 },
-  tilt: 0, prevTilt: 0, angVel: 0,
-  anchorTimer: 0, snapFlash: 0, snapCount: 0, snapCooldown: 0,
-  lastPusher: null,
+  flashT: 0,          // frames left on a deck-edge flash (Pivot's Tipping Point)
   segs: [],
   pfx: [], platT: 0,
-  forcing: 0,
-  /* Weight on the deck that is not a fighter. Ballast's cubes register here
-     each frame and Stage.update consumes the list, so a cube tilts the stage
-     exactly as a body of the same mass standing in that spot would. */
-  extraWeights: [],
 
-  get cfg() { return this.def.tilt; },
-  get anchorFrames() { return this.def.tilt.anchorFrames; },
   get blast() { return this.def.blast; },
   get pal() { return this.def.pal; },
 
@@ -3150,17 +3255,23 @@ const Stage = {
     this.reset();
   },
   reset() {
-    this.tilt = 0; this.prevTilt = 0; this.angVel = 0;
+    this.flashT = 0;
     this.resetPlatforms();
-    this.anchorTimer = 0; this.snapFlash = 0; this.snapCount = 0; this.snapCooldown = 0;
-    this.lastPusher = null; this.forcing = 0;
-    this.extraWeights.length = 0;
     this.rebuild();
   },
 
-  toWorld(lx, ly) {
-    const c = Math.cos(this.tilt), s = Math.sin(this.tilt);
-    return { x: this.pivot.x + lx * c - ly * s, y: this.pivot.y + lx * s + ly * c };
+  toWorld(lx, ly) { return { x: this.pivot.x + lx, y: this.pivot.y + ly }; },
+
+  /** The highest walkable surface at x that is at or below y, or null when
+      there is only open air underneath. Supers use it to check there is a
+      floor to land on before committing to a dive or a slam. */
+  floorBelow(x, y) {
+    let best = null;
+    for (const seg of this.segs) {
+      const sy = this.surfaceY(seg, x);
+      if (sy !== null && sy >= y - 2 && (best === null || sy < best)) best = sy;
+    }
+    return best;
   },
 
   /* ---------------------------------------------------- platform state ----
@@ -3270,69 +3381,13 @@ const Stage = {
     return seg.ay + t * (seg.by - seg.ay);
   },
 
-  /* Tilt mechanic removed: every deck stays flat. These stay as harmless
-     no-ops so callers elsewhere (combat, net, the PIVOT character's special)
-     don't need to know the mechanic is gone. */
-  nudge(_amount) {},
-  anchor() { this.anchorTimer = this.cfg.anchorFrames; this.angVel = 0; },
-  flip() {},
-  forceTilt(_dir, _power) {},
-  balance() { return 0; },
-
   update(fighters) {
-    this.prevTilt = this.tilt;
-    this.tilt = 0;
-    this.angVel = 0;
-
-    if (this.anchorTimer > 0) {
-      this.anchorTimer--;
-      this.platformTick(fighters);
-      this.rebuild();
-      this.platformDamage(fighters);
-      if (this.snapFlash > 0) this.snapFlash--;
-      return;
-    }
-
-    this.extraWeights.length = 0;
-    this.forcing = 0;
-    if (this.snapFlash > 0) this.snapFlash--;
+    if (this.flashT > 0) this.flashT--;
     this.platformTick(fighters);
     this.rebuild();
     this.platformDamage(fighters);
   },
-
-  snapBack(fighters) {
-    const C = this.cfg;
-    const sign = Math.sign(this.tilt);
-    /* The rebound has to BLEED energy. At full strength it carried the deck
-       clean across to the opposite limit, which snapped again, forever. It now
-       keeps less than half its swing and can't re-trigger for a moment. */
-    this.tilt = sign * C.limit * 0.9;
-    this.angVel = -sign * C.snapVel * 0.45;
-    this.snapCooldown = 48;
-    this.snapFlash = 26;
-    this.snapCount++;
-    Snd.snapback();
-    FX.shake(26); FX.hitPause(8);
-    FX.flash("#ffffff", 0.25);
-    FX.punch(0.85);
-
-    for (const f of fighters) {
-      if (!f.alive || !f.grounded || !f.groundSeg || f.pinned) continue;
-      const lean = clamp((f.x - this.pivot.x) / 310, -1, 1);
-      f.applyKnockback(lean * 7.5 - sign * 3.0,
-        -C.snapLaunch * (1.15 - Math.abs(lean) * 0.3), C.snapDamage, 26, null);
-      FX.burst(f.x, f.y + f.ch.size.h * 0.5, 16, "#ffffff", 7);
-    }
-    const culprit = this.lastPusher;
-    if (culprit && culprit.alive) { culprit.stats.snapbacks++; culprit.addMeter(CFG.meter.onSnapback); }
-    FX.banner("SNAP-BACK!", "#ffffff");
-    FX.ring(this.pivot.x, this.pivot.y, 60, 560, "#ffffff", 5);
-  },
 };
-
-/** Register non-fighter weight on the deck for this frame. */
-Stage.addWeight = function (x, y, w) { this.extraWeights.push({ x, y, w }); };
 
 
 /* ===== src/065_uikit.js ===== */
@@ -3558,11 +3613,12 @@ const FX = {
   },
   hitPause(f) { this.pause = Math.max(this.pause, f); },
   flash(col, amt) { this.flashCol = col; this.flashAmt = Math.max(this.flashAmt, amt); },
-  /** Kick the chromatic aberration. Heavy hits, Snap-Backs, KOs and supers. */
+  /** Kick the chromatic aberration. Heavy hits, KOs and supers. */
   punch(amt) { this.chroma = Math.min(1, this.chroma + amt); },
   banner(text, color) {
     if (!text) return;
     this.bannerText = text; this.bannerTimer = 72; this.bannerColor = color || "#fff";
+    Net.forwardBanner(text, this.bannerColor);    // online guests see it too
   },
 
   get density() { return Settings.get("particles"); },
@@ -3999,14 +4055,20 @@ const ST = {
 
 let HITID = 1;
 
+/* How long Orbit's Keel Anchor braces her. It used to borrow the stage's
+   anchor timer; it is her own now. */
+const ANCHOR_FRAMES = 180;
+
 class Fighter {
-  constructor(slot, charId, isCPU) {
+  /** team is 0 or 1 in a 2v2, and null in free-for-all. */
+  constructor(slot, charId, isCPU, team) {
     this.slot = slot;
     this.ch = CHAR_BY_ID[charId];
     this.isCPU = isCPU;
+    this.team = team == null ? null : team;
     this.pad = new Pad(slot);
-    this.tint = PLAYER_TINT[slot];
-    this.stats = { kos: 0, damageDealt: 0, snapbacks: 0, falls: 0, supers: 0 };
+    this.tint = this.team == null ? PLAYER_TINT[slot] : TEAM_TINT[this.team];
+    this.stats = { kos: 0, damageDealt: 0, falls: 0, supers: 0, bestHit: 0 };
     this.reset(true);
   }
 
@@ -4026,8 +4088,10 @@ class Fighter {
     this.fastFalling = false; this.dropThrough = 0;
     this.lastHitBy = null;
     this.grabTarget = null; this.grabHold = 0; this.grabbedBy = null;
-    this.heavyStomp = 0; this.crankDir = 0;
+    this.heavyStomp = 0;
     this.anchorGlow = 0; this.flipGlow = 0;
+    this.launchFx = 0;        // frames of smoke trail after a SMASH-strength hit
+    this.stealWait = 0;       // a CPU that is out counts this up before stealing
     this.specialCD = 0;
     this.pinned = false;
     this.hotTick = 0;         // cooldown between burns from a hot platform
@@ -4051,7 +4115,11 @@ class Fighter {
   get meterFull() { return this.meter >= CFG.meter.max; }
   get inSuper() { return this.attack && this.attack.kind === "super"; }
 
-  addMeter(v) { this.meter = clamp(this.meter + v, 0, CFG.meter.max); }
+  addMeter(v) {
+    const m = Match.current;
+    if (v > 0 && m && m.frenzy) v *= CFG.meter.frenzyMul;
+    this.meter = clamp(this.meter + v, 0, CFG.meter.max);
+  }
 
   /* ---------------------------------------------------- stale moves ----
      Every connect is remembered for a while. The more of the recent window a
@@ -4080,9 +4148,10 @@ class Fighter {
     this.animTime++;
 
     if (this.state === ST.DEAD) {
-      this.respawnTimer--;
+      if (this.respawnTimer > 0) this.respawnTimer--;
       if (this.respawnTimer <= 0) {
-        if (this.stocks > 0) this.respawn(); else this.alive = false;
+        if (this.stocks > 0) this.respawn();
+        else { this.alive = false; this.tryStockSteal(match); }
       }
       return;
     }
@@ -4100,7 +4169,10 @@ class Fighter {
     if (this.counterFlash > 0) this.counterFlash--;
     if (this.anchorGlow > 0) this.anchorGlow--;
     if (this.flipGlow > 0) this.flipGlow--;
-    this.crankDir = 0;
+    if (this.launchFx > 0) {
+      this.launchFx--;
+      if (this.launchFx % 2 === 0) FX.burst(this.x, this.y, 2, "#ffffff", 1.2);
+    }
     this.addMeter(CFG.meter.passive);
 
     switch (this.state) {
@@ -4449,7 +4521,6 @@ class Fighter {
                           ripo.dmg, m2, this);
       this.stats.damageDealt += ripo.dmg;
       this.addMeter(ripo.dmg * CFG.meter.onDeal);
-      Stage.lastPusher = this;
       FX.banner("RIPOSTE", this.ch.accent);
       FX.hitPause(12); FX.shake(13);
       FX.flash(this.ch.color, 0.2);
@@ -4487,11 +4558,9 @@ class Fighter {
     // how far it sends her — survivability, not immunity.
     if (this.anchorGlow > 0) { vx *= 0.55; vy *= 0.55; mag *= 0.55; }
 
-    // Kite's footing: a passive trait that used to be "doesn't slide on a
-    // tilted deck" and is now "doesn't fly as far or stay stunned as long" —
-    // the same idea of staying planted under her, without any slope to grip.
-    if (this.ch.slopeGrip) {
-      const k = 1 - this.ch.slopeGrip * 0.18;
+    // Kite's footing: she doesn't fly as far or stay stunned as long.
+    if (this.ch.footing) {
+      const k = 1 - this.ch.footing * 0.18;
       vx *= k; vy *= k; mag *= k;
     }
 
@@ -4524,9 +4593,9 @@ class Fighter {
     this.x += this.vx;
     this.y += this.vy;
 
-    /* Ground collision against the rotated segments. A fighter already riding a
-       segment gets a wider capture band so a fast-tilting stage carries them
-       along instead of dropping them through. */
+    /* Ground collision. A fighter already riding a segment gets a wider
+       capture band so a drifting platform carries them along instead of
+       dropping them through. */
     const wasSeg = this.groundSeg;
     this.grounded = false; this.groundSeg = null;
     let best = null, bestY = Infinity;
@@ -4590,10 +4659,33 @@ class Fighter {
     this.respawnTimer = CFG.respawnFrames;
     this.percent = 0; this.vx = 0; this.vy = 0;
     this.lastHitBy = null; this.pinned = false; this.attack = null;
-    this.moveLog = []; this.armorDamage = 0;
+    this.moveLog = []; this.armorDamage = 0; this.launchFx = 0;
     if (this.grabTarget) this.releaseGrab();
     if (this.grabbedBy) this.grabbedBy.releaseGrab();
     match.onKO(this);
+  }
+
+  /* ------------------------------------------------------- stock steal ----
+     2v2 only. A fighter who is out of stocks can take one from a teammate who
+     has two or more and come straight back in, so one bad stock does not bench
+     a player for the rest of the match. */
+  canStealStock() {
+    const m = Match.current;
+    if (!m || !m.teams || m.over || this.stocks > 0) return false;
+    return m.fighters.some(o => o !== this && o.team === this.team && o.stocks >= 2);
+  }
+  tryStockSteal(match) {
+    if (!this.canStealStock()) { this.stealWait = 0; return; }
+    let want;
+    if (this.isCPU) want = ++this.stealWait > 150;
+    else { this.pad.poll(); want = this.pad.hit("special") || this.pad.hit("super"); }
+    if (!want) return;
+    const mate = match.fighters.find(o => o !== this && o.team === this.team && o.stocks >= 2);
+    mate.stocks--;
+    this.stocks = 1; this.stealWait = 0;
+    FX.banner("STOCK STEAL", this.tint);
+    Snd.uiBig();
+    this.respawn();
   }
 
   respawn() {
@@ -4644,21 +4736,29 @@ const Entities = {
   orb(owner, x, y, vx, vy, move) {
     this.list.push({ kind: "orb", owner, x, y, vx, vy, move, life: 90, r: 16, hitIds: [] });
   },
-  shockwave(owner, x, y, dir, move) {
-    this.list.push({ kind: "wave", owner, x, y, dir, move, life: 70, r: 46, hitIds: [] });
+  /** A shockwave runs along the platform it was born on and dies at that
+      platform's edge — it no longer snaps down to the main deck. */
+  shockwave(owner, x, y, dir, move, plat) {
+    this.list.push({ kind: "wave", owner, x, y, dir, move, plat: plat || null,
+                     life: 70, r: 46, hitIds: [] });
   },
   well(owner, x, y, move) {
     this.list.push({ kind: "well", owner, x, y, move, life: 62, r: 38, pull: 180, hitIds: [] });
   },
   /** Ballast's cube: falls, lands on the deck, then sits there as a planted
-      obstacle that still hits anyone who walks into it until it expires. */
-  ballast(owner, x, y, vx, w, life, move) {
+      obstacle that still hits anyone who walks into it until it expires.
+      passAbove: a cube called down on a foe drops through any soft platform
+      above that height, so a shelf overhead cannot catch it. */
+  ballast(owner, x, y, vx, w, life, move, passAbove) {
     this.list.push({ kind: "ballast", owner, x, y, vx, vy: -2, w, move,
-                     life, r: 22, landed: false, hitIds: [] });
+                     life, r: 22, landed: false, passAbove: passAbove == null ? -Infinity : passAbove,
+                     hitIds: [] });
   },
-  /** Kite's updraft: a rising column that carries anyone inside it upward. */
-  updraft(owner, x, y, life) {
-    this.list.push({ kind: "draft", owner, x, y, life, r: 62, hitIds: [] });
+  /** Kite's updraft: a rising column that carries anyone inside it upward.
+      A storm column (her super) lifts only her foes, and lifts them hard. */
+  updraft(owner, x, y, life, storm) {
+    this.list.push({ kind: "draft", owner, x, y, life, max: life, storm: !!storm,
+                     r: storm ? 54 : 62, hitIds: [] });
   },
 
   update(fighters) {
@@ -4678,6 +4778,7 @@ const Entities = {
           e.x += e.vx; e.y += e.vy; e.vy += 0.72; e.vx *= 0.995;
           for (const seg of Stage.segs) {
             const sy = Stage.surfaceY(seg, e.x);
+            if (sy != null && !seg.solid && sy < e.passAbove) continue;
             if (sy != null && e.y + e.r >= sy && e.y + e.r <= sy + 46 && e.vy > 0) {
               e.y = sy - e.r; e.vy = 0; e.vx = 0; e.landed = true;
               FX.burst(e.x, e.y + e.r, 16, e.owner.ch.color, 6);
@@ -4711,20 +4812,28 @@ const Entities = {
           FX.spark(e.x + rnd(-e.r, e.r), e.y + rnd(-40, 60), e.owner.ch.accent);
         for (const f of fighters) {
           if (!f.alive || f.state === ST.DEAD) continue;
+          if (e.storm && allies(f, e.owner)) continue;
           if (Math.abs(f.x - e.x) > e.r + f.ch.hurt) continue;
           if (Math.abs(f.y - e.y) > 150) continue;
-          // her own lift is stronger: this is Kite's recovery tool
-          const lift = f === e.owner ? -1.15 : -0.6;
-          f.vy = Math.max(f.vy + lift, -13);
+          if (e.storm) {
+            // caught in the storm: carried up and held over the column
+            if (f.intangible()) continue;
+            f.vy = Math.max(f.vy - 1.05, -9);
+            f.vx = f.vx * 0.86 + (e.x - f.x) * 0.02;
+          } else {
+            // her own lift is stronger: this is Kite's recovery tool
+            const lift = f === e.owner ? -1.15 : -0.6;
+            f.vy = Math.max(f.vy + lift, -13);
+          }
           f.grounded = false; f.groundSeg = null;
         }
 
       } else if (e.kind === "wave") {
-        // rides the deck, following the tilted surface
+        // runs along its own platform and stops dead at that platform's edge
         e.x += e.dir * 13;
         let best = null;
         for (const seg of Stage.segs) {
-          if (!seg.main) continue;
+          if (e.plat ? seg.local !== e.plat : !seg.main) continue;
           const sy = Stage.surfaceY(seg, e.x);
           if (sy !== null) best = sy;
         }
@@ -4741,7 +4850,7 @@ const Entities = {
         e.r = 38 + Math.sin(t * Math.PI) * 54;
         // drag everyone toward the singularity
         for (const f of fighters) {
-          if (f === e.owner || !f.alive || f.state === ST.DEAD) continue;
+          if (allies(f, e.owner) || !f.alive || f.state === ST.DEAD) continue;
           const d = dist(e.x, e.y, f.x, f.y);
           if (d < e.pull && d > 1) {
             const k = (1 - d / e.pull) * 0.9;
@@ -4763,7 +4872,7 @@ const Entities = {
           FX.ring(e.x, e.y, 10, 300, e.owner.ch.color, 4);
           FX.burst(e.x, e.y, 50, e.owner.ch.color, 14);
           for (const f of fighters) {
-            if (f === e.owner || !f.alive || f.state === ST.DEAD || f.intangible()) continue;
+            if (allies(f, e.owner) || !f.alive || f.state === ST.DEAD || f.intangible()) continue;
             if (dist(e.x, e.y, f.x, f.y) < 190) Combat.land(e.owner, f, e.move, e.x, e.y);
           }
         }
@@ -4779,7 +4888,7 @@ const Entities = {
   /** Returns true if the entity should be consumed by the hit. */
   _touch(e, fighters, consume) {
     for (const f of fighters) {
-      if (f === e.owner || !f.alive || f.state === ST.DEAD) continue;
+      if (allies(f, e.owner) || !f.alive || f.state === ST.DEAD) continue;
       if (f.intangible() || e.hitIds.includes(f.slot)) continue;
       if (dist(e.x, e.y, f.x, f.y) < e.r + f.ch.hurt) {
         e.hitIds.push(f.slot);
@@ -4819,7 +4928,20 @@ const Entities = {
         g.fillRect(-e.r + 5, -3, e.r * 2 - 10, 2);
         rivets(g, -e.r + 7, -e.r + 7, 3, (e.r * 2 - 14) / 2, e.owner.ch.accent);
         g.restore();
-        // a weight gauge under a resting cube, so its pull on the pivot is legible
+        /* Falling: a target reticle on the floor it will hit, so a cube
+           dropped from off-screen is fair. Resting: a fuse bar showing how
+           long it will stay. */
+        if (!e.landed) {
+          const fy = Stage.floorBelow(e.x, e.y + e.r);
+          if (fy !== null) {
+            g.globalCompositeOperation = "lighter";
+            g.globalAlpha = 0.45 + 0.35 * Math.abs(Math.sin(e.life * 0.3));
+            g.strokeStyle = c; g.lineWidth = 2.5;
+            g.beginPath(); g.ellipse(e.x, fy - 2, e.r * 1.2, 5, 0, 0, 7); g.stroke();
+            g.beginPath(); g.moveTo(e.x - e.r * 1.6, fy - 2); g.lineTo(e.x - e.r * 0.6, fy - 2);
+            g.moveTo(e.x + e.r * 0.6, fy - 2); g.lineTo(e.x + e.r * 1.6, fy - 2); g.stroke();
+          }
+        }
         if (e.landed) {
           g.globalCompositeOperation = "lighter";
           g.strokeStyle = hexA(c, 0.5); g.lineWidth = 2;
@@ -4829,7 +4951,7 @@ const Entities = {
         }
 
       } else if (e.kind === "draft") {
-        const a = clamp(e.life / 110, 0, 1);
+        const a = clamp(e.life / 110, 0, 1) * (e.storm ? 1.5 : 1);
         const q = g.createLinearGradient(0, e.y + 90, 0, e.y - 120);
         q.addColorStop(0, hexA(e.owner.ch.accent, 0));
         q.addColorStop(0.4, hexA(c, 0.26 * a));
@@ -4886,10 +5008,15 @@ const Entities = {
 
 /* ---------------------------------------------------------------- combat */
 const Combat = {
-  nearestFoe(f) {
-    let best = null, bd = Infinity;
-    for (const o of Match.current.fighters) {
-      if (o === f || !o.alive || o.state === ST.DEAD) continue;
+  /** Every live fighter that f is allowed to hit. */
+  foes(f) {
+    return Match.current.fighters.filter(o =>
+      !allies(o, f) && o.alive && o.state !== ST.DEAD);
+  },
+  /** The closest foe, optionally only within range. Teammates never count. */
+  nearestFoe(f, range) {
+    let best = null, bd = range || Infinity;
+    for (const o of this.foes(f)) {
       const d = dist(f.x, f.y, o.x, o.y);
       if (d < bd) { bd = d; best = o; }
     }
@@ -4904,7 +5031,7 @@ const Combat = {
       const hb = atk.hitboxWorld();
 
       for (const def of fighters) {
-        if (def === atk || !def.alive || def.state === ST.DEAD) continue;
+        if (allies(def, atk) || !def.alive || def.state === ST.DEAD) continue;
         if (def.state === ST.GRABBED && def.grabbedBy === atk) continue;
         if (a.hitIds && a.hitIds.includes(def.slot)) continue;
         if (dist(hb.x, hb.y, def.x, def.y) > hb.r + def.ch.hurt) continue;
@@ -4923,8 +5050,10 @@ const Combat = {
     }
   },
 
-  land(atk, def, move, hx, hy, hbR) {
-    const dirX = def.x >= atk.x ? 1 : -1;
+  /** dirOverride sends the hit a fixed way (-1 or 1) instead of away from
+      the attacker — Pivot's Tipping Point throws foes off their own side. */
+  land(atk, def, move, hx, hy, hbR, dirOverride) {
+    const dirX = dirOverride || (def.x >= atk.x ? 1 : -1);
     const isSuper = move === (atk.ch.super) || (atk.attack && atk.attack.kind === "super" && atk.attack.data === move);
     const K = CFG.skill;
 
@@ -4964,6 +5093,7 @@ const Combat = {
 
     def.applyKnockback(Math.cos(rad) * mag * dirX, -Math.sin(rad) * mag, dmg, mag, atk);
     atk.stats.damageDealt += dmg;
+    atk.stats.bestHit = Math.max(atk.stats.bestHit, dmg);
     atk.addMeter(dmg * CFG.meter.onDeal);
     atk.recordMove(move);
     if (move.onHit) move.onHit(atk, def);
@@ -4994,6 +5124,20 @@ const Combat = {
     }
     FX.damageText(hx, hy - 24, dmg, tip ? "#ffffff" : atk.ch.accent);
     Snd.hit(dmg);
+
+    /* SMASH: a hit strong enough that it will probably take the stock gets a
+       beat of its own — longer freeze, a white pop, and a smoke trail behind
+       whoever is flying. Countered, armoured and planted hits never set it
+       off, because they never set the victim flying. */
+    if (mag >= CFG.smashKb && def.state === ST.HITSTUN && def.lastHitBy === atk) {
+      FX.hitPause(pause + 7);
+      FX.flash("#ffffff", 0.22);
+      FX.punch(0.6);
+      FX.ring(hx, hy, 10, 160, "#ffffff", 4);
+      FX.damageText(hx, hy - 62, "SMASH!", "#ffffff");
+      Snd.bigHit();
+      def.launchFx = 40;
+    }
     if (dmg >= 13) { Snd.bigHit(); FX.flash(atk.ch.color, 0.12); FX.punch(0.5); }
     else if (dmg >= 7) FX.punch(0.22);
 
@@ -5025,7 +5169,7 @@ const CPU = {
     };
     const press = b => { ai.cur[b] = true; };
 
-    const foes = match.fighters.filter(o => o !== f && o.alive && o.state !== ST.DEAD);
+    const foes = Combat.foes(f);
     if (!foes.length) return inp;
     let target = foes[0], bd = Infinity;
     for (const o of foes) { const d = dist(f.x, f.y, o.x, o.y); if (d < bd) { bd = d; target = o; } }
@@ -5043,20 +5187,15 @@ const CPU = {
       return inp;
     }
 
-    // --- climb uphill when the deck is steep ---
-    const tiltSign = Math.sign(Stage.tilt);
-    if (Math.abs(Stage.tilt) > Stage.cfg.limit * 0.62 && onStage &&
-        Math.sign(f.x - centerX) === tiltSign && Math.abs(f.x - centerX) > halfDeck * 0.55) {
-      const dir = tiltSign > 0 ? "left" : "right";
-      press(dir); inp.ax = dir === "right" ? 1 : -1;
-      if (ai.t % 30 < 2 && f.ch.id !== "BOLDER") press("up");
-      return inp;
-    }
-
     const dx = target.x - f.x, dy = target.y - f.y, adx = Math.abs(dx);
 
     // --- super when it's up and the target is worth it ---
-    if (f.meterFull && Math.random() < CFG.cpu.superChance && (adx < 320 || f.ch.id === "PIVOT")) {
+    /* Supers have different ideal ranges: some reach across the stage, some
+       only touch whoever is close. A CPU that fires them blind wastes them. */
+    const superRange = { ZIP: 900, BALLAST: 900, KITE: 900, HUSK: 460,
+                         PIVOT: 260, ORBIT: 300, MIRA: 120, BOLDER: 200 }[f.ch.id] || 320;
+    if (f.meterFull && Math.random() < CFG.cpu.superChance && bd < superRange &&
+        (f.ch.id !== "BOLDER" || f.grounded)) {
       press("super"); return inp;
     }
 
@@ -5076,26 +5215,20 @@ const CPU = {
     } else if (inHeavy && Math.random() < 0.16) press("heavy");
 
     if (f.specialCD <= 0 && Math.random() < 0.012) {
-      const t = Math.abs(Stage.balance());
+      const facingFoe = Math.sign(dx) === f.facing;
+      const nearEdge = Math.abs(target.x - centerX) > halfDeck * 0.6;
       switch (f.ch.id) {
         case "BOLDER": if (adx < 120) press("special"); break;
-        case "ZIP":    if (t > 0.4 || adx < 170) press("special"); break;
-        case "ORBIT":  if (t > 0.45 || adx < 260) press("special"); break;
-        case "PIVOT":  if (t > 0.2) press("special"); break;
-        // drop a cube on whichever side is already heavy, to push it over
+        case "ZIP":    if (adx < 170) press("special"); break;
+        case "ORBIT":  if (adx < 260) press("special"); break;
+        // swap when the foe is the one closer to the edge
+        case "PIVOT":  if (facingFoe && adx < 260 && Math.abs(dy) < 40 && nearEdge) press("special"); break;
         case "BALLAST": if (adx < 340) press("special"); break;
-        // ride an updraft when recovering, or to escape a steep deck
-        case "KITE":    if (!f.grounded || t > 0.5) press("special"); break;
-        // plant only when the deck is leaning his way and a foe is close
-        case "HUSK":    if (adx < 150 && t > 0.15) press("special"); break;
+        case "KITE":    if (!f.grounded) press("special"); break;
+        case "HUSK":    if (adx < 150) press("special"); break;
         // hold the counter when someone is in swinging range
         case "MIRA":    if (adx < 90) press("special"); break;
       }
-    }
-    if (f.state === ST.ATTACK && f.ch.id === "PIVOT" && f.attack && f.attack.kind === "special") {
-      press("special");
-      const side = Math.sign(target.x - centerX) || 1;
-      if (side > 0) { press("right"); inp.ax = 1; } else { press("left"); inp.ax = -1; }
     }
     if (f.state === ST.GRABBED && ai.t % 3 === 0) press("light");
     return inp;
@@ -5137,18 +5270,18 @@ function drawBackground() {
    cast iron with molten seams, the Drift's is weathered stone, the Vault's is
    bolted grating. Called already clipped to the platform body and rotated
    into its local space, so x runs along the deck and y down into it. */
-function drawDeckDetail(kind, len, th, depth, pal, main, near, t) {
+function drawDeckDetail(kind, len, th, depth, pal, main, flare, t) {
   const bot = th / 2 + depth;
 
   if (kind === "cast") {
-    // ribs, then molten seams that brighten as the beam nears its limit
+    // ribs, then molten seams that flare when the deck is struck
     g.strokeStyle = hexA("#000000", 0.5); g.lineWidth = 7;
     for (let x = 18; x < len; x += 46) {
       g.beginPath(); g.moveTo(x, th / 2); g.lineTo(x - 7, bot); g.stroke();
     }
     g.save();
     g.globalCompositeOperation = "lighter";
-    const heat = 0.3 + near * 0.5 + Math.sin(t * 1.4) * 0.08;
+    const heat = 0.3 + flare * 0.5 + Math.sin(t * 1.4) * 0.08;
     g.strokeStyle = hexA("#ff7a1f", heat); g.lineWidth = 2.5;
     g.beginPath();
     for (let x = 0; x <= len; x += 16)
@@ -5195,7 +5328,7 @@ function drawDeckDetail(kind, len, th, depth, pal, main, near, t) {
 
   } else {
     // "neon": a lit circuit substrate under a dark deck
-    g.strokeStyle = hexA(pal.platEdge, 0.16 + near * 0.3); g.lineWidth = 3;
+    g.strokeStyle = hexA(pal.platEdge, 0.16 + flare * 0.3); g.lineWidth = 3;
     for (let x = 10; x < len; x += 26) {
       g.beginPath(); g.moveTo(x, th / 2 + 4); g.lineTo(x + 12, th / 2 + 30); g.stroke();
     }
@@ -5211,7 +5344,7 @@ function drawDeckDetail(kind, len, th, depth, pal, main, near, t) {
 }
 
 /* The support column under the deck. Same job on every map, four different machines. */
-function drawPivotColumn(P, kind, pal, anch, t) {
+function drawPivotColumn(P, kind, pal, t) {
   g.save();
   g.translate(P.x, P.y);
 
@@ -5279,32 +5412,22 @@ function drawPivotColumn(P, kind, pal, anch, t) {
     }
   }
 
-  if (anch) {
-    // anchor bolts clamp the column when Orbit locks the stage
-    g.fillStyle = "#b6ff3b"; g.shadowColor = "#b6ff3b"; g.shadowBlur = 18;
-    for (const s of [-1, 1]) {
-      poly(g, [s * 20, 30, s * 46, 18, s * 46, 44]); g.fill();
-    }
-    g.shadowBlur = 0;
-  }
   g.restore();
 }
 
 /* ------------------------------------------------------------------ stage */
 function drawStage(alpha) {
   const def = Stage.def, pal = def.pal;
-  const tilt = lerp(Stage.prevTilt, Stage.tilt, alpha);
-  const c = Math.cos(tilt), s = Math.sin(tilt);
   const P = Stage.pivot;
-  const toW = (lx, ly) => ({ x: P.x + lx * c - ly * s, y: P.y + lx * s + ly * c });
+  const toW = (lx, ly) => Stage.toWorld(lx, ly);
 
-  const anch = Stage.anchorTimer > 0;
-  const snap = Stage.snapFlash > 0;
-  const near = Math.abs(clamp(tilt / Stage.cfg.limit, -1, 1));
+  // the deck edge flares white while a Tipping Point goes off
+  const snap = Stage.flashT > 0;
+  const flare = clamp(Stage.flashT / 20, 0, 1);
   const kind = def.deck || "neon";
 
   /* ---- the support column, built differently per stage ---- */
-  drawPivotColumn(P, kind, pal, anch, bgT);
+  drawPivotColumn(P, kind, pal, bgT);
 
   def.layout.forEach((p, pi) => {
     /* Live platform state: drifting offset, how hot it is, and how solid it
@@ -5334,7 +5457,7 @@ function drawStage(alpha) {
     const len = Math.hypot(dx, dy);
     const th = p.thick, main = !!p.main;
     let edge = main
-      ? (snap ? "#ffffff" : near > 0.8 ? "#ff2e88" : anch ? "#b6ff3b" : pal.platEdge)
+      ? (snap ? "#ffffff" : pal.platEdge)
       : pal.soft;
     // a heating shelf shifts toward molten, and flashes while it warns
     if (st.heat >= 1) edge = "#ff5a19";
@@ -5367,7 +5490,7 @@ function drawStage(alpha) {
     /* ---- per-stage underside construction ---- */
     g.save();
     roundRect(g, 0, top, len, th + depth, round); g.clip();
-    drawDeckDetail(kind, len, th, depth, pal, main, near, bgT);
+    drawDeckDetail(kind, len, th, depth, pal, main, main ? flare : 0, bgT);
     g.restore();
 
     // the walking surface, lit
@@ -5392,14 +5515,6 @@ function drawStage(alpha) {
       g.beginPath(); g.arc(3, top, 5, 0, 7); g.fill();
       g.beginPath(); g.arc(len - 3, top, 5, 0, 7); g.fill();
       g.shadowBlur = 0;
-      // and a danger wash along the deck when it is near its limit
-      if (near > 0.6) {
-        g.save();
-        g.globalAlpha = (near - 0.6) * 1.6;
-        g.fillStyle = "#ff2e88";
-        g.fillRect(0, top, len, 3);
-        g.restore();
-      }
     }
 
     /* ---- the platform's own state, drawn on top of its body ---- */
@@ -5438,18 +5553,6 @@ function drawStage(alpha) {
     g.restore();
   });
 
-  if (anch) {
-    // soft wash, not a box — a hard-edged rect read as a UI artifact
-    g.save(); g.globalCompositeOperation = "lighter";
-    g.globalAlpha = 0.5 + 0.22 * Math.sin(Stage.anchorTimer * 0.3);
-    const ag = g.createRadialGradient(P.x, P.y - 40, 20, P.x, P.y - 40, 430);
-    ag.addColorStop(0, "rgba(182,255,59,.20)");
-    ag.addColorStop(0.55, "rgba(182,255,59,.08)");
-    ag.addColorStop(1, "rgba(182,255,59,0)");
-    g.fillStyle = ag;
-    g.beginPath(); g.arc(P.x, P.y - 40, 430, 0, 7); g.fill();
-    g.restore();
-  }
 }
 
 /* --------------------------------------------------------------- fighter */
@@ -5487,6 +5590,17 @@ function drawFighter(f, alpha) {
         g.restore();
       }
     }
+  }
+
+  /* Team ring: in a 2v2 a coloured ellipse under the feet says which side a
+     fighter is on even when the tags are lost in a pile-up. */
+  if (f.team != null && f.grounded) {
+    g.save();
+    g.globalAlpha = 0.55;
+    g.strokeStyle = f.tint; g.lineWidth = 2.5;
+    g.shadowColor = f.tint; g.shadowBlur = 10;
+    g.beginPath(); g.ellipse(rx, f.feetY - 1, ch.size.w * 0.62, 6, 0, 0, 7); g.stroke();
+    g.restore();
   }
 
   // afterimage trail
@@ -5580,15 +5694,6 @@ function drawFighter(f, alpha) {
     g.restore();
   }
 
-  if (f.crankDir !== 0) {
-    g.save(); g.globalCompositeOperation = "lighter"; g.globalAlpha = 0.5;
-    g.strokeStyle = ch.color; g.lineWidth = 4;
-    g.shadowColor = ch.color; g.shadowBlur = 18;
-    g.beginPath(); g.moveTo(rx, ry);
-    g.lineTo(Stage.pivot.x + f.crankDir * 300, Stage.pivot.y - 20); g.stroke();
-    g.restore();
-  }
-
   if (f.anchorGlow > 0) {
     g.save(); g.globalCompositeOperation = "lighter"; g.globalAlpha = 0.3;
     g.strokeStyle = ch.color; g.lineWidth = 3;
@@ -5622,13 +5727,24 @@ function drawFighter(f, alpha) {
     g.restore();
   }
 
-  // player tag
+  /* Player tag. Online, the fighter this screen controls is marked YOU with
+     a pointer, because with four players on one stage "which one am I" is
+     the first question after every respawn. */
+  const mine = Net.active && f.slot === Net.slot;
+  const tagY = ry - ch.size.h * 0.82;
   g.save();
   g.font = `700 12px ${FONT_MONO}`;
   g.textAlign = "center";
-  g.globalAlpha = 0.85;
+  g.globalAlpha = 0.9;
   g.fillStyle = f.tint;
-  g.fillText(`P${f.slot + 1}${f.isCPU ? " CPU" : ""}`, rx, ry - ch.size.h * 0.82);
+  const label = mine ? "YOU" : `P${f.slot + 1}${f.isCPU ? " CPU" : ""}`;
+  if (mine) { g.shadowColor = f.tint; g.shadowBlur = 10; }
+  g.fillText(label, rx, tagY);
+  if (mine) {
+    const bob = Math.sin(f.animTime * 0.12) * 2;
+    poly(g, [rx - 6, tagY + 4 + bob, rx + 6, tagY + 4 + bob, rx, tagY + 10 + bob]);
+    g.fill();
+  }
   g.restore();
 }
 
@@ -5676,11 +5792,16 @@ function drawClock(framesLeft) {
   g.fillText(`${mm}:${String(ss).padStart(2, "0")}`, W / 2, cy + 27);
   g.restore();
 
-  // stage name + snap counter, top right
+  // stage name, plus whatever special state the clock is in, top right
+  const m = Match.current;
   g.save();
   chip(g, Stage.def.name, W - 16, 22, Stage.pal.platEdge, { align: "right" });
-  if (Stage.snapCount > 0)
-    chip(g, `SNAP-BACKS ${Stage.snapCount}`, W - 16, 46, UI.dim, { align: "right" });
+  if (m && m.suddenDeath)
+    chip(g, "SUDDEN DEATH", W - 16, 46, "#ff2e88", { align: "right" });
+  else if (m && m.frenzy)
+    chip(g, `FRENZY · METER x${CFG.meter.frenzyMul}`, W - 16, 46, "#ffc83d", { align: "right" });
+  if (m && m.teams)
+    chip(g, "2v2 TEAMS", 16, 22, "#ffffff", { align: "left" });
   g.restore();
 }
 
@@ -5726,6 +5847,14 @@ function drawPlayerHUD(fighters) {
     g.font = `700 9px ${FONT_MONO}`; g.textAlign = "right";
     g.fillStyle = "rgba(255,255,255,.75)";
     g.fillText(`P${f.slot + 1}${f.isCPU ? "·CPU" : ""}`, x + cardW - 10, y + 17);
+    if (f.team != null) {
+      // a team-coloured lip along the card's top edge
+      g.save();
+      g.fillStyle = TEAM_TINT[f.team];
+      g.shadowColor = TEAM_TINT[f.team]; g.shadowBlur = 10;
+      g.fillRect(x + 14, y - 4, cardW - 28, 3);
+      g.restore();
+    }
 
     // portrait, inset into the header so it breaks the bar's line
     g.save();
@@ -5813,6 +5942,14 @@ function drawPlayerHUD(fighters) {
       g.strokeStyle = "#ff2e88"; g.lineWidth = 3; g.globalAlpha = 0.5;
       g.beginPath(); g.moveTo(x + 6, y + cardH - 6); g.lineTo(x + cardW - 6, y + 6); g.stroke();
       g.restore();
+      // out, but a teammate can spare a stock: say so on the card
+      if (f.canStealStock && f.canStealStock()) {
+        g.save();
+        g.globalAlpha = 0.6 + 0.4 * Math.abs(Math.sin(f.animTime * 0.08));
+        chip(g, f.isCPU ? "STEALING A STOCK…" : "SPECIAL: STEAL A STOCK",
+             x + cardW / 2, y - 26, f.tint, { align: "center" });
+        g.restore();
+      }
     }
 
     g.restore();
@@ -5842,13 +5979,16 @@ function drawBanner() {
    ========================================================================== */
 
 class Match {
-  constructor(slots, stageDef) {
+  /** opts.teams turns on 2v2: each slot's team field picks its side. */
+  constructor(slots, stageDef, opts) {
     Match.current = this;
     Stage.select(stageDef);
+    this.teams = !!(opts && opts.teams);
     this.fighters = [];
     slots.forEach((s, i) => {
       if (s.mode === "off") return;
-      this.fighters.push(new Fighter(i, s.charId, s.mode === "cpu"));
+      this.fighters.push(new Fighter(i, s.charId, s.mode === "cpu",
+                                     this.teams ? (s.team || 0) : null));
     });
     Entities.reset();
     FX.reset();
@@ -5856,36 +5996,84 @@ class Match {
     this.over = false; this.endTimer = 0;
     this.frames = 0; this.lastCount = -1;
     this.timeLeft = CFG.matchSeconds * 60;
-    this.endedBy = null; this.winner = null;
+    this.endedBy = null; this.winner = null; this.winTeam = null;
+    this.frenzy = false; this.suddenDeath = false;
     Snd.startMusic(stageDef);
   }
 
+  /* A "side" is a team in 2v2 and a single fighter in free-for-all, so the
+     win checks below are written once for both modes. */
+  sideOf(f) { return this.teams ? "t" + f.team : "p" + f.slot; }
+  sides() {
+    const map = new Map();
+    for (const f of this.fighters) {
+      const k = this.sideOf(f);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k).push(f);
+    }
+    return [...map.values()];
+  }
+
   onKO() {
-    const standing = this.fighters.filter(x => x.stocks > 0);
-    if (standing.length <= 1) this.endMatch(standing[0] || null, "ko");
+    const standing = this.sides().filter(side => side.some(f => f.stocks > 0));
+    if (standing.length <= 1) {
+      const side = standing[0];
+      this.endMatch(side ? side.find(f => f.stocks > 0) : null, "ko");
+    }
   }
 
   endOnTime() {
-    const live = this.fighters.filter(f => f.stocks > 0);
-    let best = null, tie = false;
-    for (const f of live) {
-      if (!best) { best = f; continue; }
-      if (f.stocks > best.stocks) { best = f; tie = false; }
-      else if (f.stocks === best.stocks) {
-        if (f.percent < best.percent) { best = f; tie = false; }
-        else if (f.percent === best.percent) tie = true;
+    const live = this.sides().filter(side => side.some(f => f.stocks > 0));
+
+    if (this.suddenDeath) {
+      // sudden death ran out too: the least damaged side takes it
+      const pct = side => Math.min(...side.filter(f => f.stocks > 0).map(f => f.percent));
+      live.sort((a, b) => pct(a) - pct(b));
+      const tie = live.length > 1 && pct(live[0]) === pct(live[1]);
+      this.endMatch(tie || !live.length ? null : live[0].find(f => f.stocks > 0), "time");
+      return;
+    }
+
+    if (!live.length) { this.endMatch(null, "time"); return; }
+    const stocks = side => side.reduce((n, f) => n + Math.max(0, f.stocks), 0);
+    const top = Math.max(...live.map(stocks));
+    const leaders = live.filter(side => stocks(side) === top);
+    if (leaders.length === 1) this.endMatch(leaders[0].find(f => f.stocks > 0), "time");
+    else this.startSuddenDeath(leaders);
+  }
+
+  /* Level on stocks at the buzzer: everyone still standing on a tied side
+     comes back on one stock at high damage, and the next KO ends it. */
+  startSuddenDeath(sides) {
+    const tied = new Set(sides.flat());
+    for (const f of this.fighters) {
+      if (f.stocks <= 0) continue;
+      if (tied.has(f)) {
+        f.stocks = 1;
+        f.respawn();
+        f.percent = CFG.suddenDeathPercent;
+        f.attack = null;
+      } else {
+        f.stocks = 0; f.alive = false; f.setState(ST.DEAD); f.respawnTimer = 0;
       }
     }
-    this.endMatch(tie ? null : best, "time");
+    Entities.reset();
+    this.suddenDeath = true; this.frenzy = false;
+    this.timeLeft = CFG.suddenDeathSeconds * 60;
+    FX.banner("SUDDEN DEATH", "#ff2e88");
+    FX.flash("#ff2e88", 0.35); FX.shake(18);
+    Snd.superCharge();
   }
 
   endMatch(winner, reason) {
     if (this.over) return;
     this.over = true; this.endTimer = 120;
     this.winner = winner; this.endedBy = reason;
+    this.winTeam = winner && this.teams ? winner.team : null;
     Snd.stopMusic();
     FX.flash("#ffffff", 0.3);
-    if (reason === "time") FX.banner("TIME!", "#ffc83d");
+    if (reason === "time" && !winner) FX.banner("TIME — DRAW", "#ffc83d");
+    else if (this.winTeam != null) FX.banner(`${TEAM_NAME[this.winTeam]} TEAM WINS`, TEAM_TINT[this.winTeam]);
     else FX.banner(winner ? `${winner.ch.name} WINS` : "DRAW", winner ? winner.tint : "#fff");
   }
 
@@ -5916,6 +6104,12 @@ class Match {
 
     this.frames++;
     if (--this.timeLeft <= 0) { this.timeLeft = 0; this.endOnTime(); }
+    else if (!this.suddenDeath && this.timeLeft === CFG.frenzySeconds * 60) {
+      this.frenzy = true;
+      FX.banner("FRENZY!", "#ffc83d");
+      FX.flash("#ffc83d", 0.25);
+      Snd.superCharge();
+    }
     else if (this.timeLeft === 10 * 60) FX.banner("10 SECONDS", "#ffc83d");
 
     for (const f of this.fighters) f.update(this);
@@ -5936,7 +6130,7 @@ class Match {
     g.restore();
 
     /* The banner and the countdown are drawn before the post pass rather than
-       after it, so SNAP-BACK! and BRAWL! bloom like everything else in the
+       after it, so the banners and BRAWL! bloom like everything else in the
        world. The HUD stays after it and therefore stays crisp. */
     drawBanner();
     this.drawCountdown();
@@ -6078,19 +6272,30 @@ const Game = {
   hoverAction: null,
   joinEntry: null,        // the code being typed on the online screen
 
+  /* team is only read when teams is on. P1/P3 start red, P2/P4 blue. */
   slots: [
-    { charId: "BOLDER", mode: "human" },
-    { charId: "ZIP",    mode: "cpu" },
-    { charId: "ORBIT",  mode: "off" },
-    { charId: "PIVOT",  mode: "off" },
+    { charId: "BOLDER", mode: "human", team: 0 },
+    { charId: "ZIP",    mode: "cpu",   team: 1 },
+    { charId: "ORBIT",  mode: "off",   team: 0 },
+    { charId: "PIVOT",  mode: "off",   team: 1 },
   ],
+  teams: false,           // 2v2 team battle instead of free-for-all
   selIndex: 0,
 
+  /** Why a lineup cannot start yet, or null when it can. */
+  startProblem(slots, teams) {
+    const on = slots.filter(s => s.mode !== "off");
+    if (on.length < 2) return "NEED AT LEAST 2 FIGHTERS";
+    if (teams && new Set(on.map(s => s.team || 0)).size < 2)
+      return "BOTH TEAMS NEED A FIGHTER";
+    return null;
+  },
+
   start() {
-    if (this.slots.filter(s => s.mode !== "off").length < 2) return;
+    if (this.startProblem(this.slots, this.teams)) return;
     if (Net.active && Net.isHost) { Net.startMatch(); Snd.uiBig(); return; }
     if (Net.active && Net.isGuest) return;          // only the host may start
-    this.match = new Match(this.slots, STAGES[this.stageIndex]);
+    this.match = new Match(this.slots, STAGES[this.stageIndex], { teams: this.teams });
     this.screen = "match";
     Snd.uiBig();
   },
@@ -6099,23 +6304,24 @@ const Game = {
     this.results = {
       fighters: match.fighters.slice(),
       winner: match.winner,
-      snapbacks: Stage.snapCount,
+      winTeam: match.winTeam,
+      teams: match.teams,
+      suddenDeath: match.suddenDeath,
       frames: match.frames,
       endedBy: match.endedBy,
       stage: Stage.def,
     };
     this.screen = "results";
+    if (Net.active && Net.isHost) Net.setPhase("results");
     Snd.uiBig();
   },
 
   /* ------------------------------------------------------------- update */
   update() {
-    /* A guest can be told to start at any moment, from any screen it is
-       sitting on, so the check lives outside the screen switch. */
-    if (Net.isGuest && Net.pendingStart) {
-      const p = Net.pendingStart; Net.pendingStart = null;
-      Net.beginLocal(p);
-    }
+    /* Online housekeeping runs whatever screen we are on: the host keeps the
+       room state flowing to everyone, and a guest follows it — which is how a
+       guest gets pulled into a match, onto the results, or back to the lobby. */
+    Net.tick();
     switch (this.screen) {
       case "title":    this.updateTitle(); break;
       case "select":   if (Keys.pressed["Escape"]) { this.screen = "title"; Snd.ui(); }
@@ -6133,6 +6339,7 @@ const Game = {
         if (Keys.pressed["ArrowRight"]) { this.guidePage = Math.min(ROSTER.length, (this.guidePage || 0) + 1); Snd.ui(); }
         break;
       case "online":   this.updateOnline(); break;
+      case "lobby":    this.updateLobby(); break;
       case "match":
         /* Online play pauses nobody: the other player is still fighting, so
            Escape leaves the match instead of freezing a fight they can see. */
@@ -6145,6 +6352,15 @@ const Game = {
         break;
       case "pause":    if (Keys.pressed["Escape"]) { this.screen = "match"; Snd.ui(); } break;
       case "results":
+        if (Net.active) {
+          if (Net.isHost && Keys.pressed["Enter"]) this.start();
+          if (Keys.pressed["Escape"]) {
+            if (Net.isHost) { Net.setPhase("lobby"); this.screen = "lobby"; }
+            else { Net.reset(); this.screen = "title"; }
+            Snd.ui();
+          }
+          break;
+        }
         if (Keys.pressed["Enter"]) this.start();
         if (Keys.pressed["Escape"]) { this.screen = "select"; Snd.ui(); }
         break;
@@ -6161,6 +6377,7 @@ const Game = {
       case "howto":    this.drawHowto(); break;
       case "guide":    this.drawGuide(); break;
       case "online":   this.drawOnline(); break;
+      case "lobby":    this.drawLobby(); break;
       case "match":    this.match.draw(alpha); break;
       case "pause":    this.match.draw(alpha); this.drawPause(); break;
       case "results":  this.drawResults(); break;
@@ -6261,7 +6478,7 @@ const Game = {
     g.save();
     g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`;
     g.fillStyle = "#6b6a85";
-    g.fillText("2-4 PLAYERS LOCAL  ·  2 PLAYERS ONLINE  ·  GAMEPADS SUPPORTED", W / 2, 243);
+    g.fillText("2-4 PLAYERS LOCAL OR ONLINE  ·  FREE-FOR-ALL OR 2v2  ·  GAMEPADS SUPPORTED", W / 2, 243);
     g.restore();
   },
 
@@ -6385,6 +6602,13 @@ const Game = {
       g.font = `900 21px ${FONT_DISPLAY}`;
       g.fillStyle = off ? "#4a4866" : c.color;
       g.fillText(off ? "— EMPTY —" : c.name, sx + 14, sy2 + 42);
+      if (this.teams && !off) {
+        const tc = TEAM_TINT[s.team || 0];
+        if (btn(sx + sw - 74, sy2 + 8, 62, 22, TEAM_NAME[s.team || 0],
+                { active: true, color: tc, font: `700 10px ${FONT_MONO}` })) {
+          s.team = 1 - (s.team || 0); this.selIndex = i; Snd.ui();
+        }
+      }
       g.font = `400 8px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
       const b = Settings.binds[i];
       g.fillText(`${keyLabel(b.left)}${keyLabel(b.right)} move · ${keyLabel(b.light)} ${keyLabel(b.heavy)} ${keyLabel(b.special)} · ${keyLabel(b.super)} super`,
@@ -6398,7 +6622,7 @@ const Game = {
           font: `700 10px ${FONT_MONO}`,
         })) { s.mode = m; this.selIndex = i; Snd.ui(); }
       });
-      if (Mouse.x > sx && Mouse.x < sx + sw && Mouse.y > sy2 && Mouse.y < sy2 + 58 && Mouse.click) {
+      if (Mouse.x > sx && Mouse.x < sx + sw - 80 && Mouse.y > sy2 && Mouse.y < sy2 + 58 && Mouse.click) {
         this.selIndex = i; Snd.ui();
       }
       sx += sw + sgap;
@@ -6443,22 +6667,24 @@ const Game = {
     });
     g.restore();
 
-    const active = this.slots.filter(s => s.mode !== "off").length;
+    const problem = this.startProblem(this.slots, this.teams);
     g.save();
     g.textAlign = "center";
     g.font = `700 10px ${FONT_MONO}`;
-    g.fillStyle = active >= 2 ? "#b6ff3b" : "#ff2e88";
-    g.fillText(active >= 2
-      ? `SELECTED SLOT: PLAYER ${this.selIndex + 1} — click a fighter to assign`
-      : "NEED AT LEAST 2 FIGHTERS", W / 2, dy + 128);
+    g.fillStyle = problem ? "#ff2e88" : "#b6ff3b";
+    g.fillText(problem || `SELECTED SLOT: PLAYER ${this.selIndex + 1} — click a fighter to assign`
+      + (this.teams ? " · click RED / BLUE to switch team" : ""), W / 2, dy + 128);
     g.restore();
 
-    if (btn(W / 2 - 350, H - 62, 160, 42, "◀ BACK", { color: "#ff2e88" }))
+    if (btn(W / 2 - 480, H - 62, 150, 42, "◀ BACK", { color: "#ff2e88" }))
       { this.screen = "title"; Snd.ui(); }
-    if (btn(W / 2 - 175, H - 62, 170, 42, "FIGHTER GUIDE", { color: "#ffc83d" }))
+    if (btn(W / 2 - 318, H - 62, 170, 42, "FIGHTER GUIDE", { color: "#ffc83d" }))
       { this.guidePage = ROSTER.indexOf(sc) + 1; this.screen = "guide"; Snd.ui(); }
-    if (btn(W / 2 + 10, H - 62, 220, 42, "PICK STAGE ▶",
-        { color: active >= 2 ? "#b6ff3b" : "#444", disabled: active < 2, font: `700 16px ${FONT_MONO}` }))
+    if (btn(W / 2 - 136, H - 62, 250, 42, this.teams ? "MODE: 2v2 TEAMS" : "MODE: FREE-FOR-ALL",
+        { color: this.teams ? "#ff4f6a" : "#8a7fff", active: this.teams }))
+      { this.teams = !this.teams; Snd.ui(); }
+    if (btn(W / 2 + 126, H - 62, 230, 42, "PICK STAGE ▶",
+        { color: problem ? "#444" : "#b6ff3b", disabled: !!problem, font: `700 16px ${FONT_MONO}` }))
       { this.screen = "stage"; Snd.uiBig(); }
   },
 
@@ -6498,8 +6724,6 @@ const Game = {
       // mini deck line, drawn inside the clip so it can't escape the well
       g.save();
       g.translate(x + cw / 2, cy + 128);
-      const ta = Math.sin(performance.now() / 900 + i) * 0.14;
-      g.rotate(ta);
       const half = Math.abs(s.layout[0].x2) * 0.30;
       g.strokeStyle = s.pal.platEdge; g.lineWidth = 4;
       g.shadowColor = s.pal.platEdge; g.shadowBlur = 14;
@@ -6691,13 +6915,13 @@ const Game = {
         note: "How far the camera follows the fighters. OFF locks it over the stage — no side-to-side drift at all.",
         steps: [["OFF", 0], ["LOW", 0.6], ["NORMAL", 1.0], ["HIGH", 1.5]] },
       { key: "shakeAmount", label: "Screen Shake",
-        note: "Impact shake on hits, KOs and Snap-Backs.",
+        note: "Impact shake on hits, KOs and supers.",
         steps: [["OFF", 0], ["LOW", 0.5], ["NORMAL", 1.0], ["HIGH", 1.6]] },
       { key: "postFx", label: "Lighting & Bloom",
         note: "Glow bleed, impact colour-split and the darkened corners. Turn down if the game ever feels heavy.",
         steps: [["OFF", 0], ["LOW", 0.5], ["NORMAL", 1.0], ["HIGH", 1.4]] },
       { key: "particles", label: "Particle Density",
-        note: "Lower this if the game ever drops frames on a big 4-player Snap-Back.",
+        note: "Lower this if the game ever drops frames in a big 4-player pile-up.",
         steps: [["LOW", 0.4], ["NORMAL", 1.0], ["HIGH", 1.6]] },
       { key: "showHitboxGlow", label: "Attack Glow",
         note: "The soft light showing where an attack actually reaches. Helpful while learning the spacing.",
@@ -6761,8 +6985,9 @@ const Game = {
       ["b", "No health bars. Getting hit raises your damage %, and a higher % means you fly further."],
       ["b", "Knock opponents past the blast zones. Three stocks each. Last fighter standing wins."],
       ["", ""],
-      ["h2", "THE STAGE"],
-      ["b", "Every stage's layout is fixed: drifting, crumbling, hot, and retracting platforms all still move, but the main deck itself stays flat."],
+      ["h2", "MODES & THE CLOCK"],
+      ["b", "2v2 TEAMS — no friendly fire. Out of stocks? Press Special to steal one from a teammate who has two."],
+      ["b", "FRENZY — in the last 30 seconds, super meter fills twice as fast. Tied on stocks at time? SUDDEN DEATH at 150%."],
       ["", ""],
       ["h3", "SKILL"],
       ["b", "TIP — connect with the outer edge of your swing and it hits harder. Spacing pays."],
@@ -6840,6 +7065,10 @@ const Game = {
         ["", ""],
         ["h3", "WEIGHT"],
         ["b", "Heavier fighters fly less far from the same hit, but take more time to get moving in the first place."],
+        ["", ""],
+        ["h2", "TEAMS & THE CLOCK"],
+        ["b", "2v2: no friendly fire, last team standing wins. Out of stocks? Special steals one from a teammate with two."],
+        ["b", "FRENZY: the last 30 seconds double all meter gain. A time-out level on stocks goes to SUDDEN DEATH."],
       );
     } else {
       const ch = ROSTER[page - 1];
@@ -6910,19 +7139,8 @@ const Game = {
         }
       }
     }
-    // host: once a guest is connected and has picked, go set the match up
-    if (Net.isHost && Net.active && Net.guestPick && !Net.hostReady) {
-      Net.hostReady = true;
-      this.slots = [
-        { charId: this.slots[0].charId, mode: "human" },
-        { charId: Net.guestPick, mode: "human" },
-        { charId: "ORBIT", mode: "off" },
-        { charId: "PIVOT", mode: "off" },
-      ];
-      this.selIndex = 0;
-      this.screen = "select";
-      Snd.uiBig();
-    }
+    // the room is open (host) or we have been seated (guest): into the lobby
+    if (Net.active && (Net.isHost || Net.seated)) { this.screen = "lobby"; Snd.uiBig(); }
   },
 
   drawOnline() {
@@ -6937,9 +7155,9 @@ const Game = {
 
     if (Net.mode === "off") {
       g.font = `400 14px ${FONT_MONO}`; g.fillStyle = UI.dim;
-      g.fillText("One of you hosts and reads out the code. The other joins with it.",
+      g.fillText("One of you hosts and reads out the code. Up to three friends join with it.",
                  cx, 152);
-      g.fillText("Host plays Player 1, the one who joins plays Player 2.", cx, 174);
+      g.fillText("Free-for-all or 2v2 teams — the host can fill empty seats with CPUs.", cx, 174);
       g.restore();
 
       if (this.joinEntry === null) {
@@ -7007,7 +7225,7 @@ const Game = {
         g.fillText(Net.ping ? `CONNECTED  ·  ${Net.ping} ms round trip` : "CONNECTED", cx, 338);
         if (Net.isGuest) {
           g.font = `400 13px ${FONT_MONO}`; g.fillStyle = UI.dim;
-          g.fillText("The host picks the stage. You will drop straight into the fight.", cx, 366);
+          g.fillText("Taking a seat in the lobby…", cx, 366);
         }
       }
       g.restore();
@@ -7018,6 +7236,187 @@ const Game = {
 
     if (btn(24, H - 76, 170, 44, "BACK", { color: "#8f8cb5" }))
       { Net.reset(); this.screen = "title"; Snd.ui(); }
+  },
+
+  /* ================================================================ LOBBY
+     The online room, shared by host and guests. Everyone picks their own
+     fighter; the host also fills or empties the remaining seats with CPUs,
+     chooses free-for-all or 2v2, picks the stage, and starts. Guests see the
+     same screen read-only, driven by the room state the host broadcasts. */
+  updateLobby() {
+    if (Keys.pressed["Escape"]) { Net.reset(); this.screen = "title"; Snd.ui(); return; }
+    if (!Net.active) { this.screen = "online"; return; }
+    if (Net.isHost && Keys.pressed["Enter"]) this.start();
+  },
+
+  drawLobby() {
+    Stage.def = STAGES[this.stageIndex];
+    drawBackground();
+    g.save(); g.fillStyle = "rgba(6,5,14,.74)"; g.fillRect(0, 0, W, H); g.restore();
+    screenTitleBar(`ROOM ${Net.code}  ·  ${Net.isHost ? "YOU ARE HOSTING" : "YOU ARE P" + (Net.slot + 1)}`,
+                   "ONLINE LOBBY", "#ff2e88");
+
+    const host = Net.isHost;
+    const mine = Net.slot;
+    // which seat a roster click assigns to: the host may set CPU seats too
+    if (this.lobbySeat == null || !this.canEditSeat(this.lobbySeat)) this.lobbySeat = mine;
+
+    /* ---- the four seats ---- */
+    const sw = 286, sgap = 14, sh = 150, sy = 108;
+    let sx = (W - (4 * sw + 3 * sgap)) / 2;
+    let hoverChar = null;
+    this.slots.forEach((s, i) => {
+      const who = Net.seatOf(i);                      // "host" | "guest" | null
+      const off = s.mode === "off";
+      const c = CHAR_BY_ID[s.charId];
+      const tint = this.teams ? TEAM_TINT[s.team || 0] : PLAYER_TINT[i];
+      const sel = this.lobbySeat === i;
+      g.save();
+      g.globalAlpha = off ? 0.55 : 1;
+      panel(g, sx, sy, sw, sh, {
+        cut: 12, fill: sel ? mixColor("#14112a", tint, 0.16) : "#110e22",
+        accent: tint, accentA: sel ? 1 : 0.45, glow: sel ? 18 : 0,
+      });
+      g.save();
+      notchPath(g, sx, sy, sw, sh, 12); g.clip();
+      g.fillStyle = hexA(tint, off ? 0.25 : 0.75); g.fillRect(sx, sy, 4, sh);
+      if (!off) {
+        g.translate(sx + 62, sy + sh - 22); g.scale(1.05, 1.05);
+        c.draw(g, { time: performance.now() / 16 + i * 30, runPhase: 0, running: false, air: false,
+                    vx: 0, vy: 0, state: ST.IDLE, flash: false, atkPhase: -1 });
+      }
+      g.restore();
+
+      g.textAlign = "left";
+      g.font = `700 12px ${FONT_MONO}`; g.fillStyle = tint;
+      const role = i === mine ? "YOU" : who === "host" ? "HOST" : who === "guest" ? "PLAYER"
+                 : s.mode === "cpu" ? "CPU" : "OPEN";
+      g.fillText(`P${i + 1} · ${role}`, sx + 14, sy + 22);
+      const ping = Net.pingOf(i);
+      if (ping) {
+        g.font = `400 9px ${FONT_MONO}`; g.fillStyle = "#6b6a85"; g.textAlign = "right";
+        g.fillText(`${ping} ms`, sx + sw - 12, sy + 20);
+        g.textAlign = "left";
+      }
+      g.font = `900 22px ${FONT_DISPLAY}`;
+      g.fillStyle = off ? "#4a4866" : c.color;
+      g.fillText(off ? "— EMPTY —" : c.name, sx + 122, sy + 62);
+      if (!off) {
+        g.font = `700 8px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
+        g.fillText(c.tag, sx + 122, sy + 76);
+      }
+      g.restore();
+
+      // team badge: the host can switch anyone, a guest only themself
+      if (this.teams && !off) {
+        const canTeam = host || i === mine;
+        if (btn(sx + 122, sy + 88, 74, 22, TEAM_NAME[s.team || 0],
+                { active: true, color: TEAM_TINT[s.team || 0], disabled: !canTeam,
+                  font: `700 10px ${FONT_MONO}` }) && canTeam) {
+          Net.setTeam(i, 1 - (s.team || 0)); Snd.ui();
+        }
+      }
+      // the host fills or empties any seat a person is not sitting in
+      if (host && !who) {
+        [["OPEN", "off"], ["CPU", "cpu"]].forEach(([lab, m], k) => {
+          if (btn(sx + 122 + k * 78, sy + 118, 72, 22, lab, {
+            active: s.mode === m, color: m === "cpu" ? "#ffc83d" : "#6b6a85",
+            font: `700 10px ${FONT_MONO}`,
+          })) { Net.setSeatMode(i, m); if (m === "cpu") this.lobbySeat = i; Snd.ui(); }
+        });
+      } else if (who === "guest" && i !== mine && !host) {
+        g.save(); g.font = `400 9px ${FONT_MONO}`; g.fillStyle = "#6b6a85"; g.textAlign = "left";
+        g.fillText("connected", sx + 122, sy + 132); g.restore();
+      }
+      if (Mouse.click && Mouse.x > sx && Mouse.x < sx + 116 && Mouse.y > sy && Mouse.y < sy + sh
+          && this.canEditSeat(i)) { this.lobbySeat = i; Snd.ui(); }
+      sx += sw + sgap;
+    });
+
+    /* ---- the roster: click to give the selected seat that fighter ---- */
+    const n = ROSTER.length, cw = 140, cgap = 8, ch = 118, cy = 274;
+    let cx = (W - (n * cw + (n - 1) * cgap)) / 2;
+    const seatChar = this.slots[this.lobbySeat].charId;
+    ROSTER.forEach(c => {
+      const hov = Mouse.x > cx && Mouse.x < cx + cw && Mouse.y > cy && Mouse.y < cy + ch;
+      if (hov) hoverChar = c;
+      const on = c.id === seatChar;
+      g.save();
+      g.translate(0, hov ? -3 : 0);
+      panel(g, cx, cy, cw, ch, { cut: 10, fill: "#110e24", accent: c.color,
+        accentA: on ? 1 : hov ? 0.8 : 0.35, glow: on ? 16 : hov ? 10 : 0 });
+      g.save();
+      notchPath(g, cx + 2, cy + 2, cw - 4, ch - 4, 9); g.clip();
+      g.translate(cx + cw / 2, cy + ch - 34); g.scale(0.95, 0.95);
+      c.draw(g, { time: performance.now() / 16, runPhase: 0, running: false, air: false,
+                  vx: 0, vy: 0, state: ST.IDLE, flash: false, atkPhase: -1 });
+      g.restore();
+      g.textAlign = "center"; g.font = `900 15px ${FONT_DISPLAY}`;
+      outlineText(g, c.name, cx + cw / 2, cy + ch - 10, c.color, 4);
+      g.restore();
+      if (hov && Mouse.click) { Net.pick(this.lobbySeat, c.id); Snd.ui(); }
+      cx += cw + cgap;
+    });
+
+    /* ---- write-up of whoever is pointed at, else the selected seat ---- */
+    const sc = hoverChar || CHAR_BY_ID[seatChar];
+    g.save();
+    g.textAlign = "center";
+    g.font = `700 12px ${FONT_MONO}`; g.fillStyle = sc.color;
+    g.fillText(`${sc.name} — ${sc.tag}`, W / 2, 418);
+    g.font = `400 12px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
+    g.fillText(sc.power || sc.blurb, W / 2, 438);
+    g.font = `400 11px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
+    g.fillText(`SPECIAL  ${sc.special.name.toUpperCase()}   ·   SUPER  ${sc.super.name.toUpperCase()}`, W / 2, 458);
+    g.restore();
+
+    /* ---- match settings: the host sets them, guests read them ---- */
+    const py = 478;
+    panel(g, 150, py, W - 300, 92, { cut: 12, fill: "#100d20", accent: "#ff2e88", accentA: 0.35 });
+    g.save();
+    g.textAlign = "left"; g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
+    g.fillText("MODE", 176, py + 24);
+    g.fillText("STAGE", 640, py + 24);
+    g.restore();
+    if (host) {
+      if (btn(176, py + 34, 220, 40, this.teams ? "2v2 TEAMS" : "FREE-FOR-ALL",
+          { active: this.teams, color: this.teams ? "#ff4f6a" : "#8a7fff" }))
+        { Net.setTeams(!this.teams); Snd.ui(); }
+      if (btn(640, py + 34, 44, 40, "◀", { color: "#00e5ff" }))
+        { Net.setStage((this.stageIndex + STAGES.length - 1) % STAGES.length); Snd.ui(); }
+      if (btn(906, py + 34, 44, 40, "▶", { color: "#00e5ff" }))
+        { Net.setStage((this.stageIndex + 1) % STAGES.length); Snd.ui(); }
+    } else {
+      g.save(); g.textAlign = "left"; g.font = `700 16px ${FONT_MONO}`;
+      g.fillStyle = this.teams ? "#ff4f6a" : "#8a7fff";
+      g.fillText(this.teams ? "2v2 TEAMS" : "FREE-FOR-ALL", 176, py + 60);
+      g.restore();
+    }
+    g.save();
+    g.textAlign = "center"; g.font = `900 20px ${FONT_DISPLAY}`;
+    const st = STAGES[this.stageIndex];
+    outlineText(g, st.name, host ? 795 : 740, py + 61, st.pal.platEdge, 5);
+    g.restore();
+
+    /* ---- leave / start ---- */
+    const problem = this.startProblem(this.slots, this.teams);
+    if (btn(150, H - 72, 170, 46, "◀ LEAVE", { color: "#ff2e88" }))
+      { Net.reset(); this.screen = "title"; Snd.ui(); }
+    g.save();
+    g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`;
+    g.fillStyle = problem ? "#ff2e88" : "#b6ff3b";
+    g.fillText(host ? (problem || `${Net.guestCount()} FRIEND${Net.guestCount() === 1 ? "" : "S"} CONNECTED — READY`)
+                    : "THE HOST STARTS THE MATCH", W / 2, H - 44);
+    g.restore();
+    if (host && btn(W - 380, H - 72, 230, 46, "START ▶",
+        { color: problem ? "#444" : "#b6ff3b", disabled: !!problem, font: `700 18px ${FONT_MONO}` }))
+      this.start();
+  },
+
+  /** In the lobby: may this screen change seat i's fighter? */
+  canEditSeat(i) {
+    if (i === Net.slot) return true;
+    return Net.isHost && !Net.seatOf(i) && this.slots[i].mode === "cpu";
   },
 
   /* ================================================================ PAUSE */
@@ -7071,17 +7470,22 @@ const Game = {
     g.font = `700 12px ${FONT_MONO}`; g.fillStyle = "#ff2e88";
     g.fillText("COOL MATT GAMES", W / 2, 40);
     g.font = `900 70px ${FONT_DISPLAY}`;
-    const title = wn ? `${wn.ch.name} WINS` : (r.endedBy === "time" ? "TIME — DRAW" : "DRAW");
-    g.shadowColor = wn ? wn.ch.color : "#ffffff"; g.shadowBlur = 34;
-    outlineText(g, title, W / 2, 112, wn ? wn.ch.color : "#ffffff", 11);
+    const teamWin = r.winTeam != null;
+    const winCol = teamWin ? TEAM_TINT[r.winTeam] : wn ? wn.ch.color : "#ffffff";
+    const title = teamWin ? `${TEAM_NAME[r.winTeam]} TEAM WINS`
+                : wn ? `${wn.ch.name} WINS` : (r.endedBy === "time" ? "TIME — DRAW" : "DRAW");
+    g.shadowColor = winCol; g.shadowBlur = 34;
+    outlineText(g, title, W / 2, 112, winCol, 11);
     g.shadowBlur = 0;
     g.font = `700 12px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
-    g.fillText(`${r.endedBy === "time" ? "TIME LIMIT" : "LAST FIGHTER STANDING"}  ·  ${r.stage.name}`
-      + `  ·  ${(r.frames / 60).toFixed(1)}s  ·  SNAP-BACKS ${r.snapbacks}`, W / 2, 140);
+    const how = r.suddenDeath ? "SUDDEN DEATH" : r.endedBy === "time" ? "TIME LIMIT"
+              : r.teams ? "LAST TEAM STANDING" : "LAST FIGHTER STANDING";
+    g.fillText(`${how}  ·  ${r.teams ? "2v2  ·  " : ""}${r.stage.name}`
+      + `  ·  ${(r.frames / 60).toFixed(1)}s`, W / 2, 140);
     g.restore();
 
     // x positions kept inside the row plate, which ends at W-110
-    const cols = [["KOs", 556], ["FALLS", 664], ["DAMAGE", 788], ["SUPERS", 902], ["SNAP-BACKS", 1024], ["STOCKS", 1134]];
+    const cols = [["KOs", 556], ["FALLS", 664], ["DAMAGE", 788], ["SUPERS", 902], ["BEST HIT", 1024], ["STOCKS", 1134]];
     g.save();
     g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
     g.textAlign = "left"; g.fillText("FIGHTER", 140, 182);
@@ -7091,12 +7495,15 @@ const Game = {
     g.beginPath(); g.moveTo(130, 192); g.lineTo(W - 110, 192); g.stroke();
     g.restore();
 
+    // the winning side first, then by how each fighter actually did
+    const won = f => r.winTeam != null ? f.team === r.winTeam : f === wn;
     const sorted = r.fighters.slice().sort((a, b) =>
-      (b.stocks - a.stocks) || (b.stats.kos - a.stats.kos) || (b.stats.damageDealt - a.stats.damageDealt));
+      (won(b) - won(a)) || (b.stocks - a.stocks) || (b.stats.kos - a.stats.kos)
+      || (b.stats.damageDealt - a.stats.damageDealt));
 
     let y = 228;
     sorted.forEach(f => {
-      const win = f === wn;
+      const win = won(f);
       g.save();
       // every row gets a plate; the winner's is in their colour and glows
       panel(g, 130, y - 28, W - 240, 54, {
@@ -7126,14 +7533,15 @@ const Game = {
       g.font = `900 26px ${FONT_DISPLAY}`; g.fillStyle = f.ch.color;
       g.fillText(f.ch.name, 196, y + 2);
       g.font = `700 10px ${FONT_MONO}`; g.fillStyle = f.tint;
-      g.fillText(`P${f.slot + 1}${f.isCPU ? " · CPU" : ""}`, 196, y + 16);
+      g.fillText(`P${f.slot + 1}${f.isCPU ? " · CPU" : ""}`
+        + (f.team != null ? ` · ${TEAM_NAME[f.team]}` : ""), 196, y + 16);
       if (win) {
         g.font = `700 11px ${FONT_MONO}`; g.fillStyle = "#b6ff3b";
         g.fillText("★ WINNER", 330, y + 2);
       }
 
       const vals = [f.stats.kos, f.stats.falls, f.stats.damageDealt.toFixed(0) + "%",
-                    f.stats.supers, f.stats.snapbacks, Math.max(0, f.stocks)];
+                    f.stats.supers, f.stats.bestHit.toFixed(0) + "%", Math.max(0, f.stocks)];
       g.textAlign = "center";
       g.font = `900 28px ${FONT_DISPLAY}`; g.fillStyle = "#f2f0ff";
       vals.forEach((v, i) => g.fillText(String(v), cols[i][1], y + 6));
@@ -7141,6 +7549,24 @@ const Game = {
       y += 64;
     });
 
+    if (Net.active) {
+      // online: only the host drives what happens next
+      if (Net.isHost) {
+        if (btn(W / 2 - 230, H - 82, 200, 46, "REMATCH", { color: "#b6ff3b", font: `700 17px ${FONT_MONO}` }))
+          this.start();
+        if (btn(W / 2 + 30, H - 82, 200, 46, "LOBBY", { color: "#ffc83d" }))
+          { Net.setPhase("lobby"); this.screen = "lobby"; Snd.ui(); }
+      } else {
+        if (btn(W / 2 - 100, H - 82, 200, 46, "LEAVE", { color: "#ff2e88" }))
+          { Net.reset(); this.screen = "title"; Snd.ui(); }
+      }
+      g.save();
+      g.textAlign = "center"; g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
+      g.fillText(Net.isHost ? "ENTER = REMATCH  ·  ESC = LOBBY"
+                            : "WAITING FOR THE HOST — REMATCH OR BACK TO THE LOBBY", W / 2, H - 16);
+      g.restore();
+      return;
+    }
     if (btn(W / 2 - 330, H - 82, 200, 46, "REMATCH", { color: "#b6ff3b", font: `700 17px ${FONT_MONO}` }))
       this.start();
     if (btn(W / 2 - 100, H - 82, 200, 46, "CHANGE STAGE", { color: "#00e5ff" })) { this.screen = "stage"; Snd.ui(); }
@@ -7155,39 +7581,50 @@ const Game = {
 
 /* ===== src/11b_net.js ===== */
 /* ==========================================================================
-   12b. NET — online play over WebRTC (PeerJS), host-authoritative
+   12b. NET — online play over WebRTC (PeerJS), host-authoritative, 2-4 players
 
    WHY THIS SHAPE
-   The obvious choice for a fighting game is lockstep: both machines run the
+   The obvious choice for a fighting game is lockstep: every machine runs the
    same simulation and only inputs cross the wire. This simulation is not safe
-   to run that way. Stage.toWorld calls Math.cos/Math.sin every frame, and the
-   spec does not require those to be bit-identical between JS engines, so two
-   browsers would drift apart and the fight would silently diverge. Instead:
+   to run that way: the spec does not require Math.sin/cos and friends to be
+   bit-identical between JS engines, so browsers would drift apart and the
+   fight would silently diverge. Instead it is a star:
 
-     host   runs the only real simulation and ships a state snapshot per frame
-     guest  runs no simulation at all; it applies snapshots and renders them
+     host    runs the only real simulation and ships a state snapshot per frame
+             to every guest
+     guests  (up to three) run no simulation at all; each one sends its input
+             to the host, and applies and renders the snapshots that come back
 
-   That costs the guest one round trip of view latency but it cannot desync,
+   That costs a guest one round trip of view latency but it cannot desync,
    which is the right trade for a game played between friends.
+
+   ROOM STATE, NOT MESSAGES
+   The data channels are unreliable, so nothing important is sent once and
+   trusted to arrive. The host re-broadcasts the whole room — seats, picks,
+   teams, stage, and which phase it is in (lobby / match / results) — several
+   times a second, and a guest simply converges on whatever the latest copy
+   says. A dropped "start" just means a guest joins the match a few frames
+   later; it can never leave someone stuck on the wrong screen. Guests resend
+   their own pick the same way until the room reflects it.
 
    INPUT FAIRNESS
    A naive host-authoritative build gives the host zero input delay and the
-   guest a full round trip, which is a real competitive advantage. The host
-   therefore delays its OWN input by netDelay frames so both players act on
-   roughly the same deadline.
+   guests a full round trip, which is a real competitive advantage. The host
+   therefore delays its OWN input by netDelay frames.
 
    EFFECTS
-   FX are not transmitted. The guest derives them from snapshot deltas — a
-   percent that went up is a hit, a stock that went down is a KO, a snapCount
-   that advanced is a Snap-Back. That keeps the protocol small and means a
-   dropped packet costs a particle burst, never desync.
+   Most FX are not transmitted. A guest derives them from snapshot deltas — a
+   percent that went up is a hit, a stock that went down is a KO. Banners are
+   the exception: they carry the move names, so the host forwards them.
    ========================================================================== */
 
 const NET = {
   lib: "https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js",
   prefix: "cmbrawl-",     // namespaces our room codes on the public broker
   netDelay: 3,            // frames the host delays its own input by
-  snapshotEvery: 1,       // send a snapshot every N simulated frames
+  maxGuests: 3,           // four fighters in all
+  roomEvery: 15,          // frames between room-state rebroadcasts
+  pickEvery: 20,          // frames between a guest's pick resends
 };
 
 /** A Pad fed by the wire instead of a keyboard. Same surface as Pad, so a
@@ -7220,25 +7657,36 @@ function maskFromPad(pad) {
   return m;
 }
 
+const ENT_KINDS = ["orb", "wave", "well", "ballast", "draft"];
+
 const Net = {
   mode: "off",            // off | hosting | joining | connected | error
   role: null,             // "host" | "guest"
   code: "",
-  peer: null, conn: null,
-  status: "",
-  error: "",
-  ping: 0, lastPingAt: 0,
-  guestPick: null,        // character the guest chose
-  hostReady: false,
+  peer: null,
+  status: "", error: "",
+  slot: 0,                // the seat this screen plays: 0 for the host
   frame: 0,
-  /* host: its own input, delayed so the guest is not at a disadvantage */
-  delayBuf: [],
-  /* guest: the two most recent snapshots, for render interpolation */
-  snapPrev: null, snapCur: null,
-  /* guest: what the last snapshot said, so deltas can become effects */
-  lastSeen: null,
-  pendingStart: null,
   libLoaded: false,
+
+  /* ---- host ---- */
+  guests: [],             // { conn, slot, ping, lastPingAt }
+  phase: "lobby",         // lobby | match | results
+  mid: 0,                 // match id: a repeated start is the same match
+  setup: null,            // the start payload of the current match
+  dirty: false,           // room changed: rebroadcast now rather than later
+  roomTick: 0,
+  delayBuf: [],
+  events: [],             // banners raised this frame, forwarded to guests
+
+  /* ---- guest ---- */
+  conn: null,
+  seated: false,          // the host has given us a seat
+  room: null,             // the newest room state, applied in tick()
+  snapCur: null, lastSeen: null,
+  want: null,             // { charId, team } we asked for; resent until the room agrees
+  pickTick: 0,
+  ping: 0, lastPingAt: 0,
 
   get active() { return this.mode === "connected"; },
   get isHost() { return this.role === "host"; },
@@ -7265,15 +7713,19 @@ const Net = {
   },
 
   reset() {
+    for (const gu of this.guests) { try { gu.conn.close(); } catch (e) {} }
     try { if (this.conn) this.conn.close(); } catch (e) {}
     try { if (this.peer) this.peer.destroy(); } catch (e) {}
-    this.peer = null; this.conn = null;
+    const wasOnline = this.mode !== "off";
+    this.peer = null; this.conn = null; this.guests = [];
     this.mode = "off"; this.role = null; this.code = "";
     this.status = ""; this.error = "";
-    this.guestPick = null; this.hostReady = false;
-    this.frame = 0; this.delayBuf = [];
-    this.snapPrev = this.snapCur = this.lastSeen = null;
-    this.pendingStart = null;
+    this.slot = 0; this.frame = 0; this.delayBuf = []; this.events = [];
+    this.phase = "lobby"; this.mid = 0; this.setup = null; this.dirty = false;
+    this.seated = false; this.room = null; this.want = null;
+    this.snapCur = this.lastSeen = null;
+    this.ping = 0;
+    if (wasOnline && Game.screen !== "match") Game.match = null;
   },
 
   fail(msg) {
@@ -7282,37 +7734,194 @@ const Net = {
     this.status = "";
   },
 
+  /* ---------------------------------------------------------------- host */
   host() {
     this.reset();
     this.role = "host"; this.mode = "hosting";
     this.code = this.newCode();
-    this.status = "starting up...";
+    this.status = "opening the room...";
+    this.slot = 0;
+    // a fresh room: the host in seat 1, the rest open until people arrive
+    Game.slots = Game.slots.map((s, i) => ({
+      charId: s.charId, mode: i === 0 ? "human" : "off", team: i % 2,
+    }));
     this.loadLib().then(() => {
       this.peer = new window.Peer(NET.prefix + this.code);
-      this.peer.on("open", () => { this.status = "waiting for a player to join"; });
-      this.peer.on("error", e => this.fail(
-        (e && e.type === "unavailable-id") ? "that room code is taken — try again"
-                                           : (e && e.message) || "connection error"));
-      this.peer.on("connection", c => {
-        if (this.conn) { try { c.close(); } catch (e) {} return; }  // one guest only
-        this.conn = c;
-        c.on("open", () => {
-          this.mode = "connected";
-          this.status = "player connected";
-          Snd.uiBig();
-        });
-        c.on("data", d => this.onData(d));
-        c.on("close", () => this.onPeerGone());
-        c.on("error", () => this.onPeerGone());
+      this.peer.on("open", () => {
+        this.mode = "connected";
+        this.status = "room open";
+        this.dirty = true;
       });
+      this.peer.on("error", e => {
+        // a guest dropping can surface here too; only a broker failure is fatal
+        if (this.mode === "connected" && e && e.type === "peer-unavailable") return;
+        this.fail((e && e.type === "unavailable-id") ? "that room code is taken — try again"
+                                                     : (e && e.message) || "connection error");
+      });
+      this.peer.on("connection", c => this.onGuestConnect(c));
     }).catch(e => this.fail(e.message));
   },
 
+  freeSeat() {
+    for (let i = 1; i < 4; i++)
+      if (!this.guests.some(gu => gu.slot === i)) return i;
+    return -1;
+  },
+
+  onGuestConnect(c) {
+    c.on("open", () => {
+      const slot = this.freeSeat();
+      if (slot < 0 || this.guests.length >= NET.maxGuests) {
+        try { c.send({ t: "full" }); } catch (e) {}
+        setTimeout(() => { try { c.close(); } catch (e) {} }, 300);
+        return;
+      }
+      const gu = { conn: c, slot, ping: 0, lastPingAt: 0 };
+      this.guests.push(gu);
+      const s = Game.slots[slot];
+      Game.slots[slot] = { charId: s.mode === "off" ? ROSTER[slot % ROSTER.length].id : s.charId,
+                           mode: "human", team: s.team == null ? slot % 2 : s.team };
+      this.dirty = true;
+      FX.banner(`P${slot + 1} JOINED`, PLAYER_TINT[slot]);
+      Snd.uiBig();
+    });
+    c.on("data", d => {
+      const gu = this.guests.find(x => x.conn === c);
+      if (gu) this.onGuestData(gu, d);
+    });
+    c.on("close", () => this.dropGuest(c));
+    c.on("error", () => this.dropGuest(c));
+  },
+
+  dropGuest(c) {
+    const gu = this.guests.find(x => x.conn === c);
+    if (!gu) return;
+    this.guests.splice(this.guests.indexOf(gu), 1);
+    Game.slots[gu.slot].mode = "off";
+    this.dirty = true;
+    /* Mid-match, their fighter does not vanish — that would hand the match
+       to whoever they were fighting. A CPU takes it over. */
+    const f = Game.match && this.phase === "match" &&
+              Game.match.fighters.find(x => x.slot === gu.slot);
+    if (f && !f.isCPU) {
+      f.isCPU = true;
+      f.pad = new NetPad(f.slot);
+      FX.banner(`P${gu.slot + 1} LEFT — CPU TAKES OVER`, f.tint);
+    } else if (Game.screen === "lobby") {
+      FX.banner(`P${gu.slot + 1} LEFT`, PLAYER_TINT[gu.slot]);
+    }
+  },
+
+  guestCount() { return this.isHost ? this.guests.length : 0; },
+
+  /** Who occupies seat i: "host", "guest", or null for an empty/CPU seat. */
+  seatOf(i) {
+    if (this.isHost) return i === 0 ? "host" : this.guests.some(gu => gu.slot === i) ? "guest" : null;
+    const r = this.room;
+    return r && r.seats ? r.seats[i] : null;
+  },
+  pingOf(i) {
+    if (this.isHost) { const gu = this.guests.find(x => x.slot === i); return gu ? gu.ping : 0; }
+    return i === this.slot ? this.ping : 0;
+  },
+
+  onGuestData(gu, d) {
+    if (!d || typeof d !== "object") return;
+    switch (d.t) {
+      case "pick":
+        // seat changes only between matches
+        if (this.phase === "match") break;
+        if (typeof d.charId === "string" && CHAR_BY_ID[d.charId] &&
+            Game.slots[gu.slot].charId !== d.charId) {
+          Game.slots[gu.slot].charId = d.charId; this.dirty = true;
+        }
+        if ((d.team === 0 || d.team === 1) && Game.slots[gu.slot].team !== d.team) {
+          Game.slots[gu.slot].team = d.team; this.dirty = true;
+        }
+        break;
+      case "in": {
+        if (this.phase !== "match" || !Game.match || d.m !== this.mid) break;
+        const f = Game.match.fighters.find(x => x.slot === gu.slot);
+        if (f && f.pad instanceof NetPad && !f.isCPU) f.pad.setMask(d.k);
+        break;
+      }
+      case "ping": try { gu.conn.send({ t: "pong", ts: d.ts }); } catch (e) {} break;
+      case "pong": gu.ping = Math.round(performance.now() - d.ts); break;
+    }
+  },
+
+  /* ---- host-side lobby edits (the lobby screen calls these) ---- */
+  pick(i, charId) {
+    if (this.isGuest) {
+      if (i !== this.slot) return;
+      Game.slots[i].charId = charId;                  // optimistic; the room confirms
+      this.want = Object.assign({}, this.want, { charId });
+      this.sendPick();
+      return;
+    }
+    Game.slots[i].charId = charId;
+    if (i !== 0 && !this.seatOf(i)) Game.slots[i].mode = "cpu";
+    this.dirty = true;
+  },
+  setTeam(i, team) {
+    if (this.isGuest) {
+      if (i !== this.slot) return;
+      Game.slots[i].team = team;
+      this.want = Object.assign({}, this.want, { team });
+      this.sendPick();
+      return;
+    }
+    Game.slots[i].team = team; this.dirty = true;
+  },
+  setSeatMode(i, mode) {
+    if (!this.isHost || i === 0 || this.seatOf(i)) return;
+    Game.slots[i].mode = mode; this.dirty = true;
+  },
+  setTeams(on) { if (this.isHost) { Game.teams = on; this.dirty = true; } },
+  setStage(i) { if (this.isHost) { Game.stageIndex = i; this.dirty = true; } },
+  setPhase(p) { if (this.isHost) { this.phase = p; this.dirty = true; } },
+
+  roomFor(gu) {
+    return {
+      t: "room", you: gu.slot, phase: this.phase, mid: this.mid,
+      slots: Game.slots.map(s => [s.charId, s.mode, s.team || 0]),
+      seats: [0, 1, 2, 3].map(i => this.seatOf(i)),
+      teams: Game.teams, stage: Game.stageIndex,
+      setup: this.phase === "lobby" ? null : this.setup,
+    };
+  },
+  broadcastRoom() {
+    for (const gu of this.guests) {
+      try { gu.conn.send(this.roomFor(gu)); } catch (e) {}
+    }
+  },
+  sendAll(obj) {
+    for (const gu of this.guests) { try { gu.conn.send(obj); } catch (e) {} }
+  },
+
+  /** Host: announce and start. Everyone builds the same Match from setup. */
+  startMatch() {
+    this.mid++;
+    this.setup = {
+      mid: this.mid,
+      slots: Game.slots.map(s => ({ charId: s.charId, mode: s.mode, team: s.team || 0 })),
+      stage: Game.stageIndex,
+      teams: Game.teams,
+    };
+    this.phase = "match";
+    this.frame = 0;
+    this.delayBuf = [];
+    this.beginLocal(this.setup);
+    this.broadcastRoom();
+  },
+
+  /* --------------------------------------------------------------- guest */
   join(code) {
     this.reset();
     this.role = "guest"; this.mode = "joining";
     this.code = (code || "").toUpperCase();
     this.status = "connecting to " + this.code + "...";
+    this.want = { charId: Game.slots[0].charId };
     this.loadLib().then(() => {
       this.peer = new window.Peer();
       this.peer.on("error", e => this.fail(
@@ -7323,109 +7932,122 @@ const Net = {
         this.conn = c;
         c.on("open", () => {
           this.mode = "connected";
-          this.status = "connected — waiting for the host";
+          this.status = "connected — taking a seat";
           Snd.uiBig();
-          this.send({ t: "pick", charId: Game.slots[0].charId });
         });
-        c.on("data", d => this.onData(d));
-        c.on("close", () => this.onPeerGone());
-        c.on("error", () => this.onPeerGone());
+        c.on("data", d => this.onHostData(d));
+        c.on("close", () => this.onHostGone());
+        c.on("error", () => this.onHostGone());
       });
     }).catch(e => this.fail(e.message));
   },
 
-  onPeerGone() {
-    if (this.mode === "off") return;
-    const wasPlaying = Game.screen === "match" || Game.screen === "pause";
-    this.fail("the other player disconnected");
-    if (wasPlaying) {
-      Game.match = null;
-      Game.screen = "online";
-    }
+  onHostGone() {
+    if (this.mode === "off" || this.mode === "error") return;
+    this.fail(this.error || "the host closed the room");
+    Game.match = null;
+    Game.screen = "online";
   },
 
   send(obj) {
     if (!this.conn) return;
     try { this.conn.send(obj); } catch (e) { /* a dropped frame is survivable */ }
   },
+  sendPick() {
+    if (!this.want) return;
+    this.send({ t: "pick", charId: this.want.charId, team: this.want.team });
+  },
 
-  /* ------------------------------------------------------------ messages */
-  onData(d) {
+  onHostData(d) {
     if (!d || typeof d !== "object") return;
     switch (d.t) {
-      case "pick":
-        // guest told us which fighter it wants
-        if (this.isHost && typeof d.charId === "string" && CHAR_BY_ID[d.charId])
-          this.guestPick = d.charId;
-        break;
-      case "start":
-        // host is starting the match; mirror its setup exactly
-        if (this.isGuest) this.pendingStart = d;
-        break;
-      case "in":
-        // guest input for the host to apply
-        if (this.isHost && this.guestPad) this.guestPad.setMask(d.k);
-        break;
+      case "room": this.room = d; break;           // applied in tick(), on the game loop
+      case "full": this.error = "that room is full (4 players)"; this.onHostGone(); break;
       case "s":
-        if (this.isGuest) {
-          this.snapPrev = this.snapCur;
-          this.snapCur = d;
-        }
-        break;
-      case "end":
-        if (this.isGuest && Game.match) {
-          Game.toResults(Game.match);
-          Game.screen = "results";
-        }
+        // unordered channel: never step backwards
+        if (d.m !== this.mid) break;
+        if (this.snapCur && this.snapCur.f >= d.f) break;
+        this.snapCur = d;
         break;
       case "ping": this.send({ t: "pong", ts: d.ts }); break;
       case "pong": this.ping = Math.round(performance.now() - d.ts); break;
     }
   },
 
+  /** Guest: converge on the newest room state the host sent. */
+  applyRoom() {
+    const r = this.room;
+    if (!r) return;
+    this.slot = r.you;
+    this.seated = true;
+    Game.teams = !!r.teams;
+    Game.stageIndex = r.stage;
+    Game.slots = r.slots.map(([charId, mode, team], i) => {
+      // keep our own optimistic pick until the host has caught up with it
+      if (i === this.slot && this.want) {
+        return { charId: this.want.charId || charId, mode,
+                 team: this.want.team == null ? team : this.want.team };
+      }
+      return { charId, mode, team };
+    });
+    const mine = r.slots[this.slot];
+    if (this.want && (!this.want.charId || this.want.charId === mine[0]) &&
+        (this.want.team == null || this.want.team === mine[2])) this.want = null;
+
+    if (r.phase === "match" && r.setup && (this.mid !== r.setup.mid || !Game.match)) {
+      if (Game.screen !== "match" || this.mid !== r.setup.mid) this.beginLocal(r.setup);
+    } else if (r.phase === "results" && Game.screen === "match" && Game.match && this.mid === r.mid) {
+      Game.toResults(Game.match);
+    } else if (r.phase === "lobby" && ["match", "results", "pause", "online"].includes(Game.screen)) {
+      Game.match = null;
+      Game.screen = "lobby";
+      Snd.stopMusic();
+    }
+  },
+
+  /* ---------------------------------------------------------- both roles */
+  /** Construct the match described by a start payload. */
+  beginLocal(setup) {
+    this.mid = setup.mid;
+    this.setup = setup;
+    Game.slots = setup.slots.map(s => ({ charId: s.charId, mode: s.mode, team: s.team }));
+    Game.stageIndex = setup.stage;
+    Game.teams = !!setup.teams;
+    Game.match = new Match(Game.slots, STAGES[setup.stage], { teams: setup.teams });
+    Game.screen = "match";
+    this.snapCur = this.lastSeen = null;
+    /* Every human fighter on the host is driven by a NetPad: the guests' by
+       their input messages, the host's own by its delayed local input. */
+    for (const f of Game.match.fighters) if (!f.isCPU) f.pad = new NetPad(f.slot);
+  },
+
   measurePing() {
     const now = performance.now();
-    if (now - this.lastPingAt < 1000) return;
-    this.lastPingAt = now;
-    this.send({ t: "ping", ts: now });
-  },
-
-  /* --------------------------------------------------------- match setup */
-  /** Host: announce and start. Both sides build the same Match. */
-  startMatch() {
-    const payload = {
-      t: "start",
-      slots: Game.slots.map(s => ({ charId: s.charId, mode: s.mode })),
-      stageIndex: Game.stageIndex,
-    };
-    this.send(payload);
-    this.frame = 0;
-    this.delayBuf = [];
-    this.beginLocal(payload);
-  },
-
-  /** Both roles: construct the match described by a start payload. */
-  beginLocal(payload) {
-    Game.slots = payload.slots.map(s => ({ charId: s.charId, mode: s.mode }));
-    Game.stageIndex = payload.stageIndex;
-    Game.match = new Match(Game.slots, STAGES[Game.stageIndex]);
-    Game.screen = "match";
-    this.snapPrev = this.snapCur = this.lastSeen = null;
-
-    /* Slot 0 is the host's fighter, slot 1 is the guest's. Whichever one is
-       not ours is driven by the wire rather than by a keyboard. */
-    const remoteSlot = this.isHost ? 1 : 0;
-    for (const f of Game.match.fighters) {
-      if (f.slot === remoteSlot && !f.isCPU) {
-        f.pad = new NetPad(f.slot);
-        if (this.isHost) this.guestPad = f.pad;
+    if (this.isHost) {
+      for (const gu of this.guests) {
+        if (now - gu.lastPingAt < 1000) continue;
+        gu.lastPingAt = now;
+        try { gu.conn.send({ t: "ping", ts: now }); } catch (e) {}
       }
+    } else if (now - this.lastPingAt >= 1000) {
+      this.lastPingAt = now;
+      this.send({ t: "ping", ts: now });
     }
-    if (this.isGuest) {
-      // the guest simulates nothing, so its music/FX start but its sim never runs
-      this.localSlot = 1;
+  },
+
+  /** Every frame, whatever screen is up. */
+  tick() {
+    if (!this.active) return;
+    this.measurePing();
+    if (this.isHost) {
+      if (this.dirty || ++this.roomTick >= NET.roomEvery) {
+        this.dirty = false; this.roomTick = 0;
+        this.broadcastRoom();
+      }
     } else {
-      this.localSlot = 0;
+      this.applyRoom();
+      // keep asking for our pick until the room shows it
+      if (this.want && ++this.pickTick >= NET.pickEvery) { this.pickTick = 0; this.sendPick(); }
     }
   },
 
@@ -7433,34 +8055,35 @@ const Net = {
   /** Called from Game.update() instead of match.update() when online. */
   update() {
     if (!this.active || !Game.match) return false;
-    this.measurePing();
 
     if (this.isHost) {
-      /* Delay our own input by netDelay frames so the guest, whose input
-         needs a round trip to arrive, is not systematically late. */
+      /* Delay our own input by netDelay frames so the guests, whose input
+         needs a round trip to arrive, are not systematically late. */
       const me = Game.match.fighters.find(f => f.slot === 0 && !f.isCPU);
       if (me) {
         const live = new Pad(0); live.poll();
         this.delayBuf.push(maskFromPad(live));
-        while (this.delayBuf.length > NET.netDelay) {
-          const m = this.delayBuf.shift();
-          if (!(me.pad instanceof NetPad)) { me.pad = new NetPad(0); }
-          me.pad.setMask(m);
-        }
+        while (this.delayBuf.length > NET.netDelay) me.pad.setMask(this.delayBuf.shift());
       }
       Game.match.update();
       this.frame++;
-      if (this.frame % NET.snapshotEvery === 0) this.send(this.snapshot());
-      if (Game.match.over && Game.match.endTimer <= 1) this.send({ t: "end" });
+      if (this.guests.length) this.sendAll(this.snapshot());
+      this.events.length = 0;
       return true;
     }
 
     // guest: no simulation at all, just present what the host sent
     const pad = new Pad(0); pad.poll();
-    this.send({ t: "in", k: maskFromPad(pad) });
+    this.send({ t: "in", m: this.mid, k: maskFromPad(pad) });
     this.applySnapshot();
     FX.update(Game.match.fighters);
     return true;
+  },
+
+  /** Host: FX.banner calls this so the text reaches the guests too. */
+  forwardBanner(text, color) {
+    if (this.isHost && this.active && this.phase === "match" && this.events.length < 6)
+      this.events.push([text, color]);
   },
 
   /* -------------------------------------------------------- the protocol */
@@ -7468,28 +8091,31 @@ const Net = {
     const m = Game.match;
     const r2 = v => Math.round(v * 100) / 100;
     return {
-      t: "s",
-      f: this.frame,
-      // stage
-      st: [r2(Stage.tilt), r2(Stage.angVel), Stage.anchorTimer,
-           Stage.snapFlash, Stage.snapCount, Stage.platT],
+      t: "s", m: this.mid, f: this.frame,
+      st: [Stage.platT, Stage.flashT],
       // live platform state, only the fields that can change
       pf: Stage.pfx.map(s => [r2(s.dx), s.present ? 1 : 0, r2(s.heat),
                               r2(s.alpha), s.stood, s.gone]),
-      // match
-      mt: [m.countdown, m.timeLeft, m.over ? 1 : 0, m.endTimer],
-      // fighters
+      mt: [m.countdown, m.timeLeft, m.over ? 1 : 0, m.endTimer,
+           m.suddenDeath ? 1 : 0, m.frenzy ? 1 : 0,
+           m.winner ? m.winner.slot : -1, m.winTeam == null ? -1 : m.winTeam,
+           m.endedBy, m.frames],
+      en: Entities.list.map(e => [ENT_KINDS.indexOf(e.kind), e.owner.slot,
+                                  Math.round(e.x), Math.round(e.y), r2(e.r), e.life,
+                                  e.dir || 0, e.landed ? 1 : 0, e.storm ? 1 : 0, e.max || 0]),
+      ev: this.events.length ? this.events.slice() : undefined,
       fs: m.fighters.map(f => ({
         s: f.slot,
         x: r2(f.x), y: r2(f.y), vx: r2(f.vx), vy: r2(f.vy),
-        fa: f.facing, st: f.state, sp: f.percent, sk: f.stocks,
+        fa: f.facing, st: f.state, tt: f.stateTimer, sp: r2(f.percent), sk: f.stocks,
         sh: r2(f.shield), mr: r2(f.meter), hs: f.hitstun, iv: f.invuln,
         gr: f.grounded ? 1 : 0, al: f.alive ? 1 : 0, rt: f.respawnTimer,
         hf: f.hitFlash, cd: f.specialCD, rp: r2(f.runPhase), at: f.animTime,
+        ag: f.anchorGlow, pn: f.pinned ? 1 : 0, cpu: f.isCPU ? 1 : 0,
         ak: f.attack ? f.attack.kind : null,
-        an: f.attack ? f.attack.data.name : null,
         att: f.attack ? f.attack.t : 0,
         ato: f.attack ? f.attack.total : 0,
+        sx: [f.stats.kos, f.stats.falls, r2(f.stats.damageDealt), f.stats.supers, r2(f.stats.bestHit)],
       })),
     };
   },
@@ -7500,13 +8126,10 @@ const Net = {
     const snap = this.snapCur;
     if (!snap || !Game.match) return;
     const m = Game.match;
+    const fresh = !this.lastSeen || this.lastSeen.f !== snap.f;
 
     // ---- stage ----
-    Stage.prevTilt = Stage.tilt;
-    Stage.tilt = snap.st[0]; Stage.angVel = snap.st[1];
-    Stage.anchorTimer = snap.st[2]; Stage.snapFlash = snap.st[3];
-    const prevSnaps = Stage.snapCount;
-    Stage.snapCount = snap.st[4]; Stage.platT = snap.st[5];
+    Stage.platT = snap.st[0]; Stage.flashT = snap.st[1];
     if (snap.pf) snap.pf.forEach((p, i) => {
       const s = Stage.pfx[i]; if (!s) return;
       s.dx = p[0]; s.present = !!p[1]; s.heat = p[2];
@@ -7515,34 +8138,58 @@ const Net = {
     Stage.rebuild();
 
     // ---- match ----
-    m.countdown = snap.mt[0]; m.timeLeft = snap.mt[1];
-    m.over = !!snap.mt[2]; m.endTimer = snap.mt[3];
+    const mt = snap.mt;
+    m.countdown = mt[0]; m.timeLeft = mt[1];
+    m.over = !!mt[2]; m.endTimer = mt[3];
+    m.suddenDeath = !!mt[4]; m.frenzy = !!mt[5];
+    m.winner = mt[6] >= 0 ? m.fighters.find(f => f.slot === mt[6]) || null : null;
+    m.winTeam = mt[7] >= 0 ? mt[7] : null;
+    m.endedBy = mt[8]; m.frames = mt[9];
+
+    // ---- entities: rebuilt wholesale, they are only drawn here ----
+    const bySlot = s => m.fighters.find(f => f.slot === s);
+    Entities.list = (snap.en || []).map(e => ({
+      kind: ENT_KINDS[e[0]], owner: bySlot(e[1]), x: e[2], y: e[3], r: e[4],
+      life: e[5], dir: e[6], landed: !!e[7], storm: !!e[8], max: e[9], hitIds: [],
+    })).filter(e => e.owner && e.kind);
+
+    // ---- banners the host raised ----
+    if (fresh && snap.ev) for (const [text, color] of snap.ev) FX.banner(text, color);
 
     // ---- fighters ----
     for (const fd of snap.fs) {
-      const f = m.fighters.find(x => x.slot === fd.s);
+      const f = bySlot(fd.s);
       if (!f) continue;
-      const before = this.lastSeen && this.lastSeen[fd.s];
+      const before = this.lastSeen && this.lastSeen.fs[fd.s];
       f.px = f.x; f.py = f.y;                       // keep render interpolation
       f.x = fd.x; f.y = fd.y; f.vx = fd.vx; f.vy = fd.vy;
-      f.facing = fd.fa; f.state = fd.st;
+      f.facing = fd.fa; f.state = fd.st; f.stateTimer = fd.tt;
       f.percent = fd.sp; f.stocks = fd.sk;
       f.shield = fd.sh; f.meter = fd.mr;
       f.hitstun = fd.hs; f.invuln = fd.iv;
       f.grounded = !!fd.gr; f.alive = !!fd.al;
       f.respawnTimer = fd.rt; f.hitFlash = fd.hf;
       f.specialCD = fd.cd; f.runPhase = fd.rp; f.animTime = fd.at;
+      f.anchorGlow = fd.ag; f.pinned = !!fd.pn; f.isCPU = !!fd.cpu;
+      f.stats.kos = fd.sx[0]; f.stats.falls = fd.sx[1]; f.stats.damageDealt = fd.sx[2];
+      f.stats.supers = fd.sx[3]; f.stats.bestHit = fd.sx[4];
+      // the renderer needs a floor under grounded fighters for the shadow
+      if (f.grounded) {
+        let gs = null;
+        for (const s of Stage.segs) { const y = Stage.surfaceY(s, f.x); if (y !== null && Math.abs(y - f.feetY) < 4) gs = s; }
+        f.groundSeg = gs;
+      } else f.groundSeg = null;
 
       // rebuild just enough of the attack for the renderer to pose correctly
       if (fd.ak) {
-        const move = fd.ak === "light" ? f.ch.light : fd.ak === "heavy" ? f.ch.heavy
-                   : fd.ak === "special" ? f.ch.special : f.ch.super;
+        const move = fd.ak === "grab" ? { startup: CFG.grabStartup, active: CFG.grabActive, r: 0 }
+                   : f.ch[fd.ak];
         f.attack = { kind: fd.ak, data: move, t: fd.att, total: fd.ato,
                      hitIds: null, hitId: 0 };
       } else f.attack = null;
 
       /* ---- effects from deltas ---- */
-      if (before) {
+      if (before && fresh) {
         const dmg = f.percent - before.sp;
         if (dmg > 0.4) {
           FX.hitmark(f.x, f.y, dmg);
@@ -7550,17 +8197,14 @@ const Net = {
           FX.damageText(f.x, f.y - 24, dmg, f.ch.accent);
           FX.shake(3 + dmg * 0.6);
           Snd.hit(dmg);
+          if (dmg >= 13) Snd.bigHit();
         }
         if (f.stocks < before.sk) {
-          FX.banner(f.stocks > 0 ? "KO!" : `${f.ch.name} OUT!`, f.tint);
           FX.burst(f.x, f.y, 26, f.tint, 9);
           FX.flash("#ffffff", 0.25);
           Snd.ko();
         }
-        if (fd.ak === "super" && before.ak !== "super") {
-          FX.banner(f.ch.super.name.toUpperCase(), f.ch.color);
-          Snd.superCharge();
-        }
+        if (fd.ak === "super" && before.ak !== "super") Snd.superCharge();
       }
       if (f.hitstun > 0 || fd.ak === "super")
         f.trail.push({ x: f.x, y: f.y, facing: f.facing, life: 10 });
@@ -7568,16 +8212,11 @@ const Net = {
         if (--f.trail[i].life <= 0) f.trail.splice(i, 1);
     }
 
-    if (Stage.snapCount > prevSnaps) {
-      FX.banner("SNAP-BACK!", "#ffffff");
-      FX.ring(Stage.pivot.x, Stage.pivot.y, 60, 560, "#ffffff", 5);
-      FX.shake(26); FX.flash("#ffffff", 0.25);
-      Snd.snapback();
-    }
-
     // remember this frame so the next one can diff against it
-    this.lastSeen = {};
-    for (const fd of snap.fs) this.lastSeen[fd.s] = fd;
+    if (fresh) {
+      this.lastSeen = { f: snap.f, fs: {} };
+      for (const fd of snap.fs) this.lastSeen.fs[fd.s] = fd;
+    }
   },
 };
 

@@ -11,14 +11,20 @@ const ST = {
 
 let HITID = 1;
 
+/* How long Orbit's Keel Anchor braces her. It used to borrow the stage's
+   anchor timer; it is her own now. */
+const ANCHOR_FRAMES = 180;
+
 class Fighter {
-  constructor(slot, charId, isCPU) {
+  /** team is 0 or 1 in a 2v2, and null in free-for-all. */
+  constructor(slot, charId, isCPU, team) {
     this.slot = slot;
     this.ch = CHAR_BY_ID[charId];
     this.isCPU = isCPU;
+    this.team = team == null ? null : team;
     this.pad = new Pad(slot);
-    this.tint = PLAYER_TINT[slot];
-    this.stats = { kos: 0, damageDealt: 0, snapbacks: 0, falls: 0, supers: 0 };
+    this.tint = this.team == null ? PLAYER_TINT[slot] : TEAM_TINT[this.team];
+    this.stats = { kos: 0, damageDealt: 0, falls: 0, supers: 0, bestHit: 0 };
     this.reset(true);
   }
 
@@ -38,8 +44,10 @@ class Fighter {
     this.fastFalling = false; this.dropThrough = 0;
     this.lastHitBy = null;
     this.grabTarget = null; this.grabHold = 0; this.grabbedBy = null;
-    this.heavyStomp = 0; this.crankDir = 0;
+    this.heavyStomp = 0;
     this.anchorGlow = 0; this.flipGlow = 0;
+    this.launchFx = 0;        // frames of smoke trail after a SMASH-strength hit
+    this.stealWait = 0;       // a CPU that is out counts this up before stealing
     this.specialCD = 0;
     this.pinned = false;
     this.hotTick = 0;         // cooldown between burns from a hot platform
@@ -63,7 +71,11 @@ class Fighter {
   get meterFull() { return this.meter >= CFG.meter.max; }
   get inSuper() { return this.attack && this.attack.kind === "super"; }
 
-  addMeter(v) { this.meter = clamp(this.meter + v, 0, CFG.meter.max); }
+  addMeter(v) {
+    const m = Match.current;
+    if (v > 0 && m && m.frenzy) v *= CFG.meter.frenzyMul;
+    this.meter = clamp(this.meter + v, 0, CFG.meter.max);
+  }
 
   /* ---------------------------------------------------- stale moves ----
      Every connect is remembered for a while. The more of the recent window a
@@ -92,9 +104,10 @@ class Fighter {
     this.animTime++;
 
     if (this.state === ST.DEAD) {
-      this.respawnTimer--;
+      if (this.respawnTimer > 0) this.respawnTimer--;
       if (this.respawnTimer <= 0) {
-        if (this.stocks > 0) this.respawn(); else this.alive = false;
+        if (this.stocks > 0) this.respawn();
+        else { this.alive = false; this.tryStockSteal(match); }
       }
       return;
     }
@@ -112,7 +125,10 @@ class Fighter {
     if (this.counterFlash > 0) this.counterFlash--;
     if (this.anchorGlow > 0) this.anchorGlow--;
     if (this.flipGlow > 0) this.flipGlow--;
-    this.crankDir = 0;
+    if (this.launchFx > 0) {
+      this.launchFx--;
+      if (this.launchFx % 2 === 0) FX.burst(this.x, this.y, 2, "#ffffff", 1.2);
+    }
     this.addMeter(CFG.meter.passive);
 
     switch (this.state) {
@@ -461,7 +477,6 @@ class Fighter {
                           ripo.dmg, m2, this);
       this.stats.damageDealt += ripo.dmg;
       this.addMeter(ripo.dmg * CFG.meter.onDeal);
-      Stage.lastPusher = this;
       FX.banner("RIPOSTE", this.ch.accent);
       FX.hitPause(12); FX.shake(13);
       FX.flash(this.ch.color, 0.2);
@@ -499,11 +514,9 @@ class Fighter {
     // how far it sends her — survivability, not immunity.
     if (this.anchorGlow > 0) { vx *= 0.55; vy *= 0.55; mag *= 0.55; }
 
-    // Kite's footing: a passive trait that used to be "doesn't slide on a
-    // tilted deck" and is now "doesn't fly as far or stay stunned as long" —
-    // the same idea of staying planted under her, without any slope to grip.
-    if (this.ch.slopeGrip) {
-      const k = 1 - this.ch.slopeGrip * 0.18;
+    // Kite's footing: she doesn't fly as far or stay stunned as long.
+    if (this.ch.footing) {
+      const k = 1 - this.ch.footing * 0.18;
       vx *= k; vy *= k; mag *= k;
     }
 
@@ -536,9 +549,9 @@ class Fighter {
     this.x += this.vx;
     this.y += this.vy;
 
-    /* Ground collision against the rotated segments. A fighter already riding a
-       segment gets a wider capture band so a fast-tilting stage carries them
-       along instead of dropping them through. */
+    /* Ground collision. A fighter already riding a segment gets a wider
+       capture band so a drifting platform carries them along instead of
+       dropping them through. */
     const wasSeg = this.groundSeg;
     this.grounded = false; this.groundSeg = null;
     let best = null, bestY = Infinity;
@@ -602,10 +615,33 @@ class Fighter {
     this.respawnTimer = CFG.respawnFrames;
     this.percent = 0; this.vx = 0; this.vy = 0;
     this.lastHitBy = null; this.pinned = false; this.attack = null;
-    this.moveLog = []; this.armorDamage = 0;
+    this.moveLog = []; this.armorDamage = 0; this.launchFx = 0;
     if (this.grabTarget) this.releaseGrab();
     if (this.grabbedBy) this.grabbedBy.releaseGrab();
     match.onKO(this);
+  }
+
+  /* ------------------------------------------------------- stock steal ----
+     2v2 only. A fighter who is out of stocks can take one from a teammate who
+     has two or more and come straight back in, so one bad stock does not bench
+     a player for the rest of the match. */
+  canStealStock() {
+    const m = Match.current;
+    if (!m || !m.teams || m.over || this.stocks > 0) return false;
+    return m.fighters.some(o => o !== this && o.team === this.team && o.stocks >= 2);
+  }
+  tryStockSteal(match) {
+    if (!this.canStealStock()) { this.stealWait = 0; return; }
+    let want;
+    if (this.isCPU) want = ++this.stealWait > 150;
+    else { this.pad.poll(); want = this.pad.hit("special") || this.pad.hit("super"); }
+    if (!want) return;
+    const mate = match.fighters.find(o => o !== this && o.team === this.team && o.stocks >= 2);
+    mate.stocks--;
+    this.stocks = 1; this.stealWait = 0;
+    FX.banner("STOCK STEAL", this.tint);
+    Snd.uiBig();
+    this.respawn();
   }
 
   respawn() {

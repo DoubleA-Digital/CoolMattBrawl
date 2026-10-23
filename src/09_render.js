@@ -31,18 +31,18 @@ function drawBackground() {
    cast iron with molten seams, the Drift's is weathered stone, the Vault's is
    bolted grating. Called already clipped to the platform body and rotated
    into its local space, so x runs along the deck and y down into it. */
-function drawDeckDetail(kind, len, th, depth, pal, main, near, t) {
+function drawDeckDetail(kind, len, th, depth, pal, main, flare, t) {
   const bot = th / 2 + depth;
 
   if (kind === "cast") {
-    // ribs, then molten seams that brighten as the beam nears its limit
+    // ribs, then molten seams that flare when the deck is struck
     g.strokeStyle = hexA("#000000", 0.5); g.lineWidth = 7;
     for (let x = 18; x < len; x += 46) {
       g.beginPath(); g.moveTo(x, th / 2); g.lineTo(x - 7, bot); g.stroke();
     }
     g.save();
     g.globalCompositeOperation = "lighter";
-    const heat = 0.3 + near * 0.5 + Math.sin(t * 1.4) * 0.08;
+    const heat = 0.3 + flare * 0.5 + Math.sin(t * 1.4) * 0.08;
     g.strokeStyle = hexA("#ff7a1f", heat); g.lineWidth = 2.5;
     g.beginPath();
     for (let x = 0; x <= len; x += 16)
@@ -89,7 +89,7 @@ function drawDeckDetail(kind, len, th, depth, pal, main, near, t) {
 
   } else {
     // "neon": a lit circuit substrate under a dark deck
-    g.strokeStyle = hexA(pal.platEdge, 0.16 + near * 0.3); g.lineWidth = 3;
+    g.strokeStyle = hexA(pal.platEdge, 0.16 + flare * 0.3); g.lineWidth = 3;
     for (let x = 10; x < len; x += 26) {
       g.beginPath(); g.moveTo(x, th / 2 + 4); g.lineTo(x + 12, th / 2 + 30); g.stroke();
     }
@@ -105,7 +105,7 @@ function drawDeckDetail(kind, len, th, depth, pal, main, near, t) {
 }
 
 /* The support column under the deck. Same job on every map, four different machines. */
-function drawPivotColumn(P, kind, pal, anch, t) {
+function drawPivotColumn(P, kind, pal, t) {
   g.save();
   g.translate(P.x, P.y);
 
@@ -173,32 +173,22 @@ function drawPivotColumn(P, kind, pal, anch, t) {
     }
   }
 
-  if (anch) {
-    // anchor bolts clamp the column when Orbit locks the stage
-    g.fillStyle = "#b6ff3b"; g.shadowColor = "#b6ff3b"; g.shadowBlur = 18;
-    for (const s of [-1, 1]) {
-      poly(g, [s * 20, 30, s * 46, 18, s * 46, 44]); g.fill();
-    }
-    g.shadowBlur = 0;
-  }
   g.restore();
 }
 
 /* ------------------------------------------------------------------ stage */
 function drawStage(alpha) {
   const def = Stage.def, pal = def.pal;
-  const tilt = lerp(Stage.prevTilt, Stage.tilt, alpha);
-  const c = Math.cos(tilt), s = Math.sin(tilt);
   const P = Stage.pivot;
-  const toW = (lx, ly) => ({ x: P.x + lx * c - ly * s, y: P.y + lx * s + ly * c });
+  const toW = (lx, ly) => Stage.toWorld(lx, ly);
 
-  const anch = Stage.anchorTimer > 0;
-  const snap = Stage.snapFlash > 0;
-  const near = Math.abs(clamp(tilt / Stage.cfg.limit, -1, 1));
+  // the deck edge flares white while a Tipping Point goes off
+  const snap = Stage.flashT > 0;
+  const flare = clamp(Stage.flashT / 20, 0, 1);
   const kind = def.deck || "neon";
 
   /* ---- the support column, built differently per stage ---- */
-  drawPivotColumn(P, kind, pal, anch, bgT);
+  drawPivotColumn(P, kind, pal, bgT);
 
   def.layout.forEach((p, pi) => {
     /* Live platform state: drifting offset, how hot it is, and how solid it
@@ -228,7 +218,7 @@ function drawStage(alpha) {
     const len = Math.hypot(dx, dy);
     const th = p.thick, main = !!p.main;
     let edge = main
-      ? (snap ? "#ffffff" : near > 0.8 ? "#ff2e88" : anch ? "#b6ff3b" : pal.platEdge)
+      ? (snap ? "#ffffff" : pal.platEdge)
       : pal.soft;
     // a heating shelf shifts toward molten, and flashes while it warns
     if (st.heat >= 1) edge = "#ff5a19";
@@ -261,7 +251,7 @@ function drawStage(alpha) {
     /* ---- per-stage underside construction ---- */
     g.save();
     roundRect(g, 0, top, len, th + depth, round); g.clip();
-    drawDeckDetail(kind, len, th, depth, pal, main, near, bgT);
+    drawDeckDetail(kind, len, th, depth, pal, main, main ? flare : 0, bgT);
     g.restore();
 
     // the walking surface, lit
@@ -286,14 +276,6 @@ function drawStage(alpha) {
       g.beginPath(); g.arc(3, top, 5, 0, 7); g.fill();
       g.beginPath(); g.arc(len - 3, top, 5, 0, 7); g.fill();
       g.shadowBlur = 0;
-      // and a danger wash along the deck when it is near its limit
-      if (near > 0.6) {
-        g.save();
-        g.globalAlpha = (near - 0.6) * 1.6;
-        g.fillStyle = "#ff2e88";
-        g.fillRect(0, top, len, 3);
-        g.restore();
-      }
     }
 
     /* ---- the platform's own state, drawn on top of its body ---- */
@@ -332,18 +314,6 @@ function drawStage(alpha) {
     g.restore();
   });
 
-  if (anch) {
-    // soft wash, not a box — a hard-edged rect read as a UI artifact
-    g.save(); g.globalCompositeOperation = "lighter";
-    g.globalAlpha = 0.5 + 0.22 * Math.sin(Stage.anchorTimer * 0.3);
-    const ag = g.createRadialGradient(P.x, P.y - 40, 20, P.x, P.y - 40, 430);
-    ag.addColorStop(0, "rgba(182,255,59,.20)");
-    ag.addColorStop(0.55, "rgba(182,255,59,.08)");
-    ag.addColorStop(1, "rgba(182,255,59,0)");
-    g.fillStyle = ag;
-    g.beginPath(); g.arc(P.x, P.y - 40, 430, 0, 7); g.fill();
-    g.restore();
-  }
 }
 
 /* --------------------------------------------------------------- fighter */
@@ -381,6 +351,17 @@ function drawFighter(f, alpha) {
         g.restore();
       }
     }
+  }
+
+  /* Team ring: in a 2v2 a coloured ellipse under the feet says which side a
+     fighter is on even when the tags are lost in a pile-up. */
+  if (f.team != null && f.grounded) {
+    g.save();
+    g.globalAlpha = 0.55;
+    g.strokeStyle = f.tint; g.lineWidth = 2.5;
+    g.shadowColor = f.tint; g.shadowBlur = 10;
+    g.beginPath(); g.ellipse(rx, f.feetY - 1, ch.size.w * 0.62, 6, 0, 0, 7); g.stroke();
+    g.restore();
   }
 
   // afterimage trail
@@ -474,15 +455,6 @@ function drawFighter(f, alpha) {
     g.restore();
   }
 
-  if (f.crankDir !== 0) {
-    g.save(); g.globalCompositeOperation = "lighter"; g.globalAlpha = 0.5;
-    g.strokeStyle = ch.color; g.lineWidth = 4;
-    g.shadowColor = ch.color; g.shadowBlur = 18;
-    g.beginPath(); g.moveTo(rx, ry);
-    g.lineTo(Stage.pivot.x + f.crankDir * 300, Stage.pivot.y - 20); g.stroke();
-    g.restore();
-  }
-
   if (f.anchorGlow > 0) {
     g.save(); g.globalCompositeOperation = "lighter"; g.globalAlpha = 0.3;
     g.strokeStyle = ch.color; g.lineWidth = 3;
@@ -516,13 +488,24 @@ function drawFighter(f, alpha) {
     g.restore();
   }
 
-  // player tag
+  /* Player tag. Online, the fighter this screen controls is marked YOU with
+     a pointer, because with four players on one stage "which one am I" is
+     the first question after every respawn. */
+  const mine = Net.active && f.slot === Net.slot;
+  const tagY = ry - ch.size.h * 0.82;
   g.save();
   g.font = `700 12px ${FONT_MONO}`;
   g.textAlign = "center";
-  g.globalAlpha = 0.85;
+  g.globalAlpha = 0.9;
   g.fillStyle = f.tint;
-  g.fillText(`P${f.slot + 1}${f.isCPU ? " CPU" : ""}`, rx, ry - ch.size.h * 0.82);
+  const label = mine ? "YOU" : `P${f.slot + 1}${f.isCPU ? " CPU" : ""}`;
+  if (mine) { g.shadowColor = f.tint; g.shadowBlur = 10; }
+  g.fillText(label, rx, tagY);
+  if (mine) {
+    const bob = Math.sin(f.animTime * 0.12) * 2;
+    poly(g, [rx - 6, tagY + 4 + bob, rx + 6, tagY + 4 + bob, rx, tagY + 10 + bob]);
+    g.fill();
+  }
   g.restore();
 }
 
@@ -570,11 +553,16 @@ function drawClock(framesLeft) {
   g.fillText(`${mm}:${String(ss).padStart(2, "0")}`, W / 2, cy + 27);
   g.restore();
 
-  // stage name + snap counter, top right
+  // stage name, plus whatever special state the clock is in, top right
+  const m = Match.current;
   g.save();
   chip(g, Stage.def.name, W - 16, 22, Stage.pal.platEdge, { align: "right" });
-  if (Stage.snapCount > 0)
-    chip(g, `SNAP-BACKS ${Stage.snapCount}`, W - 16, 46, UI.dim, { align: "right" });
+  if (m && m.suddenDeath)
+    chip(g, "SUDDEN DEATH", W - 16, 46, "#ff2e88", { align: "right" });
+  else if (m && m.frenzy)
+    chip(g, `FRENZY · METER x${CFG.meter.frenzyMul}`, W - 16, 46, "#ffc83d", { align: "right" });
+  if (m && m.teams)
+    chip(g, "2v2 TEAMS", 16, 22, "#ffffff", { align: "left" });
   g.restore();
 }
 
@@ -620,6 +608,14 @@ function drawPlayerHUD(fighters) {
     g.font = `700 9px ${FONT_MONO}`; g.textAlign = "right";
     g.fillStyle = "rgba(255,255,255,.75)";
     g.fillText(`P${f.slot + 1}${f.isCPU ? "·CPU" : ""}`, x + cardW - 10, y + 17);
+    if (f.team != null) {
+      // a team-coloured lip along the card's top edge
+      g.save();
+      g.fillStyle = TEAM_TINT[f.team];
+      g.shadowColor = TEAM_TINT[f.team]; g.shadowBlur = 10;
+      g.fillRect(x + 14, y - 4, cardW - 28, 3);
+      g.restore();
+    }
 
     // portrait, inset into the header so it breaks the bar's line
     g.save();
@@ -707,6 +703,14 @@ function drawPlayerHUD(fighters) {
       g.strokeStyle = "#ff2e88"; g.lineWidth = 3; g.globalAlpha = 0.5;
       g.beginPath(); g.moveTo(x + 6, y + cardH - 6); g.lineTo(x + cardW - 6, y + 6); g.stroke();
       g.restore();
+      // out, but a teammate can spare a stock: say so on the card
+      if (f.canStealStock && f.canStealStock()) {
+        g.save();
+        g.globalAlpha = 0.6 + 0.4 * Math.abs(Math.sin(f.animTime * 0.08));
+        chip(g, f.isCPU ? "STEALING A STOCK…" : "SPECIAL: STEAL A STOCK",
+             x + cardW / 2, y - 26, f.tint, { align: "center" });
+        g.restore();
+      }
     }
 
     g.restore();

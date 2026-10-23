@@ -98,7 +98,7 @@ const Light = {
     ctx.restore();
   },
 
-  /** Red/blue separation. Used on heavy impacts, Snap-Backs and KOs. */
+  /** Red/blue separation. Used on heavy impacts, supers and KOs. */
   chroma(ctx, canvas, w, h, amount) {
     if (amount <= 0.02) return;
     const shift = amount * 7;

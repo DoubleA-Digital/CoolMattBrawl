@@ -1,22 +1,23 @@
 # Cool Matt Brawl
 
-A 2-4 player local platform fighter for Cool Matt Games. HTML5 Canvas, vanilla
-JS, zero external assets.
+A 2-4 player platform fighter for Cool Matt Games, local or online. HTML5
+Canvas, vanilla JS, zero external assets.
 
-**The twist:** the main stage sits on a pivot. It tilts toward whichever side
-carries more total fighter weight, which changes footing and slides everyone
-toward the low edge. Push it past its limit and it snaps back, launching
-everyone on the deck — a "Snap-Back". You can set one off on purpose.
-
-- 4 fighters: BOLDER (heavy bruiser), ZIP (fast lightweight), ORBIT
-  (all-rounder), PIVOT (stage manipulator) — each with their own moveset,
-  tilt special and super.
-- 4 stages that play differently, not just look different: Pivot Yard
-  (balanced), Cinder Foundry (swings hard over a short drop), Cirrus Drift
-  (rights itself fast, forgiving), Null Vault (leans far, close walls).
+- 8 fighters — BOLDER, ZIP, ORBIT, PIVOT, BALLAST, KITE, HUSK, MIRA — each
+  with their own moveset, special and super.
+- **Free-for-all or 2v2 teams.** Teams have no friendly fire, and a player who
+  runs out of stocks can steal one from a teammate who has two (press Special).
+- **Online for up to 4.** One player hosts and reads out a 4-letter code; up to
+  three friends join with it. Everyone picks in a shared lobby, and the host
+  fills empty seats with CPUs, picks the mode and stage, and starts. If someone
+  drops mid-match a CPU takes over their fighter.
+- 4 stages with live platforms: Neon Yard's ledges drift, Cinder Foundry's
+  shelves heat up, Cirrus Drift's clouds crumble, Null Vault's shelf retracts.
 - 3 stocks, damage-percent knockback, blast-zone KOs, shields, rolls, air
-  dodges, grabs and throws.
-- Rebindable controls for all four players, and CPU opponents.
+  dodges, grabs and throws. Hits strong enough to take a stock land as a SMASH.
+- The last 30 seconds are a **Frenzy** (meter fills twice as fast), and a
+  time-out with the stocks level goes to **Sudden Death** at 150%.
+- Rebindable controls for all four players, gamepads, and CPU opponents.
 
 Play it: open `index.html`, or https://doublea-digital.github.io/CoolMattBrawl/
 
@@ -27,3 +28,6 @@ Play it: open `index.html`, or https://doublea-digital.github.io/CoolMattBrawl/
     node build.js
 
 That rebuilds `index.html` (standalone) and `artifact.html`.
+
+Online play is host-authoritative over WebRTC (PeerJS, loaded on demand): the
+host simulates, guests send input and render snapshots. See `src/11b_net.js`.

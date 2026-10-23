@@ -89,10 +89,6 @@ const Snd = {
     this.noise(0.5, 0.4, 900, 0.7, "lowpass", 0, 1);
     [760, 570, 430, 300].forEach((f, i) => this.tone(f, 0.25, "square", 0.15, f * 0.6, i * 0.07, 0.5));
   },
-  snapback() {
-    this.noise(0.6, 0.5, 260, 0.8, "lowpass", 0, 1);
-    [180, 260, 380, 520, 720].forEach((f, i) => this.tone(f, 0.3, "sawtooth", 0.13, f * 1.6, i * 0.045, 0.4));
-  },
   superCharge() {
     [220, 330, 440, 660].forEach((f, i) => this.tone(f, 0.5, "sine", 0.1, f * 2, i * 0.06, 0.8));
     this.noise(0.6, 0.2, 400, 1, "highpass", 0, 1);

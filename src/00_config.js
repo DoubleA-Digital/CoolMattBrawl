@@ -65,6 +65,16 @@ const CFG = {
   respawnFrames: 60,
   respawnInvuln: 110,
   matchSeconds:  180,
+  /* The last stretch of the clock is a FRENZY: meter fills twice as fast, so
+     the end of a close match is decided by supers instead of running down. */
+  frenzySeconds: 30,
+  /* A time-out with the stocks level is not a draw any more. The tied sides
+     come back on one stock at suddenDeathPercent and fight it out. */
+  suddenDeathPercent: 150,
+  suddenDeathSeconds: 45,
+  /* A hit with at least this much knockback is announced as a SMASH: it is
+     very likely to take a stock, and the player should feel that. */
+  smashKb: 15.5,
 
   // ---- SUPER METER ----
   /* ---- SUPER METER ----
@@ -76,8 +86,8 @@ const CFG = {
     max:          100,
     onDeal:       0.80,   // per point of damage dealt (was 1.25)
     onTake:       0.50,   // per point taken (comebacks) (was 0.75)
-    onSnapback:   12,     // for causing a Snap-Back (was 18)
     passive:      0.004,  // a safety net, not a source (was 0.016)
+    frenzyMul:    2.0,    // every gain is doubled in the final stretch
     superArmor:   true,   // supers resist knockback during their active window
     superArmorHp: 16,     // ...but that armour BREAKS above this much damage,
                           //    so a committed super can be contested
@@ -136,3 +146,14 @@ const W = CFG.view.w, H = CFG.view.h;
 
 /* Per-player accent used for tags, stock pips and slot cards. */
 const PLAYER_TINT = ["#ff5fa2", "#4fe8ff", "#caff6e", "#ffd76b"];
+
+/* 2v2: in a team match every fighter's tag, ring and card wear their team's
+   colour instead of their player colour, so sides read at a glance. */
+const TEAM_TINT = ["#ff4f6a", "#3fa8ff"];
+const TEAM_NAME = ["RED", "BLUE"];
+
+/** True when two fighters are on the same side. Free-for-all has no teams,
+    so there the only ally a fighter has is itself. */
+function allies(a, b) {
+  return a === b || (a.team != null && a.team === b.team);
+}

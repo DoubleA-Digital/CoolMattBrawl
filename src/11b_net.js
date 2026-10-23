@@ -1,37 +1,48 @@
 /* ==========================================================================
-   12b. NET — online play over WebRTC (PeerJS), host-authoritative
+   12b. NET — online play over WebRTC (PeerJS), host-authoritative, 2-4 players
 
    WHY THIS SHAPE
-   The obvious choice for a fighting game is lockstep: both machines run the
+   The obvious choice for a fighting game is lockstep: every machine runs the
    same simulation and only inputs cross the wire. This simulation is not safe
-   to run that way. Stage.toWorld calls Math.cos/Math.sin every frame, and the
-   spec does not require those to be bit-identical between JS engines, so two
-   browsers would drift apart and the fight would silently diverge. Instead:
+   to run that way: the spec does not require Math.sin/cos and friends to be
+   bit-identical between JS engines, so browsers would drift apart and the
+   fight would silently diverge. Instead it is a star:
 
-     host   runs the only real simulation and ships a state snapshot per frame
-     guest  runs no simulation at all; it applies snapshots and renders them
+     host    runs the only real simulation and ships a state snapshot per frame
+             to every guest
+     guests  (up to three) run no simulation at all; each one sends its input
+             to the host, and applies and renders the snapshots that come back
 
-   That costs the guest one round trip of view latency but it cannot desync,
+   That costs a guest one round trip of view latency but it cannot desync,
    which is the right trade for a game played between friends.
+
+   ROOM STATE, NOT MESSAGES
+   The data channels are unreliable, so nothing important is sent once and
+   trusted to arrive. The host re-broadcasts the whole room — seats, picks,
+   teams, stage, and which phase it is in (lobby / match / results) — several
+   times a second, and a guest simply converges on whatever the latest copy
+   says. A dropped "start" just means a guest joins the match a few frames
+   later; it can never leave someone stuck on the wrong screen. Guests resend
+   their own pick the same way until the room reflects it.
 
    INPUT FAIRNESS
    A naive host-authoritative build gives the host zero input delay and the
-   guest a full round trip, which is a real competitive advantage. The host
-   therefore delays its OWN input by netDelay frames so both players act on
-   roughly the same deadline.
+   guests a full round trip, which is a real competitive advantage. The host
+   therefore delays its OWN input by netDelay frames.
 
    EFFECTS
-   FX are not transmitted. The guest derives them from snapshot deltas — a
-   percent that went up is a hit, a stock that went down is a KO, a snapCount
-   that advanced is a Snap-Back. That keeps the protocol small and means a
-   dropped packet costs a particle burst, never desync.
+   Most FX are not transmitted. A guest derives them from snapshot deltas — a
+   percent that went up is a hit, a stock that went down is a KO. Banners are
+   the exception: they carry the move names, so the host forwards them.
    ========================================================================== */
 
 const NET = {
   lib: "https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js",
   prefix: "cmbrawl-",     // namespaces our room codes on the public broker
   netDelay: 3,            // frames the host delays its own input by
-  snapshotEvery: 1,       // send a snapshot every N simulated frames
+  maxGuests: 3,           // four fighters in all
+  roomEvery: 15,          // frames between room-state rebroadcasts
+  pickEvery: 20,          // frames between a guest's pick resends
 };
 
 /** A Pad fed by the wire instead of a keyboard. Same surface as Pad, so a
@@ -64,25 +75,36 @@ function maskFromPad(pad) {
   return m;
 }
 
+const ENT_KINDS = ["orb", "wave", "well", "ballast", "draft"];
+
 const Net = {
   mode: "off",            // off | hosting | joining | connected | error
   role: null,             // "host" | "guest"
   code: "",
-  peer: null, conn: null,
-  status: "",
-  error: "",
-  ping: 0, lastPingAt: 0,
-  guestPick: null,        // character the guest chose
-  hostReady: false,
+  peer: null,
+  status: "", error: "",
+  slot: 0,                // the seat this screen plays: 0 for the host
   frame: 0,
-  /* host: its own input, delayed so the guest is not at a disadvantage */
-  delayBuf: [],
-  /* guest: the two most recent snapshots, for render interpolation */
-  snapPrev: null, snapCur: null,
-  /* guest: what the last snapshot said, so deltas can become effects */
-  lastSeen: null,
-  pendingStart: null,
   libLoaded: false,
+
+  /* ---- host ---- */
+  guests: [],             // { conn, slot, ping, lastPingAt }
+  phase: "lobby",         // lobby | match | results
+  mid: 0,                 // match id: a repeated start is the same match
+  setup: null,            // the start payload of the current match
+  dirty: false,           // room changed: rebroadcast now rather than later
+  roomTick: 0,
+  delayBuf: [],
+  events: [],             // banners raised this frame, forwarded to guests
+
+  /* ---- guest ---- */
+  conn: null,
+  seated: false,          // the host has given us a seat
+  room: null,             // the newest room state, applied in tick()
+  snapCur: null, lastSeen: null,
+  want: null,             // { charId, team } we asked for; resent until the room agrees
+  pickTick: 0,
+  ping: 0, lastPingAt: 0,
 
   get active() { return this.mode === "connected"; },
   get isHost() { return this.role === "host"; },
@@ -109,15 +131,19 @@ const Net = {
   },
 
   reset() {
+    for (const gu of this.guests) { try { gu.conn.close(); } catch (e) {} }
     try { if (this.conn) this.conn.close(); } catch (e) {}
     try { if (this.peer) this.peer.destroy(); } catch (e) {}
-    this.peer = null; this.conn = null;
+    const wasOnline = this.mode !== "off";
+    this.peer = null; this.conn = null; this.guests = [];
     this.mode = "off"; this.role = null; this.code = "";
     this.status = ""; this.error = "";
-    this.guestPick = null; this.hostReady = false;
-    this.frame = 0; this.delayBuf = [];
-    this.snapPrev = this.snapCur = this.lastSeen = null;
-    this.pendingStart = null;
+    this.slot = 0; this.frame = 0; this.delayBuf = []; this.events = [];
+    this.phase = "lobby"; this.mid = 0; this.setup = null; this.dirty = false;
+    this.seated = false; this.room = null; this.want = null;
+    this.snapCur = this.lastSeen = null;
+    this.ping = 0;
+    if (wasOnline && Game.screen !== "match") Game.match = null;
   },
 
   fail(msg) {
@@ -126,37 +152,194 @@ const Net = {
     this.status = "";
   },
 
+  /* ---------------------------------------------------------------- host */
   host() {
     this.reset();
     this.role = "host"; this.mode = "hosting";
     this.code = this.newCode();
-    this.status = "starting up...";
+    this.status = "opening the room...";
+    this.slot = 0;
+    // a fresh room: the host in seat 1, the rest open until people arrive
+    Game.slots = Game.slots.map((s, i) => ({
+      charId: s.charId, mode: i === 0 ? "human" : "off", team: i % 2,
+    }));
     this.loadLib().then(() => {
       this.peer = new window.Peer(NET.prefix + this.code);
-      this.peer.on("open", () => { this.status = "waiting for a player to join"; });
-      this.peer.on("error", e => this.fail(
-        (e && e.type === "unavailable-id") ? "that room code is taken — try again"
-                                           : (e && e.message) || "connection error"));
-      this.peer.on("connection", c => {
-        if (this.conn) { try { c.close(); } catch (e) {} return; }  // one guest only
-        this.conn = c;
-        c.on("open", () => {
-          this.mode = "connected";
-          this.status = "player connected";
-          Snd.uiBig();
-        });
-        c.on("data", d => this.onData(d));
-        c.on("close", () => this.onPeerGone());
-        c.on("error", () => this.onPeerGone());
+      this.peer.on("open", () => {
+        this.mode = "connected";
+        this.status = "room open";
+        this.dirty = true;
       });
+      this.peer.on("error", e => {
+        // a guest dropping can surface here too; only a broker failure is fatal
+        if (this.mode === "connected" && e && e.type === "peer-unavailable") return;
+        this.fail((e && e.type === "unavailable-id") ? "that room code is taken — try again"
+                                                     : (e && e.message) || "connection error");
+      });
+      this.peer.on("connection", c => this.onGuestConnect(c));
     }).catch(e => this.fail(e.message));
   },
 
+  freeSeat() {
+    for (let i = 1; i < 4; i++)
+      if (!this.guests.some(gu => gu.slot === i)) return i;
+    return -1;
+  },
+
+  onGuestConnect(c) {
+    c.on("open", () => {
+      const slot = this.freeSeat();
+      if (slot < 0 || this.guests.length >= NET.maxGuests) {
+        try { c.send({ t: "full" }); } catch (e) {}
+        setTimeout(() => { try { c.close(); } catch (e) {} }, 300);
+        return;
+      }
+      const gu = { conn: c, slot, ping: 0, lastPingAt: 0 };
+      this.guests.push(gu);
+      const s = Game.slots[slot];
+      Game.slots[slot] = { charId: s.mode === "off" ? ROSTER[slot % ROSTER.length].id : s.charId,
+                           mode: "human", team: s.team == null ? slot % 2 : s.team };
+      this.dirty = true;
+      FX.banner(`P${slot + 1} JOINED`, PLAYER_TINT[slot]);
+      Snd.uiBig();
+    });
+    c.on("data", d => {
+      const gu = this.guests.find(x => x.conn === c);
+      if (gu) this.onGuestData(gu, d);
+    });
+    c.on("close", () => this.dropGuest(c));
+    c.on("error", () => this.dropGuest(c));
+  },
+
+  dropGuest(c) {
+    const gu = this.guests.find(x => x.conn === c);
+    if (!gu) return;
+    this.guests.splice(this.guests.indexOf(gu), 1);
+    Game.slots[gu.slot].mode = "off";
+    this.dirty = true;
+    /* Mid-match, their fighter does not vanish — that would hand the match
+       to whoever they were fighting. A CPU takes it over. */
+    const f = Game.match && this.phase === "match" &&
+              Game.match.fighters.find(x => x.slot === gu.slot);
+    if (f && !f.isCPU) {
+      f.isCPU = true;
+      f.pad = new NetPad(f.slot);
+      FX.banner(`P${gu.slot + 1} LEFT — CPU TAKES OVER`, f.tint);
+    } else if (Game.screen === "lobby") {
+      FX.banner(`P${gu.slot + 1} LEFT`, PLAYER_TINT[gu.slot]);
+    }
+  },
+
+  guestCount() { return this.isHost ? this.guests.length : 0; },
+
+  /** Who occupies seat i: "host", "guest", or null for an empty/CPU seat. */
+  seatOf(i) {
+    if (this.isHost) return i === 0 ? "host" : this.guests.some(gu => gu.slot === i) ? "guest" : null;
+    const r = this.room;
+    return r && r.seats ? r.seats[i] : null;
+  },
+  pingOf(i) {
+    if (this.isHost) { const gu = this.guests.find(x => x.slot === i); return gu ? gu.ping : 0; }
+    return i === this.slot ? this.ping : 0;
+  },
+
+  onGuestData(gu, d) {
+    if (!d || typeof d !== "object") return;
+    switch (d.t) {
+      case "pick":
+        // seat changes only between matches
+        if (this.phase === "match") break;
+        if (typeof d.charId === "string" && CHAR_BY_ID[d.charId] &&
+            Game.slots[gu.slot].charId !== d.charId) {
+          Game.slots[gu.slot].charId = d.charId; this.dirty = true;
+        }
+        if ((d.team === 0 || d.team === 1) && Game.slots[gu.slot].team !== d.team) {
+          Game.slots[gu.slot].team = d.team; this.dirty = true;
+        }
+        break;
+      case "in": {
+        if (this.phase !== "match" || !Game.match || d.m !== this.mid) break;
+        const f = Game.match.fighters.find(x => x.slot === gu.slot);
+        if (f && f.pad instanceof NetPad && !f.isCPU) f.pad.setMask(d.k);
+        break;
+      }
+      case "ping": try { gu.conn.send({ t: "pong", ts: d.ts }); } catch (e) {} break;
+      case "pong": gu.ping = Math.round(performance.now() - d.ts); break;
+    }
+  },
+
+  /* ---- host-side lobby edits (the lobby screen calls these) ---- */
+  pick(i, charId) {
+    if (this.isGuest) {
+      if (i !== this.slot) return;
+      Game.slots[i].charId = charId;                  // optimistic; the room confirms
+      this.want = Object.assign({}, this.want, { charId });
+      this.sendPick();
+      return;
+    }
+    Game.slots[i].charId = charId;
+    if (i !== 0 && !this.seatOf(i)) Game.slots[i].mode = "cpu";
+    this.dirty = true;
+  },
+  setTeam(i, team) {
+    if (this.isGuest) {
+      if (i !== this.slot) return;
+      Game.slots[i].team = team;
+      this.want = Object.assign({}, this.want, { team });
+      this.sendPick();
+      return;
+    }
+    Game.slots[i].team = team; this.dirty = true;
+  },
+  setSeatMode(i, mode) {
+    if (!this.isHost || i === 0 || this.seatOf(i)) return;
+    Game.slots[i].mode = mode; this.dirty = true;
+  },
+  setTeams(on) { if (this.isHost) { Game.teams = on; this.dirty = true; } },
+  setStage(i) { if (this.isHost) { Game.stageIndex = i; this.dirty = true; } },
+  setPhase(p) { if (this.isHost) { this.phase = p; this.dirty = true; } },
+
+  roomFor(gu) {
+    return {
+      t: "room", you: gu.slot, phase: this.phase, mid: this.mid,
+      slots: Game.slots.map(s => [s.charId, s.mode, s.team || 0]),
+      seats: [0, 1, 2, 3].map(i => this.seatOf(i)),
+      teams: Game.teams, stage: Game.stageIndex,
+      setup: this.phase === "lobby" ? null : this.setup,
+    };
+  },
+  broadcastRoom() {
+    for (const gu of this.guests) {
+      try { gu.conn.send(this.roomFor(gu)); } catch (e) {}
+    }
+  },
+  sendAll(obj) {
+    for (const gu of this.guests) { try { gu.conn.send(obj); } catch (e) {} }
+  },
+
+  /** Host: announce and start. Everyone builds the same Match from setup. */
+  startMatch() {
+    this.mid++;
+    this.setup = {
+      mid: this.mid,
+      slots: Game.slots.map(s => ({ charId: s.charId, mode: s.mode, team: s.team || 0 })),
+      stage: Game.stageIndex,
+      teams: Game.teams,
+    };
+    this.phase = "match";
+    this.frame = 0;
+    this.delayBuf = [];
+    this.beginLocal(this.setup);
+    this.broadcastRoom();
+  },
+
+  /* --------------------------------------------------------------- guest */
   join(code) {
     this.reset();
     this.role = "guest"; this.mode = "joining";
     this.code = (code || "").toUpperCase();
     this.status = "connecting to " + this.code + "...";
+    this.want = { charId: Game.slots[0].charId };
     this.loadLib().then(() => {
       this.peer = new window.Peer();
       this.peer.on("error", e => this.fail(
@@ -167,109 +350,122 @@ const Net = {
         this.conn = c;
         c.on("open", () => {
           this.mode = "connected";
-          this.status = "connected — waiting for the host";
+          this.status = "connected — taking a seat";
           Snd.uiBig();
-          this.send({ t: "pick", charId: Game.slots[0].charId });
         });
-        c.on("data", d => this.onData(d));
-        c.on("close", () => this.onPeerGone());
-        c.on("error", () => this.onPeerGone());
+        c.on("data", d => this.onHostData(d));
+        c.on("close", () => this.onHostGone());
+        c.on("error", () => this.onHostGone());
       });
     }).catch(e => this.fail(e.message));
   },
 
-  onPeerGone() {
-    if (this.mode === "off") return;
-    const wasPlaying = Game.screen === "match" || Game.screen === "pause";
-    this.fail("the other player disconnected");
-    if (wasPlaying) {
-      Game.match = null;
-      Game.screen = "online";
-    }
+  onHostGone() {
+    if (this.mode === "off" || this.mode === "error") return;
+    this.fail(this.error || "the host closed the room");
+    Game.match = null;
+    Game.screen = "online";
   },
 
   send(obj) {
     if (!this.conn) return;
     try { this.conn.send(obj); } catch (e) { /* a dropped frame is survivable */ }
   },
+  sendPick() {
+    if (!this.want) return;
+    this.send({ t: "pick", charId: this.want.charId, team: this.want.team });
+  },
 
-  /* ------------------------------------------------------------ messages */
-  onData(d) {
+  onHostData(d) {
     if (!d || typeof d !== "object") return;
     switch (d.t) {
-      case "pick":
-        // guest told us which fighter it wants
-        if (this.isHost && typeof d.charId === "string" && CHAR_BY_ID[d.charId])
-          this.guestPick = d.charId;
-        break;
-      case "start":
-        // host is starting the match; mirror its setup exactly
-        if (this.isGuest) this.pendingStart = d;
-        break;
-      case "in":
-        // guest input for the host to apply
-        if (this.isHost && this.guestPad) this.guestPad.setMask(d.k);
-        break;
+      case "room": this.room = d; break;           // applied in tick(), on the game loop
+      case "full": this.error = "that room is full (4 players)"; this.onHostGone(); break;
       case "s":
-        if (this.isGuest) {
-          this.snapPrev = this.snapCur;
-          this.snapCur = d;
-        }
-        break;
-      case "end":
-        if (this.isGuest && Game.match) {
-          Game.toResults(Game.match);
-          Game.screen = "results";
-        }
+        // unordered channel: never step backwards
+        if (d.m !== this.mid) break;
+        if (this.snapCur && this.snapCur.f >= d.f) break;
+        this.snapCur = d;
         break;
       case "ping": this.send({ t: "pong", ts: d.ts }); break;
       case "pong": this.ping = Math.round(performance.now() - d.ts); break;
     }
   },
 
+  /** Guest: converge on the newest room state the host sent. */
+  applyRoom() {
+    const r = this.room;
+    if (!r) return;
+    this.slot = r.you;
+    this.seated = true;
+    Game.teams = !!r.teams;
+    Game.stageIndex = r.stage;
+    Game.slots = r.slots.map(([charId, mode, team], i) => {
+      // keep our own optimistic pick until the host has caught up with it
+      if (i === this.slot && this.want) {
+        return { charId: this.want.charId || charId, mode,
+                 team: this.want.team == null ? team : this.want.team };
+      }
+      return { charId, mode, team };
+    });
+    const mine = r.slots[this.slot];
+    if (this.want && (!this.want.charId || this.want.charId === mine[0]) &&
+        (this.want.team == null || this.want.team === mine[2])) this.want = null;
+
+    if (r.phase === "match" && r.setup && (this.mid !== r.setup.mid || !Game.match)) {
+      if (Game.screen !== "match" || this.mid !== r.setup.mid) this.beginLocal(r.setup);
+    } else if (r.phase === "results" && Game.screen === "match" && Game.match && this.mid === r.mid) {
+      Game.toResults(Game.match);
+    } else if (r.phase === "lobby" && ["match", "results", "pause", "online"].includes(Game.screen)) {
+      Game.match = null;
+      Game.screen = "lobby";
+      Snd.stopMusic();
+    }
+  },
+
+  /* ---------------------------------------------------------- both roles */
+  /** Construct the match described by a start payload. */
+  beginLocal(setup) {
+    this.mid = setup.mid;
+    this.setup = setup;
+    Game.slots = setup.slots.map(s => ({ charId: s.charId, mode: s.mode, team: s.team }));
+    Game.stageIndex = setup.stage;
+    Game.teams = !!setup.teams;
+    Game.match = new Match(Game.slots, STAGES[setup.stage], { teams: setup.teams });
+    Game.screen = "match";
+    this.snapCur = this.lastSeen = null;
+    /* Every human fighter on the host is driven by a NetPad: the guests' by
+       their input messages, the host's own by its delayed local input. */
+    for (const f of Game.match.fighters) if (!f.isCPU) f.pad = new NetPad(f.slot);
+  },
+
   measurePing() {
     const now = performance.now();
-    if (now - this.lastPingAt < 1000) return;
-    this.lastPingAt = now;
-    this.send({ t: "ping", ts: now });
-  },
-
-  /* --------------------------------------------------------- match setup */
-  /** Host: announce and start. Both sides build the same Match. */
-  startMatch() {
-    const payload = {
-      t: "start",
-      slots: Game.slots.map(s => ({ charId: s.charId, mode: s.mode })),
-      stageIndex: Game.stageIndex,
-    };
-    this.send(payload);
-    this.frame = 0;
-    this.delayBuf = [];
-    this.beginLocal(payload);
-  },
-
-  /** Both roles: construct the match described by a start payload. */
-  beginLocal(payload) {
-    Game.slots = payload.slots.map(s => ({ charId: s.charId, mode: s.mode }));
-    Game.stageIndex = payload.stageIndex;
-    Game.match = new Match(Game.slots, STAGES[Game.stageIndex]);
-    Game.screen = "match";
-    this.snapPrev = this.snapCur = this.lastSeen = null;
-
-    /* Slot 0 is the host's fighter, slot 1 is the guest's. Whichever one is
-       not ours is driven by the wire rather than by a keyboard. */
-    const remoteSlot = this.isHost ? 1 : 0;
-    for (const f of Game.match.fighters) {
-      if (f.slot === remoteSlot && !f.isCPU) {
-        f.pad = new NetPad(f.slot);
-        if (this.isHost) this.guestPad = f.pad;
+    if (this.isHost) {
+      for (const gu of this.guests) {
+        if (now - gu.lastPingAt < 1000) continue;
+        gu.lastPingAt = now;
+        try { gu.conn.send({ t: "ping", ts: now }); } catch (e) {}
       }
+    } else if (now - this.lastPingAt >= 1000) {
+      this.lastPingAt = now;
+      this.send({ t: "ping", ts: now });
     }
-    if (this.isGuest) {
-      // the guest simulates nothing, so its music/FX start but its sim never runs
-      this.localSlot = 1;
+  },
+
+  /** Every frame, whatever screen is up. */
+  tick() {
+    if (!this.active) return;
+    this.measurePing();
+    if (this.isHost) {
+      if (this.dirty || ++this.roomTick >= NET.roomEvery) {
+        this.dirty = false; this.roomTick = 0;
+        this.broadcastRoom();
+      }
     } else {
-      this.localSlot = 0;
+      this.applyRoom();
+      // keep asking for our pick until the room shows it
+      if (this.want && ++this.pickTick >= NET.pickEvery) { this.pickTick = 0; this.sendPick(); }
     }
   },
 
@@ -277,34 +473,35 @@ const Net = {
   /** Called from Game.update() instead of match.update() when online. */
   update() {
     if (!this.active || !Game.match) return false;
-    this.measurePing();
 
     if (this.isHost) {
-      /* Delay our own input by netDelay frames so the guest, whose input
-         needs a round trip to arrive, is not systematically late. */
+      /* Delay our own input by netDelay frames so the guests, whose input
+         needs a round trip to arrive, are not systematically late. */
       const me = Game.match.fighters.find(f => f.slot === 0 && !f.isCPU);
       if (me) {
         const live = new Pad(0); live.poll();
         this.delayBuf.push(maskFromPad(live));
-        while (this.delayBuf.length > NET.netDelay) {
-          const m = this.delayBuf.shift();
-          if (!(me.pad instanceof NetPad)) { me.pad = new NetPad(0); }
-          me.pad.setMask(m);
-        }
+        while (this.delayBuf.length > NET.netDelay) me.pad.setMask(this.delayBuf.shift());
       }
       Game.match.update();
       this.frame++;
-      if (this.frame % NET.snapshotEvery === 0) this.send(this.snapshot());
-      if (Game.match.over && Game.match.endTimer <= 1) this.send({ t: "end" });
+      if (this.guests.length) this.sendAll(this.snapshot());
+      this.events.length = 0;
       return true;
     }
 
     // guest: no simulation at all, just present what the host sent
     const pad = new Pad(0); pad.poll();
-    this.send({ t: "in", k: maskFromPad(pad) });
+    this.send({ t: "in", m: this.mid, k: maskFromPad(pad) });
     this.applySnapshot();
     FX.update(Game.match.fighters);
     return true;
+  },
+
+  /** Host: FX.banner calls this so the text reaches the guests too. */
+  forwardBanner(text, color) {
+    if (this.isHost && this.active && this.phase === "match" && this.events.length < 6)
+      this.events.push([text, color]);
   },
 
   /* -------------------------------------------------------- the protocol */
@@ -312,28 +509,31 @@ const Net = {
     const m = Game.match;
     const r2 = v => Math.round(v * 100) / 100;
     return {
-      t: "s",
-      f: this.frame,
-      // stage
-      st: [r2(Stage.tilt), r2(Stage.angVel), Stage.anchorTimer,
-           Stage.snapFlash, Stage.snapCount, Stage.platT],
+      t: "s", m: this.mid, f: this.frame,
+      st: [Stage.platT, Stage.flashT],
       // live platform state, only the fields that can change
       pf: Stage.pfx.map(s => [r2(s.dx), s.present ? 1 : 0, r2(s.heat),
                               r2(s.alpha), s.stood, s.gone]),
-      // match
-      mt: [m.countdown, m.timeLeft, m.over ? 1 : 0, m.endTimer],
-      // fighters
+      mt: [m.countdown, m.timeLeft, m.over ? 1 : 0, m.endTimer,
+           m.suddenDeath ? 1 : 0, m.frenzy ? 1 : 0,
+           m.winner ? m.winner.slot : -1, m.winTeam == null ? -1 : m.winTeam,
+           m.endedBy, m.frames],
+      en: Entities.list.map(e => [ENT_KINDS.indexOf(e.kind), e.owner.slot,
+                                  Math.round(e.x), Math.round(e.y), r2(e.r), e.life,
+                                  e.dir || 0, e.landed ? 1 : 0, e.storm ? 1 : 0, e.max || 0]),
+      ev: this.events.length ? this.events.slice() : undefined,
       fs: m.fighters.map(f => ({
         s: f.slot,
         x: r2(f.x), y: r2(f.y), vx: r2(f.vx), vy: r2(f.vy),
-        fa: f.facing, st: f.state, sp: f.percent, sk: f.stocks,
+        fa: f.facing, st: f.state, tt: f.stateTimer, sp: r2(f.percent), sk: f.stocks,
         sh: r2(f.shield), mr: r2(f.meter), hs: f.hitstun, iv: f.invuln,
         gr: f.grounded ? 1 : 0, al: f.alive ? 1 : 0, rt: f.respawnTimer,
         hf: f.hitFlash, cd: f.specialCD, rp: r2(f.runPhase), at: f.animTime,
+        ag: f.anchorGlow, pn: f.pinned ? 1 : 0, cpu: f.isCPU ? 1 : 0,
         ak: f.attack ? f.attack.kind : null,
-        an: f.attack ? f.attack.data.name : null,
         att: f.attack ? f.attack.t : 0,
         ato: f.attack ? f.attack.total : 0,
+        sx: [f.stats.kos, f.stats.falls, r2(f.stats.damageDealt), f.stats.supers, r2(f.stats.bestHit)],
       })),
     };
   },
@@ -344,13 +544,10 @@ const Net = {
     const snap = this.snapCur;
     if (!snap || !Game.match) return;
     const m = Game.match;
+    const fresh = !this.lastSeen || this.lastSeen.f !== snap.f;
 
     // ---- stage ----
-    Stage.prevTilt = Stage.tilt;
-    Stage.tilt = snap.st[0]; Stage.angVel = snap.st[1];
-    Stage.anchorTimer = snap.st[2]; Stage.snapFlash = snap.st[3];
-    const prevSnaps = Stage.snapCount;
-    Stage.snapCount = snap.st[4]; Stage.platT = snap.st[5];
+    Stage.platT = snap.st[0]; Stage.flashT = snap.st[1];
     if (snap.pf) snap.pf.forEach((p, i) => {
       const s = Stage.pfx[i]; if (!s) return;
       s.dx = p[0]; s.present = !!p[1]; s.heat = p[2];
@@ -359,34 +556,58 @@ const Net = {
     Stage.rebuild();
 
     // ---- match ----
-    m.countdown = snap.mt[0]; m.timeLeft = snap.mt[1];
-    m.over = !!snap.mt[2]; m.endTimer = snap.mt[3];
+    const mt = snap.mt;
+    m.countdown = mt[0]; m.timeLeft = mt[1];
+    m.over = !!mt[2]; m.endTimer = mt[3];
+    m.suddenDeath = !!mt[4]; m.frenzy = !!mt[5];
+    m.winner = mt[6] >= 0 ? m.fighters.find(f => f.slot === mt[6]) || null : null;
+    m.winTeam = mt[7] >= 0 ? mt[7] : null;
+    m.endedBy = mt[8]; m.frames = mt[9];
+
+    // ---- entities: rebuilt wholesale, they are only drawn here ----
+    const bySlot = s => m.fighters.find(f => f.slot === s);
+    Entities.list = (snap.en || []).map(e => ({
+      kind: ENT_KINDS[e[0]], owner: bySlot(e[1]), x: e[2], y: e[3], r: e[4],
+      life: e[5], dir: e[6], landed: !!e[7], storm: !!e[8], max: e[9], hitIds: [],
+    })).filter(e => e.owner && e.kind);
+
+    // ---- banners the host raised ----
+    if (fresh && snap.ev) for (const [text, color] of snap.ev) FX.banner(text, color);
 
     // ---- fighters ----
     for (const fd of snap.fs) {
-      const f = m.fighters.find(x => x.slot === fd.s);
+      const f = bySlot(fd.s);
       if (!f) continue;
-      const before = this.lastSeen && this.lastSeen[fd.s];
+      const before = this.lastSeen && this.lastSeen.fs[fd.s];
       f.px = f.x; f.py = f.y;                       // keep render interpolation
       f.x = fd.x; f.y = fd.y; f.vx = fd.vx; f.vy = fd.vy;
-      f.facing = fd.fa; f.state = fd.st;
+      f.facing = fd.fa; f.state = fd.st; f.stateTimer = fd.tt;
       f.percent = fd.sp; f.stocks = fd.sk;
       f.shield = fd.sh; f.meter = fd.mr;
       f.hitstun = fd.hs; f.invuln = fd.iv;
       f.grounded = !!fd.gr; f.alive = !!fd.al;
       f.respawnTimer = fd.rt; f.hitFlash = fd.hf;
       f.specialCD = fd.cd; f.runPhase = fd.rp; f.animTime = fd.at;
+      f.anchorGlow = fd.ag; f.pinned = !!fd.pn; f.isCPU = !!fd.cpu;
+      f.stats.kos = fd.sx[0]; f.stats.falls = fd.sx[1]; f.stats.damageDealt = fd.sx[2];
+      f.stats.supers = fd.sx[3]; f.stats.bestHit = fd.sx[4];
+      // the renderer needs a floor under grounded fighters for the shadow
+      if (f.grounded) {
+        let gs = null;
+        for (const s of Stage.segs) { const y = Stage.surfaceY(s, f.x); if (y !== null && Math.abs(y - f.feetY) < 4) gs = s; }
+        f.groundSeg = gs;
+      } else f.groundSeg = null;
 
       // rebuild just enough of the attack for the renderer to pose correctly
       if (fd.ak) {
-        const move = fd.ak === "light" ? f.ch.light : fd.ak === "heavy" ? f.ch.heavy
-                   : fd.ak === "special" ? f.ch.special : f.ch.super;
+        const move = fd.ak === "grab" ? { startup: CFG.grabStartup, active: CFG.grabActive, r: 0 }
+                   : f.ch[fd.ak];
         f.attack = { kind: fd.ak, data: move, t: fd.att, total: fd.ato,
                      hitIds: null, hitId: 0 };
       } else f.attack = null;
 
       /* ---- effects from deltas ---- */
-      if (before) {
+      if (before && fresh) {
         const dmg = f.percent - before.sp;
         if (dmg > 0.4) {
           FX.hitmark(f.x, f.y, dmg);
@@ -394,17 +615,14 @@ const Net = {
           FX.damageText(f.x, f.y - 24, dmg, f.ch.accent);
           FX.shake(3 + dmg * 0.6);
           Snd.hit(dmg);
+          if (dmg >= 13) Snd.bigHit();
         }
         if (f.stocks < before.sk) {
-          FX.banner(f.stocks > 0 ? "KO!" : `${f.ch.name} OUT!`, f.tint);
           FX.burst(f.x, f.y, 26, f.tint, 9);
           FX.flash("#ffffff", 0.25);
           Snd.ko();
         }
-        if (fd.ak === "super" && before.ak !== "super") {
-          FX.banner(f.ch.super.name.toUpperCase(), f.ch.color);
-          Snd.superCharge();
-        }
+        if (fd.ak === "super" && before.ak !== "super") Snd.superCharge();
       }
       if (f.hitstun > 0 || fd.ak === "super")
         f.trail.push({ x: f.x, y: f.y, facing: f.facing, life: 10 });
@@ -412,15 +630,10 @@ const Net = {
         if (--f.trail[i].life <= 0) f.trail.splice(i, 1);
     }
 
-    if (Stage.snapCount > prevSnaps) {
-      FX.banner("SNAP-BACK!", "#ffffff");
-      FX.ring(Stage.pivot.x, Stage.pivot.y, 60, 560, "#ffffff", 5);
-      FX.shake(26); FX.flash("#ffffff", 0.25);
-      Snd.snapback();
-    }
-
     // remember this frame so the next one can diff against it
-    this.lastSeen = {};
-    for (const fd of snap.fs) this.lastSeen[fd.s] = fd;
+    if (fresh) {
+      this.lastSeen = { f: snap.f, fs: {} };
+      for (const fd of snap.fs) this.lastSeen.fs[fd.s] = fd;
+    }
   },
 };

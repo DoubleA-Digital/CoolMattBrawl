@@ -44,11 +44,12 @@ const FX = {
   },
   hitPause(f) { this.pause = Math.max(this.pause, f); },
   flash(col, amt) { this.flashCol = col; this.flashAmt = Math.max(this.flashAmt, amt); },
-  /** Kick the chromatic aberration. Heavy hits, Snap-Backs, KOs and supers. */
+  /** Kick the chromatic aberration. Heavy hits, KOs and supers. */
   punch(amt) { this.chroma = Math.min(1, this.chroma + amt); },
   banner(text, color) {
     if (!text) return;
     this.bannerText = text; this.bannerTimer = 72; this.bannerColor = color || "#fff";
+    Net.forwardBanner(text, this.bannerColor);    // online guests see it too
   },
 
   get density() { return Settings.get("particles"); },

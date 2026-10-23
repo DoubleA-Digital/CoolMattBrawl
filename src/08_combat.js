@@ -12,21 +12,29 @@ const Entities = {
   orb(owner, x, y, vx, vy, move) {
     this.list.push({ kind: "orb", owner, x, y, vx, vy, move, life: 90, r: 16, hitIds: [] });
   },
-  shockwave(owner, x, y, dir, move) {
-    this.list.push({ kind: "wave", owner, x, y, dir, move, life: 70, r: 46, hitIds: [] });
+  /** A shockwave runs along the platform it was born on and dies at that
+      platform's edge — it no longer snaps down to the main deck. */
+  shockwave(owner, x, y, dir, move, plat) {
+    this.list.push({ kind: "wave", owner, x, y, dir, move, plat: plat || null,
+                     life: 70, r: 46, hitIds: [] });
   },
   well(owner, x, y, move) {
     this.list.push({ kind: "well", owner, x, y, move, life: 62, r: 38, pull: 180, hitIds: [] });
   },
   /** Ballast's cube: falls, lands on the deck, then sits there as a planted
-      obstacle that still hits anyone who walks into it until it expires. */
-  ballast(owner, x, y, vx, w, life, move) {
+      obstacle that still hits anyone who walks into it until it expires.
+      passAbove: a cube called down on a foe drops through any soft platform
+      above that height, so a shelf overhead cannot catch it. */
+  ballast(owner, x, y, vx, w, life, move, passAbove) {
     this.list.push({ kind: "ballast", owner, x, y, vx, vy: -2, w, move,
-                     life, r: 22, landed: false, hitIds: [] });
+                     life, r: 22, landed: false, passAbove: passAbove == null ? -Infinity : passAbove,
+                     hitIds: [] });
   },
-  /** Kite's updraft: a rising column that carries anyone inside it upward. */
-  updraft(owner, x, y, life) {
-    this.list.push({ kind: "draft", owner, x, y, life, r: 62, hitIds: [] });
+  /** Kite's updraft: a rising column that carries anyone inside it upward.
+      A storm column (her super) lifts only her foes, and lifts them hard. */
+  updraft(owner, x, y, life, storm) {
+    this.list.push({ kind: "draft", owner, x, y, life, max: life, storm: !!storm,
+                     r: storm ? 54 : 62, hitIds: [] });
   },
 
   update(fighters) {
@@ -46,6 +54,7 @@ const Entities = {
           e.x += e.vx; e.y += e.vy; e.vy += 0.72; e.vx *= 0.995;
           for (const seg of Stage.segs) {
             const sy = Stage.surfaceY(seg, e.x);
+            if (sy != null && !seg.solid && sy < e.passAbove) continue;
             if (sy != null && e.y + e.r >= sy && e.y + e.r <= sy + 46 && e.vy > 0) {
               e.y = sy - e.r; e.vy = 0; e.vx = 0; e.landed = true;
               FX.burst(e.x, e.y + e.r, 16, e.owner.ch.color, 6);
@@ -79,20 +88,28 @@ const Entities = {
           FX.spark(e.x + rnd(-e.r, e.r), e.y + rnd(-40, 60), e.owner.ch.accent);
         for (const f of fighters) {
           if (!f.alive || f.state === ST.DEAD) continue;
+          if (e.storm && allies(f, e.owner)) continue;
           if (Math.abs(f.x - e.x) > e.r + f.ch.hurt) continue;
           if (Math.abs(f.y - e.y) > 150) continue;
-          // her own lift is stronger: this is Kite's recovery tool
-          const lift = f === e.owner ? -1.15 : -0.6;
-          f.vy = Math.max(f.vy + lift, -13);
+          if (e.storm) {
+            // caught in the storm: carried up and held over the column
+            if (f.intangible()) continue;
+            f.vy = Math.max(f.vy - 1.05, -9);
+            f.vx = f.vx * 0.86 + (e.x - f.x) * 0.02;
+          } else {
+            // her own lift is stronger: this is Kite's recovery tool
+            const lift = f === e.owner ? -1.15 : -0.6;
+            f.vy = Math.max(f.vy + lift, -13);
+          }
           f.grounded = false; f.groundSeg = null;
         }
 
       } else if (e.kind === "wave") {
-        // rides the deck, following the tilted surface
+        // runs along its own platform and stops dead at that platform's edge
         e.x += e.dir * 13;
         let best = null;
         for (const seg of Stage.segs) {
-          if (!seg.main) continue;
+          if (e.plat ? seg.local !== e.plat : !seg.main) continue;
           const sy = Stage.surfaceY(seg, e.x);
           if (sy !== null) best = sy;
         }
@@ -109,7 +126,7 @@ const Entities = {
         e.r = 38 + Math.sin(t * Math.PI) * 54;
         // drag everyone toward the singularity
         for (const f of fighters) {
-          if (f === e.owner || !f.alive || f.state === ST.DEAD) continue;
+          if (allies(f, e.owner) || !f.alive || f.state === ST.DEAD) continue;
           const d = dist(e.x, e.y, f.x, f.y);
           if (d < e.pull && d > 1) {
             const k = (1 - d / e.pull) * 0.9;
@@ -131,7 +148,7 @@ const Entities = {
           FX.ring(e.x, e.y, 10, 300, e.owner.ch.color, 4);
           FX.burst(e.x, e.y, 50, e.owner.ch.color, 14);
           for (const f of fighters) {
-            if (f === e.owner || !f.alive || f.state === ST.DEAD || f.intangible()) continue;
+            if (allies(f, e.owner) || !f.alive || f.state === ST.DEAD || f.intangible()) continue;
             if (dist(e.x, e.y, f.x, f.y) < 190) Combat.land(e.owner, f, e.move, e.x, e.y);
           }
         }
@@ -147,7 +164,7 @@ const Entities = {
   /** Returns true if the entity should be consumed by the hit. */
   _touch(e, fighters, consume) {
     for (const f of fighters) {
-      if (f === e.owner || !f.alive || f.state === ST.DEAD) continue;
+      if (allies(f, e.owner) || !f.alive || f.state === ST.DEAD) continue;
       if (f.intangible() || e.hitIds.includes(f.slot)) continue;
       if (dist(e.x, e.y, f.x, f.y) < e.r + f.ch.hurt) {
         e.hitIds.push(f.slot);
@@ -187,7 +204,20 @@ const Entities = {
         g.fillRect(-e.r + 5, -3, e.r * 2 - 10, 2);
         rivets(g, -e.r + 7, -e.r + 7, 3, (e.r * 2 - 14) / 2, e.owner.ch.accent);
         g.restore();
-        // a weight gauge under a resting cube, so its pull on the pivot is legible
+        /* Falling: a target reticle on the floor it will hit, so a cube
+           dropped from off-screen is fair. Resting: a fuse bar showing how
+           long it will stay. */
+        if (!e.landed) {
+          const fy = Stage.floorBelow(e.x, e.y + e.r);
+          if (fy !== null) {
+            g.globalCompositeOperation = "lighter";
+            g.globalAlpha = 0.45 + 0.35 * Math.abs(Math.sin(e.life * 0.3));
+            g.strokeStyle = c; g.lineWidth = 2.5;
+            g.beginPath(); g.ellipse(e.x, fy - 2, e.r * 1.2, 5, 0, 0, 7); g.stroke();
+            g.beginPath(); g.moveTo(e.x - e.r * 1.6, fy - 2); g.lineTo(e.x - e.r * 0.6, fy - 2);
+            g.moveTo(e.x + e.r * 0.6, fy - 2); g.lineTo(e.x + e.r * 1.6, fy - 2); g.stroke();
+          }
+        }
         if (e.landed) {
           g.globalCompositeOperation = "lighter";
           g.strokeStyle = hexA(c, 0.5); g.lineWidth = 2;
@@ -197,7 +227,7 @@ const Entities = {
         }
 
       } else if (e.kind === "draft") {
-        const a = clamp(e.life / 110, 0, 1);
+        const a = clamp(e.life / 110, 0, 1) * (e.storm ? 1.5 : 1);
         const q = g.createLinearGradient(0, e.y + 90, 0, e.y - 120);
         q.addColorStop(0, hexA(e.owner.ch.accent, 0));
         q.addColorStop(0.4, hexA(c, 0.26 * a));
@@ -254,10 +284,15 @@ const Entities = {
 
 /* ---------------------------------------------------------------- combat */
 const Combat = {
-  nearestFoe(f) {
-    let best = null, bd = Infinity;
-    for (const o of Match.current.fighters) {
-      if (o === f || !o.alive || o.state === ST.DEAD) continue;
+  /** Every live fighter that f is allowed to hit. */
+  foes(f) {
+    return Match.current.fighters.filter(o =>
+      !allies(o, f) && o.alive && o.state !== ST.DEAD);
+  },
+  /** The closest foe, optionally only within range. Teammates never count. */
+  nearestFoe(f, range) {
+    let best = null, bd = range || Infinity;
+    for (const o of this.foes(f)) {
       const d = dist(f.x, f.y, o.x, o.y);
       if (d < bd) { bd = d; best = o; }
     }
@@ -272,7 +307,7 @@ const Combat = {
       const hb = atk.hitboxWorld();
 
       for (const def of fighters) {
-        if (def === atk || !def.alive || def.state === ST.DEAD) continue;
+        if (allies(def, atk) || !def.alive || def.state === ST.DEAD) continue;
         if (def.state === ST.GRABBED && def.grabbedBy === atk) continue;
         if (a.hitIds && a.hitIds.includes(def.slot)) continue;
         if (dist(hb.x, hb.y, def.x, def.y) > hb.r + def.ch.hurt) continue;
@@ -291,8 +326,10 @@ const Combat = {
     }
   },
 
-  land(atk, def, move, hx, hy, hbR) {
-    const dirX = def.x >= atk.x ? 1 : -1;
+  /** dirOverride sends the hit a fixed way (-1 or 1) instead of away from
+      the attacker — Pivot's Tipping Point throws foes off their own side. */
+  land(atk, def, move, hx, hy, hbR, dirOverride) {
+    const dirX = dirOverride || (def.x >= atk.x ? 1 : -1);
     const isSuper = move === (atk.ch.super) || (atk.attack && atk.attack.kind === "super" && atk.attack.data === move);
     const K = CFG.skill;
 
@@ -332,6 +369,7 @@ const Combat = {
 
     def.applyKnockback(Math.cos(rad) * mag * dirX, -Math.sin(rad) * mag, dmg, mag, atk);
     atk.stats.damageDealt += dmg;
+    atk.stats.bestHit = Math.max(atk.stats.bestHit, dmg);
     atk.addMeter(dmg * CFG.meter.onDeal);
     atk.recordMove(move);
     if (move.onHit) move.onHit(atk, def);
@@ -362,6 +400,20 @@ const Combat = {
     }
     FX.damageText(hx, hy - 24, dmg, tip ? "#ffffff" : atk.ch.accent);
     Snd.hit(dmg);
+
+    /* SMASH: a hit strong enough that it will probably take the stock gets a
+       beat of its own — longer freeze, a white pop, and a smoke trail behind
+       whoever is flying. Countered, armoured and planted hits never set it
+       off, because they never set the victim flying. */
+    if (mag >= CFG.smashKb && def.state === ST.HITSTUN && def.lastHitBy === atk) {
+      FX.hitPause(pause + 7);
+      FX.flash("#ffffff", 0.22);
+      FX.punch(0.6);
+      FX.ring(hx, hy, 10, 160, "#ffffff", 4);
+      FX.damageText(hx, hy - 62, "SMASH!", "#ffffff");
+      Snd.bigHit();
+      def.launchFx = 40;
+    }
     if (dmg >= 13) { Snd.bigHit(); FX.flash(atk.ch.color, 0.12); FX.punch(0.5); }
     else if (dmg >= 7) FX.punch(0.22);
 
@@ -393,7 +445,7 @@ const CPU = {
     };
     const press = b => { ai.cur[b] = true; };
 
-    const foes = match.fighters.filter(o => o !== f && o.alive && o.state !== ST.DEAD);
+    const foes = Combat.foes(f);
     if (!foes.length) return inp;
     let target = foes[0], bd = Infinity;
     for (const o of foes) { const d = dist(f.x, f.y, o.x, o.y); if (d < bd) { bd = d; target = o; } }
@@ -411,20 +463,15 @@ const CPU = {
       return inp;
     }
 
-    // --- climb uphill when the deck is steep ---
-    const tiltSign = Math.sign(Stage.tilt);
-    if (Math.abs(Stage.tilt) > Stage.cfg.limit * 0.62 && onStage &&
-        Math.sign(f.x - centerX) === tiltSign && Math.abs(f.x - centerX) > halfDeck * 0.55) {
-      const dir = tiltSign > 0 ? "left" : "right";
-      press(dir); inp.ax = dir === "right" ? 1 : -1;
-      if (ai.t % 30 < 2 && f.ch.id !== "BOLDER") press("up");
-      return inp;
-    }
-
     const dx = target.x - f.x, dy = target.y - f.y, adx = Math.abs(dx);
 
     // --- super when it's up and the target is worth it ---
-    if (f.meterFull && Math.random() < CFG.cpu.superChance && (adx < 320 || f.ch.id === "PIVOT")) {
+    /* Supers have different ideal ranges: some reach across the stage, some
+       only touch whoever is close. A CPU that fires them blind wastes them. */
+    const superRange = { ZIP: 900, BALLAST: 900, KITE: 900, HUSK: 460,
+                         PIVOT: 260, ORBIT: 300, MIRA: 120, BOLDER: 200 }[f.ch.id] || 320;
+    if (f.meterFull && Math.random() < CFG.cpu.superChance && bd < superRange &&
+        (f.ch.id !== "BOLDER" || f.grounded)) {
       press("super"); return inp;
     }
 
@@ -444,26 +491,20 @@ const CPU = {
     } else if (inHeavy && Math.random() < 0.16) press("heavy");
 
     if (f.specialCD <= 0 && Math.random() < 0.012) {
-      const t = Math.abs(Stage.balance());
+      const facingFoe = Math.sign(dx) === f.facing;
+      const nearEdge = Math.abs(target.x - centerX) > halfDeck * 0.6;
       switch (f.ch.id) {
         case "BOLDER": if (adx < 120) press("special"); break;
-        case "ZIP":    if (t > 0.4 || adx < 170) press("special"); break;
-        case "ORBIT":  if (t > 0.45 || adx < 260) press("special"); break;
-        case "PIVOT":  if (t > 0.2) press("special"); break;
-        // drop a cube on whichever side is already heavy, to push it over
+        case "ZIP":    if (adx < 170) press("special"); break;
+        case "ORBIT":  if (adx < 260) press("special"); break;
+        // swap when the foe is the one closer to the edge
+        case "PIVOT":  if (facingFoe && adx < 260 && Math.abs(dy) < 40 && nearEdge) press("special"); break;
         case "BALLAST": if (adx < 340) press("special"); break;
-        // ride an updraft when recovering, or to escape a steep deck
-        case "KITE":    if (!f.grounded || t > 0.5) press("special"); break;
-        // plant only when the deck is leaning his way and a foe is close
-        case "HUSK":    if (adx < 150 && t > 0.15) press("special"); break;
+        case "KITE":    if (!f.grounded) press("special"); break;
+        case "HUSK":    if (adx < 150) press("special"); break;
         // hold the counter when someone is in swinging range
         case "MIRA":    if (adx < 90) press("special"); break;
       }
-    }
-    if (f.state === ST.ATTACK && f.ch.id === "PIVOT" && f.attack && f.attack.kind === "special") {
-      press("special");
-      const side = Math.sign(target.x - centerX) || 1;
-      if (side > 0) { press("right"); inp.ax = 1; } else { press("left"); inp.ax = -1; }
     }
     if (f.state === ST.GRABBED && ai.t % 3 === 0) press("light");
     return inp;
