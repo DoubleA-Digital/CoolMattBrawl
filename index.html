@@ -8003,9 +8003,14 @@ class RtcPeer extends Emitter {
    KOs still come only from the host — while the host says a guest is being
    hit, grabbed or is out, the prediction stands aside entirely.
 
-   INPUT FAIRNESS
-   The host delays its OWN input by netDelay frames, so the round trip its
-   guests' hits still pay is not a pure advantage to the host.
+   HIDING THE REST
+   With their own fighter predicted, what a guest still waited on was hits,
+   specials, and everyone else. So: their swing shows its spark and sound the
+   instant it connects on their screen (the host still decides the damage);
+   specials that only affect the user are predicted like movement; and every
+   other fighter is drawn projected forward by half the round trip using its
+   own velocity, so it appears where it is now rather than where it was.
+   The host plays with no input delay at all.
 
    EFFECTS
    Most FX are not transmitted. A guest derives them from snapshot deltas — a
@@ -8015,7 +8020,8 @@ class RtcPeer extends Emitter {
 
 const NET = {
   Peer: null,             // transport override for the headless tests; RtcPeer otherwise
-  netDelay: 2,            // frames the host delays its own input by
+  netDelay: 0,            // frames the host delays its own input by (none)
+  projectMax: 8,          // frames other fighters may be projected ahead
   inHistory: 10,          // inputs repeated in every message, so a lost one is never missed
   queueMax: 3,            // host: inputs a guest may be buffered behind before it catches up
   replayMax: 90,          // guest: never replay more frames than this; just adopt the host state
@@ -8471,6 +8477,7 @@ const Net = {
     this.snapCur = this.lastSeen = null;
     this.snapAt = performance.now();
     this.seq = 0; this.hist = []; this.predicting = false;
+    this.ease = {}; this.hitShownAt = {}; this.lagFrames = null;
     /* Every human fighter on the host is driven by a NetPad: the guests' by
        their input messages, the host's own by its delayed local input. */
     for (const f of Game.match.fighters) if (!f.isCPU) f.pad = new NetPad(f.slot);
@@ -8652,19 +8659,32 @@ const Net = {
 
     // ---- entities: rebuilt wholesale, they are only drawn here ----
     const bySlot = s => m.fighters.find(f => f.slot === s);
-    /* Over the relay, snapshots arrive ~8 times a second instead of 60. Each
-       fighter glides from where it was drawn toward the newest snapshot over
-       one relay interval, instead of jumping 8 times a second. */
-    const relayed = !!(this.conn && this.conn.relay);
-    const glide = clamp((performance.now() - (this.snapAt || 0)) / RTC.relaySnapEvery, 0, 1);
-    this.from = this.from || {};
+    /* Every snapshot is already half a round trip old when it lands, and over
+       the relay the next one is up to 125 ms away. Other fighters are drawn
+       projected forward from their snapshot by that age, using their own
+       velocity and gravity, so they appear where they are now. When a new
+       snapshot disagrees with the projection, the difference is eased out
+       over a few frames instead of popping. */
+    /* How stale the snapshot is. The best live measure is our own input
+       stream: inputs sent minus inputs the host reports applied is the round
+       trip in frames, refreshed every snapshot (the ping only updates once a
+       second). Half of it is how far behind the snapshot already is. */
+    const mine = snap.fs.find(x => x.s === this.slot);
+    if (fresh && mine && mine.aq) {
+      const rtt = clamp(this.seq - mine.aq, 0, 40);
+      this.lagFrames = this.lagFrames == null ? rtt : lerp(this.lagFrames, rtt, 0.1);
+    }
+    const halfTrip = this.lagFrames != null ? this.lagFrames / 2 : (this.ping || 0) / 33.3;
+    const age = clamp(halfTrip + (performance.now() - (this.snapAt || 0)) / 16.67, 0, NET.projectMax);
+    this.ease = this.ease || {};
     Entities.list = (snap.en || []).map(e => ({
       kind: ENT_KINDS[e[0]], owner: bySlot(e[1]), x: e[2], y: e[3], r: e[4],
       life: e[5], dir: e[6], landed: !!e[7], storm: !!e[8], max: e[9], hitIds: [],
     })).filter(e => e.owner && e.kind);
 
-    // ---- banners the host raised ----
-    if (fresh && snap.ev) for (const [text, color] of snap.ev) FX.banner(text, color);
+    // ---- banners the host raised (a predicted special already showed its own) ----
+    if (fresh && snap.ev) for (const [text, color] of snap.ev)
+      if (!(FX.bannerText === text && FX.bannerTimer > 40)) FX.banner(text, color);
 
     // ---- fighters ----
     for (const fd of snap.fs) {
@@ -8678,11 +8698,19 @@ const Net = {
       }
       if (fd.s === this.slot) this.predicting = false;
       f.px = f.x; f.py = f.y;                       // keep render interpolation
-      if (fresh) this.from[fd.s] = { x: f.x, y: f.y };
-      const fr = this.from[fd.s];
-      if (relayed && fr && Math.hypot(fd.x - fr.x, fd.y - fr.y) < 300) {
-        f.x = lerp(fr.x, fd.x, glide); f.y = lerp(fr.y, fd.y, glide);
-      } else { f.x = fd.x; f.y = fd.y; }               // teleports and respawns snap
+      const p = this.project(f, fd, age);
+      const e = this.ease[fd.s] || (this.ease[fd.s] = { x: 0, y: 0, px: null, py: null, vx: 0, vy: 0 });
+      if (fresh && e.px !== null) {
+        /* Only the SURPRISE is eased: where the last projection would have
+           carried the fighter this frame, versus where the new one puts it.
+           Ordinary motion passes straight through, so easing adds no lag. */
+        const jx = e.px + e.vx - p.x, jy = e.py + e.vy - p.y;
+        if (Math.hypot(jx, jy) > 120) e.x = e.y = 0;      // a teleport or respawn: snap
+        else { e.x += jx; e.y += jy; }
+      }
+      e.x *= 0.72; e.y *= 0.72;
+      e.px = p.x; e.py = p.y; e.vx = fd.vx; e.vy = fd.vy;
+      f.x = p.x + e.x; f.y = p.y + e.y;
       f.vx = fd.vx; f.vy = fd.vy;
       f.facing = fd.fa; f.state = fd.st; f.stateTimer = fd.tt;
       f.percent = fd.sp; f.stocks = fd.sk;
@@ -8738,15 +8766,53 @@ const Net = {
   canPredict(fd, m) {
     if (m.countdown > 0 || m.over || !fd.al) return false;
     if (["hitstun", "grabbed", "grabbing", "dead", "respawn", "shieldbreak"].includes(fd.st)) return false;
-    if (fd.ak === "special" || fd.ak === "super" || fd.ak === "grab") return false;
+    if (fd.ak === "super") return false;
+    if (fd.ak === "special" && !this.ownSpecialSafe()) return false;
     return true;
+  },
+  /** Specials that only touch their user (and spawn things the host will
+      send anyway) are safe to predict. Pivot's swap moves another fighter. */
+  ownSpecialSafe() {
+    const f = Game.match && Game.match.fighters.find(x => x.slot === this.slot);
+    return !!f && SAFE_SPECIALS.includes(f.ch.id);
+  },
+  noPredictMask() { return this.ownSpecialSafe() ? SUPER_MASK : SUPER_MASK | SPECIAL_MASK; },
+
+  /** Where a fighter is now, projected forward `frames` from its snapshot. */
+  project(f, fd, frames) {
+    const n = Math.round(frames);
+    const moving = !fd.pn && fd.al && ["idle", "run", "air", "hitstun", "airdodge", "attack", "roll"].includes(fd.st);
+    if (!n || !moving) return { x: fd.x, y: fd.y };
+    const ch = f.ch;
+    let x = fd.x, y = fd.y, vx = fd.vx, vy = fd.vy;
+    const air = !fd.gr;
+    for (let i = 0; i < n; i++) {
+      if (air && fd.st !== "airdodge") {
+        vy = Math.min(vy + CFG.gravity * ch.fallMul, CFG.maxFall * ch.fallMul * (fd.ff ? CFG.fastFallMul : 1));
+        vx *= CFG.airDrag;
+      }
+      x += vx; y += vy;
+    }
+    if (air && vy >= 0) {
+      // don't project anyone through the floor they are about to land on
+      const floor = Stage.floorBelow(fd.x, fd.y + ch.size.h / 2);
+      if (floor !== null && y + ch.size.h / 2 > floor) y = floor - ch.size.h / 2;
+    } else if (!air) {
+      // grounded: stay on this platform, at its height
+      y = fd.y;
+      let seg = null;
+      for (const s of Stage.segs) { const sy = Stage.surfaceY(s, fd.x); if (sy !== null && Math.abs(sy - (fd.y + ch.size.h / 2)) < 4) seg = s; }
+      if (seg) x = clamp(x, Math.min(seg.ax, seg.bx), Math.max(seg.ax, seg.bx));
+    }
+    return { x, y };
   },
 
   /** Returns true when it has taken care of this fighter for the frame. */
   predictOwn(f, fd, fresh, m) {
     if (!this.canPredict(fd, m)) return false;
-    // a special/super/grab the guest just pressed is the host's to start
-    if (f.attack && ["special", "super", "grab"].includes(f.attack.kind)) return false;
+    // a super (or an unsafe special) the guest just pressed is the host's to start
+    if (f.attack && (f.attack.kind === "super" ||
+        (f.attack.kind === "special" && !this.ownSpecialSafe()))) return false;
 
     /* The host is frozen in a hit-pause: it is applying no inputs, so neither
        does the prediction — the fighter holds where the host has it. */
@@ -8767,8 +8833,41 @@ const Net = {
       this.silently(() => { for (const e of pending) this.stepOwn(f, e[1]); });
     }
     this.stepOwn(f, this.liveMask);                  // this frame, with sound and FX
+    this.predictHits(f);
     this.predicting = true;
     return true;
+  },
+
+  /* The instant a predicted swing overlaps someone on this screen, show the
+     impact — spark, ring, sound, shake. The host still decides whether it
+     really hit and for how much; its confirmation then shows only the damage
+     number, so a hit never plays twice. */
+  predictHits(f) {
+    const a = f.attack;
+    if (!a || !f.hitboxActive() || a.kind === "grab") return;
+    const hb = f.hitboxWorld();
+    const now = performance.now();
+    this.hitShownAt = this.hitShownAt || {};
+    const again = a.data.hits > 1 ? 55 : 320;          // multi-hit moves re-hit
+    for (const d of Game.match.fighters) {
+      if (allies(d, f) || !d.alive || d.state === ST.DEAD) continue;
+      if (now - (this.hitShownAt[d.slot] || 0) < again) continue;
+      if (d.invuln > 0 || [ST.ROLL, ST.SPOTDODGE, ST.AIRDODGE, ST.RESPAWN].includes(d.state)) continue;
+      if (dist(hb.x, hb.y, d.x, d.y) > hb.r + d.ch.hurt) continue;
+      this.hitShownAt[d.slot] = now;
+      const dmg = a.data.dmg || 4;
+      if (d.state === ST.SHIELD) {
+        Snd.shield();
+        FX.ring(d.x, d.y, 10, d.ch.hurt * 2.2, "#7fd9ff", 2);
+        continue;
+      }
+      FX.hitmark(hb.x, hb.y, dmg);
+      FX.burst(hb.x, hb.y, Math.round(6 + dmg * 1.1), f.ch.color, 3 + dmg * 0.35);
+      FX.ring(hb.x, hb.y, 6, 30 + dmg * 5, "#ffffff", 2);
+      FX.shake(3 + dmg * 0.6);
+      Snd.hit(dmg);
+      if (dmg >= 13) Snd.bigHit();
+    }
   },
 
   loadOwn(f, fd) {
@@ -8793,17 +8892,24 @@ const Net = {
     return cur;
   },
 
-  /** One frame of the guest's own fighter. Special, super and grab are left
-      out of the prediction: they reach into other fighters and the world,
-      and only the host can play those. KOs are likewise the host's call. */
+  /** One frame of the guest's own fighter. Supers (and Pivot's swap) are
+      left out: they reach into other fighters, and only the host can play
+      them. KOs are the host's call. Anything a predicted special would spawn
+      (an orb, a cube, an updraft) is left to the host too — it arrives in
+      the next snapshot — so nothing appears twice. */
   stepOwn(f, mask) {
     const pad = this.predictPad();
     pad.queue = null;
-    pad.setMask(mask & ~NOPREDICT_MASK);
+    pad.setMask(mask & ~this.noPredictMask());
     f.pad = pad;
     f.checkBlastZones = noop_;
+    const spawns = ["orb", "shockwave", "well", "ballast", "updraft"].map(k => [k, Entities[k]]);
+    for (const [k] of spawns) Entities[k] = noop_;
     try { f.update(Game.match); }
-    finally { delete f.checkBlastZones; }
+    finally {
+      delete f.checkBlastZones;
+      for (const [k, fn] of spawns) Entities[k] = fn;
+    }
   },
 
   /** Run fn with every sound and effect muted: replayed frames already
@@ -8821,7 +8927,11 @@ const Net = {
       /* ---- effects from deltas ---- */
       if (before && fresh) {
         const dmg = f.percent - before.sp;
-        if (dmg > 0.4) {
+        const shown = this.hitShownAt && performance.now() - (this.hitShownAt[f.slot] || 0) < 600;
+        if (dmg > 0.4 && shown) {
+          // the impact already played when the swing landed on this screen
+          FX.damageText(f.x, f.y - 24, dmg, f.ch.accent);
+        } else if (dmg > 0.4) {
           FX.hitmark(f.x, f.y, dmg);
           FX.burst(f.x, f.y, Math.round(6 + dmg * 1.1), f.ch.color, 3 + dmg * 0.35);
           FX.damageText(f.x, f.y - 24, dmg, f.ch.accent);
@@ -8840,8 +8950,12 @@ const Net = {
 };
 
 function noop_() {}
-/* Buttons the guest never predicts (see stepOwn). */
-const NOPREDICT_MASK = ["special", "super", "grab"].reduce((m, b) => m | (1 << BUTTONS.indexOf(b)), 0);
+/* Buttons the guest may hold back from its prediction (see stepOwn). */
+const SUPER_MASK = 1 << BUTTONS.indexOf("super");
+const SPECIAL_MASK = 1 << BUTTONS.indexOf("special");
+/* Fighters whose special only moves themselves (spawned entities come from
+   the host's snapshot), so a guest can predict it like any other move. */
+const SAFE_SPECIALS = ["BOLDER", "ZIP", "ORBIT", "BALLAST", "KITE", "HUSK", "MIRA"];
 
 
 /* ===== src/12_main.js ===== */
