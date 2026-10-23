@@ -1002,8 +1002,6 @@ const ROSTER = [
         FX.crack(f.x, f.feetY - 2, 1, 46, f.ch.color, 4);
         FX.crack(f.x, f.feetY - 2, -1, 46, f.ch.color, 4);
         FX.blade(f.x, f.feetY - 6, 0, 30, 130, 6.2, f.ch.color, { w: 9, life: 14, core: false });
-        Stage.nudge(Math.sign(f.x - Stage.pivot.x || 1) * 0.034 * f.ch.weight);
-        Stage.lastPusher = f;
         f.vy = -4;
       }
     } },
@@ -1033,8 +1031,6 @@ const ROSTER = [
           FX.glyph(f.x, f.feetY - 60, "wedge", 44, f.ch.accent, 26);
           Entities.shockwave(f, f.x, f.feetY, -1, m);
           Entities.shockwave(f, f.x, f.feetY, 1, m);
-          Stage.nudge(Math.sign(f.x - Stage.pivot.x || 1) * 0.055);
-          Stage.lastPusher = f;
         }
       }
     } },
@@ -4410,8 +4406,6 @@ class Fighter {
     t.applyKnockback(dir.x * mag, dir.y * mag, CFG.throwDamage, mag, this);
     this.stats.damageDealt += CFG.throwDamage;
     this.addMeter(CFG.throwDamage * CFG.meter.onDeal);
-    Stage.nudge(Math.sign(t.x - Stage.pivot.x || 1) * mag * Stage.cfg.hitNudge * 0.6);
-    Stage.lastPusher = this;
     Snd.throw_(); FX.shake(7);
     FX.burst(t.x, t.y, 14, this.ch.color, 6);
     this.releaseGrab();
@@ -4991,9 +4985,6 @@ const Combat = {
       if (left > 0) a2.t += Math.round(left * K.hitConfirmCut);
     }
 
-    // the pivot feels every hit
-    Stage.nudge(clamp((def.x - Stage.pivot.x) / 310, -1, 1) * mag * Stage.cfg.hitNudge);
-    Stage.lastPusher = atk;
 
     // ---------------- feel ----------------
     const pause = Math.round(CFG.hitPauseBase + dmg * CFG.hitPausePerDmg);
@@ -5669,69 +5660,6 @@ function drawOffscreenMarkers(fighters, cam) {
 }
 
 /* -------------------------------------------------------------------- HUD */
-/* The balance gauge, built as an instrument: a machined housing, a scale with
-   tick marks, hatched danger bands at both ends, and a needle that leans with
-   the deck. It used to be a flat capsule with a block of colour in it, which
-   told you the number but never that the stage was a pair of scales. */
-function drawBalanceBar() {
-  const bw = 520, bh = 18, bx = (W - bw) / 2, by = 28;
-  const b = Stage.balance();
-  const anch = Stage.anchorTimer > 0;
-  const danger = Math.abs(b) > 0.8;
-  const col = anch ? "#b6ff3b" : danger ? "#ff2e88" : Stage.pal.platEdge;
-  const cxp = bx + bw / 2;
-
-  g.save();
-
-  // housing
-  panel(g, bx - 14, by - 13, bw + 28, bh + 30, {
-    cut: 11, fill: "#120f26", accent: col,
-    accentA: danger ? 0.95 : 0.5, glow: danger ? 20 : 8,
-  });
-  screw(g, bx - 7, by - 6, 2, UI.line);
-  screw(g, bx + bw + 7, by - 6, 2, UI.line);
-  screw(g, bx - 7, by + bh + 11, 2, UI.line);
-  screw(g, bx + bw + 7, by + bh + 11, 2, UI.line);
-
-  // the scale itself, recessed
-  slot(g, bx, by, bw, bh, 5);
-  // hatched danger bands — the ends where a Snap-Back lives
-  g.save();
-  g.beginPath(); roundRect(g, bx, by, bw, bh, 5); g.clip();
-  hatch(g, bx, by, bw * 0.12, bh, "#ff2e88", 9, 0.32);
-  hatch(g, bx + bw * 0.88, by, bw * 0.12, bh, "#ff2e88", 9, 0.32);
-  g.restore();
-  ticks(g, bx, by + bh - 6, bw, 5, 20, "#ffffff", 0.16);
-  ticks(g, bx, by + bh - 9, bw, 8, 4, "#ffffff", 0.3);
-
-  // the load bar, growing from centre toward the heavy side
-  const wFill = (bw / 2 - 2) * Math.abs(b);
-  if (b >= 0) bar(g, cxp, by + 3, wFill, bh - 6, 1, col, { glow: 14, r: 3 });
-  else bar(g, cxp - wFill, by + 3, wFill, bh - 6, 1, col, { glow: 14, r: 3 });
-
-  // centre post + the needle, which actually leans with the tilt
-  g.strokeStyle = "rgba(255,255,255,.45)"; g.lineWidth = 1.5;
-  g.beginPath(); g.moveTo(cxp, by - 2); g.lineTo(cxp, by + bh + 2); g.stroke();
-
-  const nx = cxp + b * (bw / 2 - 6);
-  g.save();
-  g.translate(nx, by + bh / 2);
-  g.rotate(b * 0.5);
-  g.fillStyle = "#ffffff"; g.shadowColor = col; g.shadowBlur = 14;
-  poly(g, [0, -bh / 2 - 5, 4, -bh / 2 + 2, 0, bh / 2 + 5, -4, -bh / 2 + 2]);
-  g.fill();
-  g.restore();
-
-  // readout
-  g.font = `700 10px ${FONT_MONO}`; g.textAlign = "center";
-  g.fillStyle = anch ? "#b6ff3b" : danger ? "#ff2e88" : UI.dim;
-  g.fillText(anch ? `KEEL ANCHOR ${Math.ceil(Stage.anchorTimer / 60)}s`
-                  : danger ? "SNAP-BACK IMMINENT" : "BALANCE", cxp, by + bh + 12);
-  g.textAlign = "left"; g.fillStyle = UI.dimmer;
-  g.fillText("◀ HEAVY", bx + 2, by + bh + 12);
-  g.textAlign = "right"; g.fillText("HEAVY ▶", bx + bw - 2, by + bh + 12);
-  g.restore();
-}
 
 function drawClock(framesLeft) {
   const secs = Math.max(0, Math.ceil(framesLeft / 60));
@@ -6026,7 +5954,6 @@ class Match {
 
     FX.drawOverlay(g);
     drawOffscreenMarkers(this.fighters, cam);
-    drawBalanceBar();
     drawClock(this.timeLeft);
     drawPlayerHUD(this.fighters);
 
@@ -6256,8 +6183,9 @@ const Game = {
     Stage.def = STAGES[0];
     drawBackground();
 
-    // decorative tilting beam with the roster riding it
-    const a = Math.sin(this.titleT * 0.011) * 0.15;
+    // decorative beam with the roster lined up on it — flat, like every
+    // stage's deck now is, instead of rocking back and forth
+    const a = 0;
     /* The beam and the roster share one half-width so they can never disagree.
        This used to be a hard-coded 340 with fighters placed every 156 units
        from -234, which fitted a roster of four exactly -- at eight, the last
@@ -6319,23 +6247,27 @@ const Game = {
 
     g.restore();
 
-    const bx = W / 2 - 130;
-    if (btn(bx, 266, 260, 50, "START BRAWL", { color: "#b6ff3b", font: `700 19px ${FONT_MONO}` }))
+    /* Two real decisions (START BRAWL, PLAY ONLINE), then the reference
+       screens as one tidy row underneath instead of a five-deep stack —
+       the menu reads as "the two things you came here to do" at a glance,
+       not a list of equally-weighted options. */
+    const bw = 300, bx = W / 2 - bw / 2;
+    if (btn(bx, 266, bw, 54, "START BRAWL", { color: "#b6ff3b", font: `700 20px ${FONT_MONO}` }))
       { this.screen = "select"; Snd.uiBig(); }
-    if (btn(bx, 324, 260, 46, "PLAY ONLINE", { color: "#ff2e88", font: `700 17px ${FONT_MONO}` }))
+    if (btn(bx, 328, bw, 46, "PLAY ONLINE", { color: "#ff2e88", font: `700 17px ${FONT_MONO}` }))
       { Net.reset(); this.joinEntry = null; this.screen = "online"; Snd.uiBig(); }
-    if (btn(bx, 378, 260, 40, "CONTROLS", { color: "#00e5ff" }))
+
+    const sw = 96, sgap = 6, sy = 384;
+    if (btn(bx, sy, sw, 38, "CONTROLS", { color: "#00e5ff", font: `700 12px ${FONT_MONO}` }))
       { this.returnTo = "title"; this.screen = "controls"; Snd.ui(); }
-    if (btn(bx, 424, 260, 40, "SETTINGS", { color: "#ffc83d" }))
+    if (btn(bx + sw + sgap, sy, sw, 38, "SETTINGS", { color: "#ffc83d", font: `700 12px ${FONT_MONO}` }))
       { this.returnTo = "title"; this.screen = "settings"; Snd.ui(); }
-    if (btn(bx, 470, 260, 40, "HOW TO PLAY", { color: "#8a7fff" }))
+    if (btn(bx + (sw + sgap) * 2, sy, sw, 38, "HOW TO PLAY", { color: "#8a7fff", font: `700 12px ${FONT_MONO}` }))
       { this.screen = "howto"; Snd.ui(); }
 
     g.save();
     g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`;
     g.fillStyle = "#6b6a85";
-    /* Sits under the wordmark, not under the buttons: down there the tilting
-       beam swings the leftmost fighters up through it. */
     g.fillText("2-4 PLAYERS LOCAL  ·  2 PLAYERS ONLINE  ·  GAMEPADS SUPPORTED", W / 2, 243);
     g.restore();
   },

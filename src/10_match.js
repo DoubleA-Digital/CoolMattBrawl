@@ -108,7 +108,6 @@ class Match {
 
     FX.drawOverlay(g);
     drawOffscreenMarkers(this.fighters, cam);
-    drawBalanceBar();
     drawClock(this.timeLeft);
     drawPlayerHUD(this.fighters);
 

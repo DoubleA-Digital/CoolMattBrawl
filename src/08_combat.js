@@ -346,9 +346,6 @@ const Combat = {
       if (left > 0) a2.t += Math.round(left * K.hitConfirmCut);
     }
 
-    // the pivot feels every hit
-    Stage.nudge(clamp((def.x - Stage.pivot.x) / 310, -1, 1) * mag * Stage.cfg.hitNudge);
-    Stage.lastPusher = atk;
 
     // ---------------- feel ----------------
     const pause = Math.round(CFG.hitPauseBase + dmg * CFG.hitPausePerDmg);

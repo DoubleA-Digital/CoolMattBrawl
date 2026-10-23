@@ -195,8 +195,9 @@ const Game = {
     Stage.def = STAGES[0];
     drawBackground();
 
-    // decorative tilting beam with the roster riding it
-    const a = Math.sin(this.titleT * 0.011) * 0.15;
+    // decorative beam with the roster lined up on it — flat, like every
+    // stage's deck now is, instead of rocking back and forth
+    const a = 0;
     /* The beam and the roster share one half-width so they can never disagree.
        This used to be a hard-coded 340 with fighters placed every 156 units
        from -234, which fitted a roster of four exactly -- at eight, the last
@@ -258,23 +259,27 @@ const Game = {
 
     g.restore();
 
-    const bx = W / 2 - 130;
-    if (btn(bx, 266, 260, 50, "START BRAWL", { color: "#b6ff3b", font: `700 19px ${FONT_MONO}` }))
+    /* Two real decisions (START BRAWL, PLAY ONLINE), then the reference
+       screens as one tidy row underneath instead of a five-deep stack —
+       the menu reads as "the two things you came here to do" at a glance,
+       not a list of equally-weighted options. */
+    const bw = 300, bx = W / 2 - bw / 2;
+    if (btn(bx, 266, bw, 54, "START BRAWL", { color: "#b6ff3b", font: `700 20px ${FONT_MONO}` }))
       { this.screen = "select"; Snd.uiBig(); }
-    if (btn(bx, 324, 260, 46, "PLAY ONLINE", { color: "#ff2e88", font: `700 17px ${FONT_MONO}` }))
+    if (btn(bx, 328, bw, 46, "PLAY ONLINE", { color: "#ff2e88", font: `700 17px ${FONT_MONO}` }))
       { Net.reset(); this.joinEntry = null; this.screen = "online"; Snd.uiBig(); }
-    if (btn(bx, 378, 260, 40, "CONTROLS", { color: "#00e5ff" }))
+
+    const sw = 96, sgap = 6, sy = 384;
+    if (btn(bx, sy, sw, 38, "CONTROLS", { color: "#00e5ff", font: `700 12px ${FONT_MONO}` }))
       { this.returnTo = "title"; this.screen = "controls"; Snd.ui(); }
-    if (btn(bx, 424, 260, 40, "SETTINGS", { color: "#ffc83d" }))
+    if (btn(bx + sw + sgap, sy, sw, 38, "SETTINGS", { color: "#ffc83d", font: `700 12px ${FONT_MONO}` }))
       { this.returnTo = "title"; this.screen = "settings"; Snd.ui(); }
-    if (btn(bx, 470, 260, 40, "HOW TO PLAY", { color: "#8a7fff" }))
+    if (btn(bx + (sw + sgap) * 2, sy, sw, 38, "HOW TO PLAY", { color: "#8a7fff", font: `700 12px ${FONT_MONO}` }))
       { this.screen = "howto"; Snd.ui(); }
 
     g.save();
     g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`;
     g.fillStyle = "#6b6a85";
-    /* Sits under the wordmark, not under the buttons: down there the tilting
-       beam swings the leftmost fighters up through it. */
     g.fillText("2-4 PLAYERS LOCAL  ·  2 PLAYERS ONLINE  ·  GAMEPADS SUPPORTED", W / 2, 243);
     g.restore();
   },

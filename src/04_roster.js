@@ -270,8 +270,6 @@ const ROSTER = [
         FX.crack(f.x, f.feetY - 2, 1, 46, f.ch.color, 4);
         FX.crack(f.x, f.feetY - 2, -1, 46, f.ch.color, 4);
         FX.blade(f.x, f.feetY - 6, 0, 30, 130, 6.2, f.ch.color, { w: 9, life: 14, core: false });
-        Stage.nudge(Math.sign(f.x - Stage.pivot.x || 1) * 0.034 * f.ch.weight);
-        Stage.lastPusher = f;
         f.vy = -4;
       }
     } },
@@ -301,8 +299,6 @@ const ROSTER = [
           FX.glyph(f.x, f.feetY - 60, "wedge", 44, f.ch.accent, 26);
           Entities.shockwave(f, f.x, f.feetY, -1, m);
           Entities.shockwave(f, f.x, f.feetY, 1, m);
-          Stage.nudge(Math.sign(f.x - Stage.pivot.x || 1) * 0.055);
-          Stage.lastPusher = f;
         }
       }
     } },

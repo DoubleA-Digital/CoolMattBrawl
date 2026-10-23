@@ -411,8 +411,6 @@ class Fighter {
     t.applyKnockback(dir.x * mag, dir.y * mag, CFG.throwDamage, mag, this);
     this.stats.damageDealt += CFG.throwDamage;
     this.addMeter(CFG.throwDamage * CFG.meter.onDeal);
-    Stage.nudge(Math.sign(t.x - Stage.pivot.x || 1) * mag * Stage.cfg.hitNudge * 0.6);
-    Stage.lastPusher = this;
     Snd.throw_(); FX.shake(7);
     FX.burst(t.x, t.y, 14, this.ch.color, 6);
     this.releaseGrab();

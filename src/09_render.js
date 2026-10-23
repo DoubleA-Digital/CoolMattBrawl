@@ -547,69 +547,6 @@ function drawOffscreenMarkers(fighters, cam) {
 }
 
 /* -------------------------------------------------------------------- HUD */
-/* The balance gauge, built as an instrument: a machined housing, a scale with
-   tick marks, hatched danger bands at both ends, and a needle that leans with
-   the deck. It used to be a flat capsule with a block of colour in it, which
-   told you the number but never that the stage was a pair of scales. */
-function drawBalanceBar() {
-  const bw = 520, bh = 18, bx = (W - bw) / 2, by = 28;
-  const b = Stage.balance();
-  const anch = Stage.anchorTimer > 0;
-  const danger = Math.abs(b) > 0.8;
-  const col = anch ? "#b6ff3b" : danger ? "#ff2e88" : Stage.pal.platEdge;
-  const cxp = bx + bw / 2;
-
-  g.save();
-
-  // housing
-  panel(g, bx - 14, by - 13, bw + 28, bh + 30, {
-    cut: 11, fill: "#120f26", accent: col,
-    accentA: danger ? 0.95 : 0.5, glow: danger ? 20 : 8,
-  });
-  screw(g, bx - 7, by - 6, 2, UI.line);
-  screw(g, bx + bw + 7, by - 6, 2, UI.line);
-  screw(g, bx - 7, by + bh + 11, 2, UI.line);
-  screw(g, bx + bw + 7, by + bh + 11, 2, UI.line);
-
-  // the scale itself, recessed
-  slot(g, bx, by, bw, bh, 5);
-  // hatched danger bands — the ends where a Snap-Back lives
-  g.save();
-  g.beginPath(); roundRect(g, bx, by, bw, bh, 5); g.clip();
-  hatch(g, bx, by, bw * 0.12, bh, "#ff2e88", 9, 0.32);
-  hatch(g, bx + bw * 0.88, by, bw * 0.12, bh, "#ff2e88", 9, 0.32);
-  g.restore();
-  ticks(g, bx, by + bh - 6, bw, 5, 20, "#ffffff", 0.16);
-  ticks(g, bx, by + bh - 9, bw, 8, 4, "#ffffff", 0.3);
-
-  // the load bar, growing from centre toward the heavy side
-  const wFill = (bw / 2 - 2) * Math.abs(b);
-  if (b >= 0) bar(g, cxp, by + 3, wFill, bh - 6, 1, col, { glow: 14, r: 3 });
-  else bar(g, cxp - wFill, by + 3, wFill, bh - 6, 1, col, { glow: 14, r: 3 });
-
-  // centre post + the needle, which actually leans with the tilt
-  g.strokeStyle = "rgba(255,255,255,.45)"; g.lineWidth = 1.5;
-  g.beginPath(); g.moveTo(cxp, by - 2); g.lineTo(cxp, by + bh + 2); g.stroke();
-
-  const nx = cxp + b * (bw / 2 - 6);
-  g.save();
-  g.translate(nx, by + bh / 2);
-  g.rotate(b * 0.5);
-  g.fillStyle = "#ffffff"; g.shadowColor = col; g.shadowBlur = 14;
-  poly(g, [0, -bh / 2 - 5, 4, -bh / 2 + 2, 0, bh / 2 + 5, -4, -bh / 2 + 2]);
-  g.fill();
-  g.restore();
-
-  // readout
-  g.font = `700 10px ${FONT_MONO}`; g.textAlign = "center";
-  g.fillStyle = anch ? "#b6ff3b" : danger ? "#ff2e88" : UI.dim;
-  g.fillText(anch ? `KEEL ANCHOR ${Math.ceil(Stage.anchorTimer / 60)}s`
-                  : danger ? "SNAP-BACK IMMINENT" : "BALANCE", cxp, by + bh + 12);
-  g.textAlign = "left"; g.fillStyle = UI.dimmer;
-  g.fillText("◀ HEAVY", bx + 2, by + bh + 12);
-  g.textAlign = "right"; g.fillText("HEAVY ▶", bx + bw - 2, by + bh + 12);
-  g.restore();
-}
 
 function drawClock(framesLeft) {
   const secs = Math.max(0, Math.ceil(framesLeft / 60));
