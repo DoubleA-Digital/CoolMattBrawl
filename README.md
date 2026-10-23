@@ -29,5 +29,7 @@ Play it: open `index.html`, or https://doublea-digital.github.io/CoolMattBrawl/
 
 That rebuilds `index.html` (standalone) and `artifact.html`.
 
-Online play is host-authoritative over WebRTC (PeerJS, loaded on demand): the
-host simulates, guests send input and render snapshots. See `src/11b_net.js`.
+Online play is host-authoritative over direct WebRTC data channels. Supabase
+Realtime (loaded on demand) is used only to introduce players; then the
+host simulates, guests send input and render snapshots. See `src/11a_rtc.js`
+and `src/11b_net.js`.

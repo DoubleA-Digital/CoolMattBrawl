@@ -1,5 +1,6 @@
 /* ==========================================================================
-   12b. NET — online play over WebRTC (PeerJS), host-authoritative, 2-4 players
+   12b. NET — online play over WebRTC (see 11a_rtc.js), host-authoritative,
+              2-4 players
 
    WHY THIS SHAPE
    The obvious choice for a fighting game is lockstep: every machine runs the
@@ -37,12 +38,12 @@
    ========================================================================== */
 
 const NET = {
-  lib: "https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js",
-  prefix: "cmbrawl-",     // namespaces our room codes on the public broker
+  Peer: null,             // transport override for the headless tests; RtcPeer otherwise
   netDelay: 3,            // frames the host delays its own input by
   maxGuests: 3,           // four fighters in all
   roomEvery: 15,          // frames between room-state rebroadcasts
   pickEvery: 20,          // frames between a guest's pick resends
+  silence: 10000,         // ms without a word from a link before it is treated as gone
 };
 
 /** A Pad fed by the wire instead of a keyboard. Same surface as Pad, so a
@@ -111,12 +112,15 @@ const Net = {
   get isGuest() { return this.role === "guest"; },
 
   /* ---------------------------------------------------------- lifecycle */
+  makePeer(code) { return new (NET.Peer || RtcPeer)(code); },
+
+  /** The Supabase client, loaded on first use; only needed for the handshake. */
   loadLib() {
-    if (this.libLoaded) return Promise.resolve();
-    if (window.Peer) { this.libLoaded = true; return Promise.resolve(); }
+    if (this.libLoaded || NET.Peer) return Promise.resolve();
+    if (window.supabase) { this.libLoaded = true; return Promise.resolve(); }
     return new Promise((res, rej) => {
       const s = document.createElement("script");
-      s.src = NET.lib;
+      s.src = RTC.lib;
       s.onload = () => { this.libLoaded = true; res(); };
       s.onerror = () => rej(new Error("could not load the networking library"));
       document.head.appendChild(s);
@@ -131,6 +135,7 @@ const Net = {
   },
 
   reset() {
+    clearInterval(this.hb);
     for (const gu of this.guests) { try { gu.conn.close(); } catch (e) {} }
     try { if (this.conn) this.conn.close(); } catch (e) {}
     try { if (this.peer) this.peer.destroy(); } catch (e) {}
@@ -142,7 +147,7 @@ const Net = {
     this.phase = "lobby"; this.mid = 0; this.setup = null; this.dirty = false;
     this.seated = false; this.room = null; this.want = null;
     this.snapCur = this.lastSeen = null;
-    this.ping = 0;
+    this.ping = 0; this.heard = 0;
     if (wasOnline && Game.screen !== "match") Game.match = null;
   },
 
@@ -164,15 +169,17 @@ const Net = {
       charId: s.charId, mode: i === 0 ? "human" : "off", team: i % 2,
     }));
     this.loadLib().then(() => {
-      this.peer = new window.Peer(NET.prefix + this.code);
+      this.peer = this.makePeer(this.code);
       this.peer.on("open", () => {
         this.mode = "connected";
         this.status = "room open";
+        this.startHeartbeat();
         this.dirty = true;
       });
       this.peer.on("error", e => {
-        // a guest dropping can surface here too; only a broker failure is fatal
-        if (this.mode === "connected" && e && e.type === "peer-unavailable") return;
+        /* Once the room is open, a hiccup on the introduction channel only
+           affects new joins; everyone already connected plays on. */
+        if (this.mode === "connected") return;
         this.fail((e && e.type === "unavailable-id") ? "that room code is taken — try again"
                                                      : (e && e.message) || "connection error");
       });
@@ -194,7 +201,7 @@ const Net = {
         setTimeout(() => { try { c.close(); } catch (e) {} }, 300);
         return;
       }
-      const gu = { conn: c, slot, ping: 0, lastPingAt: 0 };
+      const gu = { conn: c, slot, ping: 0, lastPingAt: 0, heard: performance.now() };
       this.guests.push(gu);
       const s = Game.slots[slot];
       Game.slots[slot] = { charId: s.mode === "off" ? ROSTER[slot % ROSTER.length].id : s.charId,
@@ -205,7 +212,7 @@ const Net = {
     });
     c.on("data", d => {
       const gu = this.guests.find(x => x.conn === c);
-      if (gu) this.onGuestData(gu, d);
+      if (gu) { gu.heard = performance.now(); this.onGuestData(gu, d); }
     });
     c.on("close", () => this.dropGuest(c));
     c.on("error", () => this.dropGuest(c));
@@ -341,19 +348,23 @@ const Net = {
     this.status = "connecting to " + this.code + "...";
     this.want = { charId: Game.slots[0].charId };
     this.loadLib().then(() => {
-      this.peer = new window.Peer();
-      this.peer.on("error", e => this.fail(
-        (e && e.type === "peer-unavailable") ? "no game found with that code"
-                                             : (e && e.message) || "connection error"));
+      this.peer = this.makePeer();
+      this.peer.on("error", e => {
+        if (this.mode === "connected") return;     // already linked to the host
+        this.fail((e && e.type === "peer-unavailable") ? "no game found with that code"
+                                                       : (e && e.message) || "connection error");
+      });
       this.peer.on("open", () => {
-        const c = this.peer.connect(NET.prefix + this.code, { reliable: false });
+        const c = this.peer.connect(this.code);
         this.conn = c;
         c.on("open", () => {
           this.mode = "connected";
           this.status = "connected — taking a seat";
+          this.heard = performance.now();
+          this.startHeartbeat();
           Snd.uiBig();
         });
-        c.on("data", d => this.onHostData(d));
+        c.on("data", d => { this.heard = performance.now(); this.onHostData(d); });
         c.on("close", () => this.onHostGone());
         c.on("error", () => this.onHostGone());
       });
@@ -454,9 +465,31 @@ const Net = {
   },
 
   /** Every frame, whatever screen is up. */
-  tick() {
+  /* Pings and the silence check run on a timer rather than the frame loop:
+     browsers stop animation frames in a background tab, and a player who
+     alt-tabs to read out the code must not be dropped for it. */
+  startHeartbeat() {
+    clearInterval(this.hb);
+    this.hb = setInterval(() => this.heartbeat(), 1000);
+  },
+  heartbeat() {
     if (!this.active) return;
     this.measurePing();
+    /* A closed tab or a dead Wi-Fi does not always close the data channel
+       promptly, so a link that has gone silent is dropped by timeout. */
+    const now = performance.now();
+    if (this.isHost) {
+      for (const gu of this.guests.slice())
+        if (now - gu.heard > NET.silence) { try { gu.conn.close(); } catch (e) {} this.dropGuest(gu.conn); }
+    } else if (this.heard && now - this.heard > NET.silence) {
+      this.error = "lost the connection to the host";
+      try { this.conn.close(); } catch (e) {}
+      this.onHostGone();
+    }
+  },
+
+  tick() {
+    if (!this.active) return;
     if (this.isHost) {
       if (this.dirty || ++this.roomTick >= NET.roomEvery) {
         this.dirty = false; this.roomTick = 0;
