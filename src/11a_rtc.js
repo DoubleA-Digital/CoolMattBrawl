@@ -44,7 +44,7 @@ const RTC = {
   relaySnapEvery: 125,
   relayRoomEvery: 500,
   relayInEvery: 70,
-  relayIdleEvery: 600,    // an unchanged input is still re-sent this often
+  relayIdleEvery: 110,    // unchanged input is re-sent this often (within the 10-frame history)
   forceRelay: false,      // testing: skip the direct attempt entirely
 };
 
@@ -165,13 +165,13 @@ class RtcConn extends Emitter {
       if (now - (p.room || 0) < RTC.relayRoomEvery) return;
       p.room = now;
     } else if (obj.t === "in") {
-      /* Buttons pressed since the last send are OR-ed in, so a tap shorter
-         than one send interval still reaches the host as a press. */
-      p.acc = (p.acc || 0) | obj.k;
-      const changed = p.acc !== p.lastK;
+      /* Every input message repeats the last several frames, so the paced
+         sends below never leave a gap: no press is lost, and the host still
+         applies every frame in order. Idle resends stay within that window. */
+      const k = obj.h ? obj.h[obj.h.length - 1] : obj.k;
+      const changed = k !== p.lastK;
       if (now - (p.in || 0) < (changed ? RTC.relayInEvery : RTC.relayIdleEvery)) return;
-      obj = Object.assign({}, obj, { k: p.acc });
-      p.lastK = p.acc; p.acc = 0; p.in = now;
+      p.lastK = k; p.in = now;
     }
     this.relayRaw({ d: obj });
   }

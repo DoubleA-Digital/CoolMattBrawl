@@ -26,10 +26,19 @@
    later; it can never leave someone stuck on the wrong screen. Guests resend
    their own pick the same way until the room reflects it.
 
+   PREDICTION
+   Waiting for the host to echo every move back made a guest's own fighter
+   feel a full round trip late. So a guest predicts its own fighter: it runs
+   the same Fighter code locally on its own input the instant a key goes
+   down. Every input is numbered; each snapshot says which number the host
+   has applied, and the guest rewinds its fighter to the host's state and
+   silently replays the inputs the host has not seen yet. Hits, damage and
+   KOs still come only from the host — while the host says a guest is being
+   hit, grabbed or is out, the prediction stands aside entirely.
+
    INPUT FAIRNESS
-   A naive host-authoritative build gives the host zero input delay and the
-   guests a full round trip, which is a real competitive advantage. The host
-   therefore delays its OWN input by netDelay frames.
+   The host delays its OWN input by netDelay frames, so the round trip its
+   guests' hits still pay is not a pure advantage to the host.
 
    EFFECTS
    Most FX are not transmitted. A guest derives them from snapshot deltas — a
@@ -39,7 +48,10 @@
 
 const NET = {
   Peer: null,             // transport override for the headless tests; RtcPeer otherwise
-  netDelay: 3,            // frames the host delays its own input by
+  netDelay: 2,            // frames the host delays its own input by
+  inHistory: 10,          // inputs repeated in every message, so a lost one is never missed
+  queueMax: 3,            // host: inputs a guest may be buffered behind before it catches up
+  replayMax: 90,          // guest: never replay more frames than this; just adopt the host state
   maxGuests: 3,           // four fighters in all
   roomEvery: 15,          // frames between room-state rebroadcasts
   pickEvery: 20,          // frames between a guest's pick resends
@@ -64,7 +76,29 @@ class NetPad {
      quick tap that was pressed and released inside that window used to
      vanish. Now it still lands as one press. */
   setMask(m) { this.mask = m | 0; this.latch |= this.mask; }
+
+  /* Numbered inputs from a predicting guest. Applied strictly in order, one
+     per fighter update, and `ack` records the last one applied so the guest
+     knows where to replay from. If the guest is more than queueMax inputs
+     ahead (the host just sat through a hit-pause), the oldest are skipped to
+     catch up — but their presses are kept in the latch, never lost. */
+  push(seq, hist) {
+    this.queue = this.queue || [];
+    this.lastSeq = this.lastSeq || 0;
+    for (let i = 0; i < hist.length; i++) {
+      const s = seq - (hist.length - 1 - i);
+      if (s > this.lastSeq) { this.queue.push([s, hist[i] | 0]); this.lastSeq = s; }
+    }
+    // a fighter that is out polls nothing; don't let its queue grow forever
+    if (this.queue.length > 60) this.queue.splice(0, this.queue.length - 60);
+  }
   poll() {
+    const q = this.queue;
+    if (q && q.length) {
+      while (q.length > NET.queueMax) { const [s, m] = q.shift(); this.latch |= m; this.ack = s; }
+      const [s, m] = q.shift();
+      this.mask = m; this.ack = s;
+    }
     this.prev = Object.assign({}, this.cur);
     const eff = this.mask | this.latch;
     this.latch = 0;
@@ -286,7 +320,9 @@ const Net = {
       case "in": {
         if (this.phase !== "match" || !Game.match || d.m !== this.mid) break;
         const f = Game.match.fighters.find(x => x.slot === gu.slot);
-        if (f && f.pad instanceof NetPad && !f.isCPU) f.pad.setMask(d.k);
+        if (!f || !(f.pad instanceof NetPad) || f.isCPU) break;
+        if (Array.isArray(d.h)) f.pad.push(d.s | 0, d.h);
+        else f.pad.setMask(d.k);
         break;
       }
       case "ping": try { gu.conn.send({ t: "pong", ts: d.ts }); } catch (e) {} break;
@@ -467,6 +503,7 @@ const Net = {
     Game.screen = "match";
     this.snapCur = this.lastSeen = null;
     this.snapAt = performance.now();
+    this.seq = 0; this.hist = []; this.predicting = false;
     /* Every human fighter on the host is driven by a NetPad: the guests' by
        their input messages, the host's own by its delayed local input. */
     for (const f of Game.match.fighters) if (!f.isCPU) f.pad = new NetPad(f.slot);
@@ -552,9 +589,16 @@ const Net = {
       return true;
     }
 
-    // guest: no simulation at all, just present what the host sent
+    // guest: number this frame's input, send it with recent history, predict
     const pad = new Pad(0); pad.poll();
-    this.send({ t: "in", m: this.mid, k: maskFromPad(pad) });
+    const mask = maskFromPad(pad);
+    this.seq = (this.seq || 0) + 1;
+    this.hist = this.hist || [];
+    this.hist.push([this.seq, mask]);
+    if (this.hist.length > 120) this.hist.shift();
+    this.send({ t: "in", m: this.mid, s: this.seq,
+                h: this.hist.slice(-NET.inHistory).map(e => e[1]) });
+    this.liveMask = mask;
     this.applySnapshot();
     FX.update(Game.match.fighters);
     return true;
@@ -586,7 +630,7 @@ const Net = {
       mt: [m.countdown, m.timeLeft, m.over ? 1 : 0, m.endTimer,
            m.suddenDeath ? 1 : 0, m.frenzy ? 1 : 0,
            m.winner ? m.winner.slot : -1, m.winTeam == null ? -1 : m.winTeam,
-           m.endedBy, m.frames],
+           m.endedBy, m.frames, FX.pause],
       en: Entities.list.map(e => [ENT_KINDS.indexOf(e.kind), e.owner.slot,
                                   Math.round(e.x), Math.round(e.y), r2(e.r), e.life,
                                   e.dir || 0, e.landed ? 1 : 0, e.storm ? 1 : 0, e.max || 0]),
@@ -602,6 +646,11 @@ const Net = {
         ak: f.attack ? f.attack.kind : null,
         att: f.attack ? f.attack.t : 0,
         ato: f.attack ? f.attack.total : 0,
+        // for the owning guest's prediction: the last input applied, and the
+        // movement state that is not otherwise visible
+        aq: (f.pad && f.pad.ack) || 0,
+        aj: f.airJumps, ff: f.fastFalling ? 1 : 0, dt: f.dropThrough,
+        sq: f.squatHeld ? 1 : 0, rd: f.rollDir || 0, lh: f.attack ? f.attack.lastHitFrame : 0,
         sx: [f.stats.kos, f.stats.falls, r2(f.stats.damageDealt), f.stats.supers, r2(f.stats.bestHit)],
       })),
     };
@@ -632,6 +681,7 @@ const Net = {
     m.winner = mt[6] >= 0 ? m.fighters.find(f => f.slot === mt[6]) || null : null;
     m.winTeam = mt[7] >= 0 ? mt[7] : null;
     m.endedBy = mt[8]; m.frames = mt[9];
+    this.hostPause = mt[10] || 0;
 
     // ---- entities: rebuilt wholesale, they are only drawn here ----
     const bySlot = s => m.fighters.find(f => f.slot === s);
@@ -654,6 +704,12 @@ const Net = {
       const f = bySlot(fd.s);
       if (!f) continue;
       const before = this.lastSeen && this.lastSeen.fs[fd.s];
+      if (fd.s === this.slot && this.predictOwn(f, fd, fresh, m)) {
+        this.applyStats(f, fd);
+        this.deltaFx(f, fd, before, fresh);
+        continue;
+      }
+      if (fd.s === this.slot) this.predicting = false;
       f.px = f.x; f.py = f.y;                       // keep render interpolation
       if (fresh) this.from[fd.s] = { x: f.x, y: f.y };
       const fr = this.from[fd.s];
@@ -669,23 +725,132 @@ const Net = {
       f.respawnTimer = fd.rt; f.hitFlash = fd.hf;
       f.specialCD = fd.cd; f.runPhase = fd.rp; f.animTime = fd.at;
       f.anchorGlow = fd.ag; f.pinned = !!fd.pn; f.isCPU = !!fd.cpu;
-      f.stats.kos = fd.sx[0]; f.stats.falls = fd.sx[1]; f.stats.damageDealt = fd.sx[2];
-      f.stats.supers = fd.sx[3]; f.stats.bestHit = fd.sx[4];
-      // the renderer needs a floor under grounded fighters for the shadow
-      if (f.grounded) {
-        let gs = null;
-        for (const s of Stage.segs) { const y = Stage.surfaceY(s, f.x); if (y !== null && Math.abs(y - f.feetY) < 4) gs = s; }
-        f.groundSeg = gs;
-      } else f.groundSeg = null;
+      this.applyStats(f, fd);
+      this.findGround(f);
+      this.applyAttack(f, fd);
+      this.deltaFx(f, fd, before, fresh);
+      if (f.hitstun > 0 || fd.ak === "super")
+        f.trail.push({ x: f.x, y: f.y, facing: f.facing, life: 10 });
+      for (let i = f.trail.length - 1; i >= 0; i--)
+        if (--f.trail[i].life <= 0) f.trail.splice(i, 1);
+    }
 
-      // rebuild just enough of the attack for the renderer to pose correctly
-      if (fd.ak) {
-        const move = fd.ak === "grab" ? { startup: CFG.grabStartup, active: CFG.grabActive, r: 0 }
-                   : f.ch[fd.ak];
-        f.attack = { kind: fd.ak, data: move, t: fd.att, total: fd.ato,
-                     hitIds: null, hitId: 0 };
-      } else f.attack = null;
+    // remember this frame so the next one can diff against it
+    if (fresh) {
+      this.lastSeen = { f: snap.f, fs: {} };
+      for (const fd of snap.fs) this.lastSeen.fs[fd.s] = fd;
+    }
+  },
 
+  applyStats(f, fd) {
+    f.stats.kos = fd.sx[0]; f.stats.falls = fd.sx[1]; f.stats.damageDealt = fd.sx[2];
+    f.stats.supers = fd.sx[3]; f.stats.bestHit = fd.sx[4];
+  },
+  /** The renderer, and the predicted physics, need the floor a grounded fighter is on. */
+  findGround(f) {
+    if (f.grounded) {
+      let gs = null;
+      for (const s of Stage.segs) { const y = Stage.surfaceY(s, f.x); if (y !== null && Math.abs(y - f.feetY) < 4) gs = s; }
+      f.groundSeg = gs;
+      if (!gs) f.grounded = false;
+    } else f.groundSeg = null;
+  },
+  /** Rebuild enough of an attack to pose it, or to keep simulating it. */
+  applyAttack(f, fd) {
+    if (fd.ak) {
+      const move = fd.ak === "grab" ? { startup: CFG.grabStartup, active: CFG.grabActive, r: 0 }
+                 : f.ch[fd.ak];
+      f.attack = { kind: fd.ak, data: move, t: fd.att, total: fd.ato,
+                   hitIds: null, hitId: 0, lastHitFrame: fd.lh || -99 };
+    } else f.attack = null;
+  },
+
+  /* ---------------------------------------------------------- prediction */
+  /** Host-side states the guest cannot foresee: while any of these hold, the
+      host's word is final and the guest simply shows it. */
+  canPredict(fd, m) {
+    if (m.countdown > 0 || m.over || !fd.al) return false;
+    if (["hitstun", "grabbed", "grabbing", "dead", "respawn", "shieldbreak"].includes(fd.st)) return false;
+    if (fd.ak === "special" || fd.ak === "super" || fd.ak === "grab") return false;
+    return true;
+  },
+
+  /** Returns true when it has taken care of this fighter for the frame. */
+  predictOwn(f, fd, fresh, m) {
+    if (!this.canPredict(fd, m)) return false;
+    // a special/super/grab the guest just pressed is the host's to start
+    if (f.attack && ["special", "super", "grab"].includes(f.attack.kind)) return false;
+
+    /* The host is frozen in a hit-pause: it is applying no inputs, so neither
+       does the prediction — the fighter holds where the host has it. */
+    if (this.hostPause > 0) {
+      if (fresh || !this.predicting) { f.px = f.x; f.py = f.y; this.loadOwn(f, fd); }
+      this.predicting = true;
+      return true;
+    }
+
+    if (fresh || !this.predicting) {
+      const ack = fd.aq || 0;
+      const pending = this.hist.filter(e => e[0] > ack && e[0] < this.seq);
+      if (pending.length > NET.replayMax) return false;
+      // rewind to what the host has, then catch up on what it has not seen
+      this.loadOwn(f, fd);
+      const at = this.hist.find(e => e[0] === ack);
+      this.predictPad().cur = this.maskToCur(at ? at[1] : 0);
+      this.silently(() => { for (const e of pending) this.stepOwn(f, e[1]); });
+    }
+    this.stepOwn(f, this.liveMask);                  // this frame, with sound and FX
+    this.predicting = true;
+    return true;
+  },
+
+  loadOwn(f, fd) {
+    f.x = fd.x; f.y = fd.y; f.vx = fd.vx; f.vy = fd.vy;
+    f.facing = fd.fa; f.state = fd.st; f.stateTimer = fd.tt;
+    f.percent = fd.sp; f.stocks = fd.sk;
+    f.shield = fd.sh; f.meter = fd.mr;
+    f.hitstun = fd.hs; f.invuln = fd.iv;
+    f.grounded = !!fd.gr; f.alive = !!fd.al;
+    f.respawnTimer = fd.rt; f.hitFlash = fd.hf;
+    f.specialCD = fd.cd; f.anchorGlow = fd.ag; f.pinned = !!fd.pn;
+    f.airJumps = fd.aj; f.fastFalling = !!fd.ff; f.dropThrough = fd.dt || 0;
+    f.squatHeld = !!fd.sq; f.rollDir = fd.rd || 0;
+    this.findGround(f);
+    this.applyAttack(f, fd);
+  },
+
+  predictPad() { return this._ppad || (this._ppad = new NetPad(this.slot)); },
+  maskToCur(mask) {
+    const cur = {};
+    BUTTONS.forEach((b, i) => { cur[b] = !!(mask & (1 << i)); });
+    return cur;
+  },
+
+  /** One frame of the guest's own fighter. Special, super and grab are left
+      out of the prediction: they reach into other fighters and the world,
+      and only the host can play those. KOs are likewise the host's call. */
+  stepOwn(f, mask) {
+    const pad = this.predictPad();
+    pad.queue = null;
+    pad.setMask(mask & ~NOPREDICT_MASK);
+    f.pad = pad;
+    f.checkBlastZones = noop_;
+    try { f.update(Game.match); }
+    finally { delete f.checkBlastZones; }
+  },
+
+  /** Run fn with every sound and effect muted: replayed frames already
+      played their sounds when they were first predicted. */
+  silently(fn) {
+    const saved = [];
+    for (const o of [FX, Snd]) for (const k of Object.keys(o)) {
+      const d = Object.getOwnPropertyDescriptor(o, k);
+      if (d && typeof d.value === "function") { saved.push([o, k, d.value]); o[k] = noop_; }
+    }
+    try { fn(); } finally { for (const [o, k, v] of saved) o[k] = v; }
+  },
+
+  deltaFx(f, fd, before, fresh) {
       /* ---- effects from deltas ---- */
       if (before && fresh) {
         const dmg = f.percent - before.sp;
@@ -704,16 +869,9 @@ const Net = {
         }
         if (fd.ak === "super" && before.ak !== "super") Snd.superCharge();
       }
-      if (f.hitstun > 0 || fd.ak === "super")
-        f.trail.push({ x: f.x, y: f.y, facing: f.facing, life: 10 });
-      for (let i = f.trail.length - 1; i >= 0; i--)
-        if (--f.trail[i].life <= 0) f.trail.splice(i, 1);
-    }
-
-    // remember this frame so the next one can diff against it
-    if (fresh) {
-      this.lastSeen = { f: snap.f, fs: {} };
-      for (const fd of snap.fs) this.lastSeen.fs[fd.s] = fd;
-    }
   },
 };
+
+function noop_() {}
+/* Buttons the guest never predicts (see stepOwn). */
+const NOPREDICT_MASK = ["special", "super", "grab"].reduce((m, b) => m | (1 << BUTTONS.indexOf(b)), 0);
