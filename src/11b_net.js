@@ -56,12 +56,19 @@ class NetPad {
     BUTTONS.forEach(b => { this.cur[b] = false; this.prev[b] = false; });
     this.ax = 0; this.ay = 0;
     this.mask = 0;
+    this.latch = 0;           // buttons pressed since the last poll
     this.hasGamepad = false;
   }
-  setMask(m) { this.mask = m | 0; }
+  /* Presses are latched until the fighter next polls. The host can go several
+     frames without polling (every hit-pause freezes the simulation), and a
+     quick tap that was pressed and released inside that window used to
+     vanish. Now it still lands as one press. */
+  setMask(m) { this.mask = m | 0; this.latch |= this.mask; }
   poll() {
     this.prev = Object.assign({}, this.cur);
-    BUTTONS.forEach((b, i) => { this.cur[b] = !!(this.mask & (1 << i)); });
+    const eff = this.mask | this.latch;
+    this.latch = 0;
+    BUTTONS.forEach((b, i) => { this.cur[b] = !!(eff & (1 << i)); });
     this.ax = (this.cur.right ? 1 : 0) - (this.cur.left ? 1 : 0);
     this.ay = (this.cur.down ? 1 : 0) - (this.cur.up ? 1 : 0);
   }
@@ -250,6 +257,11 @@ const Net = {
     if (this.isHost) return i === 0 ? "host" : this.guests.some(gu => gu.slot === i) ? "guest" : null;
     const r = this.room;
     return r && r.seats ? r.seats[i] : null;
+  },
+  /** True when seat i reaches the host over the relay rather than directly. */
+  relayOf(i) {
+    if (this.isHost) { const gu = this.guests.find(x => x.slot === i); return !!(gu && gu.conn.relay); }
+    return i === this.slot && !!(this.conn && this.conn.relay);
   },
   pingOf(i) {
     if (this.isHost) { const gu = this.guests.find(x => x.slot === i); return gu ? gu.ping : 0; }
@@ -623,6 +635,12 @@ const Net = {
 
     // ---- entities: rebuilt wholesale, they are only drawn here ----
     const bySlot = s => m.fighters.find(f => f.slot === s);
+    /* Over the relay, snapshots arrive ~8 times a second instead of 60. Each
+       fighter glides from where it was drawn toward the newest snapshot over
+       one relay interval, instead of jumping 8 times a second. */
+    const relayed = !!(this.conn && this.conn.relay);
+    const glide = clamp((performance.now() - (this.snapAt || 0)) / RTC.relaySnapEvery, 0, 1);
+    this.from = this.from || {};
     Entities.list = (snap.en || []).map(e => ({
       kind: ENT_KINDS[e[0]], owner: bySlot(e[1]), x: e[2], y: e[3], r: e[4],
       life: e[5], dir: e[6], landed: !!e[7], storm: !!e[8], max: e[9], hitIds: [],
@@ -637,7 +655,12 @@ const Net = {
       if (!f) continue;
       const before = this.lastSeen && this.lastSeen.fs[fd.s];
       f.px = f.x; f.py = f.y;                       // keep render interpolation
-      f.x = fd.x; f.y = fd.y; f.vx = fd.vx; f.vy = fd.vy;
+      if (fresh) this.from[fd.s] = { x: f.x, y: f.y };
+      const fr = this.from[fd.s];
+      if (relayed && fr && Math.hypot(fd.x - fr.x, fd.y - fr.y) < 300) {
+        f.x = lerp(fr.x, fd.x, glide); f.y = lerp(fr.y, fd.y, glide);
+      } else { f.x = fd.x; f.y = fd.y; }               // teleports and respawns snap
+      f.vx = fd.vx; f.vy = fd.vy;
       f.facing = fd.fa; f.state = fd.st; f.stateTimer = fd.tt;
       f.percent = fd.sp; f.stocks = fd.sk;
       f.shield = fd.sh; f.meter = fd.mr;

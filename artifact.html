@@ -675,6 +675,10 @@ function keyLabel(code) {
 const Keys = {
   down: Object.create(null),
   pressed: Object.create(null),
+  /* Keys pressed since the last simulation step, even if already released.
+     Fighters read this as well as `down`, so a tap shorter than one frame —
+     or one that lands between two frames on a 30Hz tab — still counts. */
+  tapped: Object.create(null),
   capture: null,          // set to a callback while the Controls screen listens
 };
 
@@ -685,7 +689,7 @@ addEventListener("keydown", e => {
     cb(e.code);
     return;
   }
-  if (!Keys.down[e.code]) Keys.pressed[e.code] = true;
+  if (!Keys.down[e.code]) { Keys.pressed[e.code] = true; Keys.tapped[e.code] = true; }
   Keys.down[e.code] = true;
   if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab", "Quote", "Slash"].includes(e.code))
     e.preventDefault();
@@ -706,7 +710,7 @@ class Pad {
   poll() {
     const m = Settings.binds[this.slot];
     this.prev = Object.assign({}, this.cur);
-    for (const b of BUTTONS) this.cur[b] = m[b] ? !!Keys.down[m[b]] : false;
+    for (const b of BUTTONS) this.cur[b] = m[b] ? !!(Keys.down[m[b]] || Keys.tapped[m[b]]) : false;
 
     const gps = navigator.getGamepads ? navigator.getGamepads() : null;
     const gp = gps && gps[this.slot];
@@ -7177,7 +7181,7 @@ const Game = {
       } else {
         g.save(); g.textAlign = "center";
         g.font = `700 13px ${FONT_MONO}`; g.fillStyle = UI.dim;
-        g.fillText("TYPE THE 4-CHARACTER CODE, THEN PRESS ENTER", cx, 212);
+        g.fillText("TYPE OR PASTE THE 4-CHARACTER CODE, THEN PRESS ENTER", cx, 212);
         g.restore();
         for (let i = 0; i < 4; i++) {
           const bx = cx - 150 + i * 76;
@@ -7301,10 +7305,11 @@ const Game = {
       const role = i === mine ? "YOU" : who === "host" ? "HOST" : who === "guest" ? "PLAYER"
                  : s.mode === "cpu" ? "CPU" : "OPEN";
       g.fillText(`P${i + 1} · ${role}`, sx + 14, sy + 22);
-      const ping = Net.pingOf(i);
-      if (ping) {
-        g.font = `400 9px ${FONT_MONO}`; g.fillStyle = "#6b6a85"; g.textAlign = "right";
-        g.fillText(`${ping} ms`, sx + sw - 12, sy + 20);
+      const ping = Net.pingOf(i), relay = Net.relayOf(i);
+      if (ping || relay) {
+        g.font = `400 9px ${FONT_MONO}`; g.textAlign = "right";
+        g.fillStyle = relay ? "#ffc83d" : "#6b6a85";
+        g.fillText(`${relay ? "RELAY · " : ""}${ping ? ping + " ms" : ""}`, sx + sw - 12, sy + 20);
         g.textAlign = "left";
       }
       g.font = `900 22px ${FONT_DISPLAY}`;
@@ -7621,18 +7626,24 @@ const Game = {
 
 /* ===== src/11a_rtc.js ===== */
 /* ==========================================================================
-   12a. RTC — direct peer-to-peer connections, introduced through Supabase
+   12a. RTC — peer-to-peer links, introduced through Supabase, with a relay
 
    Online play used to lean on PeerJS's free public broker (0.peerjs.com) to
    introduce players to each other. When that broker went down, every room
-   failed on the spot with "Lost connection to server." — the game itself was
-   fine, it just had nobody to make the introduction.
+   failed on the spot. This file replaces it with the browser's own
+   RTCPeerConnection, and uses a Supabase Realtime broadcast channel (the same
+   project Mini Golf uses) for the handshake: hello, offer, answer, ICE.
 
-   This replaces PeerJS with the browser's own RTCPeerConnection, and uses a
-   Supabase Realtime broadcast channel (the same project Mini Golf uses) only
-   for the handshake: hello, offer, answer, and ICE candidates. Once the data
-   channel opens, game traffic goes straight between the two browsers exactly
-   as before; Supabase never carries a single frame of the match.
+   DIRECT FIRST, RELAY IF IT MUST
+   A direct link is fastest, but two separate computers often cannot make one:
+   home routers, school Wi-Fi and firewalls block it, and there is no free
+   public TURN server left to bounce through. So if the direct link has not
+   opened within p2pTimeout, that one player is moved onto a RELAY: a private
+   Supabase channel between them and the host. Supabase bills every relayed
+   message twice (once sent, once received) against a 100/second quota, so the
+   relay runs lean — about 8 snapshots a second (the guest smooths between
+   them), inputs only when they change, lobby updates at most twice a second.
+   Direct players are untouched and still get every frame.
 
    RtcPeer / RtcConn deliberately mirror the slice of the PeerJS API that Net
    uses — on("open" | "connection" | "error"), connect(), send(), close(),
@@ -7645,23 +7656,52 @@ const RTC = {
   // publishable key: safe to ship, and broadcast channels touch no tables
   key: "sb_publishable__QUefxDt7tRi9Y943QK7yw_ivbRt71u",
   channel: "cmbrawl-room-",
+  relayChannel: "cmbrawl-relay-",
   ice: [
-    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
+    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302",
+             "stun:stun2.l.google.com:19302"] },
     { urls: "stun:stun.cloudflare.com:3478" },
   ],
   helloEvery: 1500,       // a guest repeats its hello until the host answers
   findTimeout: 8000,      // no host answered at all: wrong code
-  connectTimeout: 20000,  // a host answered but no direct link formed
+  p2pTimeout: 6000,       // host answered but no direct link yet: use the relay
+  relayTimeout: 12000,    // even the relay never came up
   serverTimeout: 10000,   // the matchmaking channel itself never came up
+  // relay pacing (ms between messages of each kind, per player)
+  relaySnapEvery: 125,
+  relayRoomEvery: 500,
+  relayInEvery: 70,
+  relayIdleEvery: 600,    // an unchanged input is still re-sent this often
+  forceRelay: false,      // testing: skip the direct attempt entirely
 };
 
 let _supa = null;
 function rtcClient() {
   if (!_supa) _supa = window.supabase.createClient(RTC.url, RTC.key, {
-    realtime: { params: { eventsPerSecond: 40 } },   // ICE comes in bursts
+    realtime: { params: { eventsPerSecond: 60 } },   // ICE comes in bursts
   });
   return _supa;
 }
+
+/** Subscribe to a broadcast channel; resolves once it is live. */
+function rtcSubscribe(name, opts, onMsg) {
+  return new Promise((res, rej) => {
+    const ch = rtcClient().channel(name, { config: Object.assign({ broadcast: { self: false } }, opts || {}) });
+    ch.on("broadcast", { event: "m" }, m => onMsg(m.payload || {}));
+    let settled = false;
+    setTimeout(() => {
+      if (!settled) { settled = true; rej(new Error("couldn't reach the matchmaking server — check your internet, or try a hotspot")); }
+    }, RTC.serverTimeout);
+    ch.subscribe(st => {
+      if (settled) return;
+      if (st === "SUBSCRIBED") { settled = true; res(ch); }
+      else if (st === "CHANNEL_ERROR" || st === "TIMED_OUT") {
+        settled = true; rej(new Error("couldn't reach the matchmaking server"));
+      }
+    });
+  });
+}
+function rtcDrop(ch) { if (ch) { try { rtcClient().removeChannel(ch); } catch (e) {} } }
 
 class Emitter {
   constructor() { this._h = {}; }
@@ -7669,30 +7709,45 @@ class Emitter {
   emit(e, ...a) { (this._h[e] || []).slice().forEach(f => { try { f(...a); } catch (err) { console.error(err); } }); }
 }
 
-/** One direct link to one other player. */
+/** One link to one other player: direct if possible, relayed if not. */
 class RtcConn extends Emitter {
-  constructor(peer, remoteId) {
+  constructor(peer, remoteId, guestId) {
     super();
     this.peer = peer; this.remoteId = remoteId;
+    this.guestId = guestId;          // names the private relay channel
     this.open = false; this.done = false;
+    this.relay = false; this.relayCh = null;
     this.dc = null; this.pendingIce = [];
+    this.pace = {};                  // relay throttling state, per message kind
     this.pc = new RTCPeerConnection({ iceServers: RTC.ice });
     this.pc.onicecandidate = e => {
       if (e.candidate) peer.signal({ t: "ice", to: remoteId, c: e.candidate.toJSON() });
     };
     this.pc.onconnectionstatechange = () => {
       const s = this.pc.connectionState;
-      if (s === "failed" || s === "closed") this.closed();
+      if (s !== "failed" && s !== "closed") return;
+      // a direct attempt failing before it ever opened is what the relay is for
+      if (!this.open && !this.relay) { if (!peer.isHost) peer.useRelay(this); return; }
+      if (!this.relay) this.closed();
     };
     this.pc.ondatachannel = e => this.attach(e.channel);
   }
   attach(dc) {
     this.dc = dc;
-    dc.onopen = () => { if (this.done) return; this.open = true; this.emit("open"); };
+    dc.onopen = () => {
+      if (this.done || this.relay) { try { dc.close(); } catch (e) {} return; }
+      this.markOpen("direct");
+    };
     dc.onmessage = m => { let d; try { d = JSON.parse(m.data); } catch (e) { return; } this.emit("data", d); };
-    dc.onclose = () => this.closed();
+    dc.onclose = () => { if (!this.relay) this.closed(); };
+  }
+  markOpen(how) {
+    if (this.open || this.done) return;
+    this.open = true; this.via = how;
+    this.emit("open");
   }
   async addIce(c) {
+    if (this.relay) return;
     if (!this.pc.remoteDescription) { this.pendingIce.push(c); return; }
     try { await this.pc.addIceCandidate(c); } catch (e) { /* stale candidate */ }
   }
@@ -7700,17 +7755,68 @@ class RtcConn extends Emitter {
     const q = this.pendingIce; this.pendingIce = [];
     for (const c of q) { try { await this.pc.addIceCandidate(c); } catch (e) {} }
   }
+
+  /* ----------------------------------------------------------- relay */
+  async startRelay() {
+    if (this.relay || this.done) return;
+    this.relay = true;
+    try { if (this.dc) this.dc.close(); } catch (e) {}
+    try { this.pc.close(); } catch (e) {}
+    try {
+      this.relayCh = await rtcSubscribe(RTC.relayChannel + this.peer.room + "-" + this.guestId, null, d => {
+        if (d.from === this.peer.id) return;
+        if (d.hi) { this.markOpen("relay"); if (d.hi === 1) this.relayRaw({ hi: 2 }); return; }
+        this.markOpen("relay");
+        this.emit("data", d.d);
+      });
+    } catch (e) { this.closed(); return; }
+    // knock until the other side answers; whoever arrives second gets the reply
+    const knock = () => {
+      if (this.open || this.done) return;
+      this.relayRaw({ hi: 1 });
+      setTimeout(knock, 400);
+    };
+    knock();
+  }
+  relayRaw(payload) {
+    if (!this.relayCh || this.done) return;
+    this.relayCh.send({ type: "broadcast", event: "m", payload: Object.assign({ from: this.peer.id }, payload) });
+  }
+  /** Relay sends are paced so a match stays inside Supabase's message quota. */
+  relaySend(obj) {
+    const now = performance.now(), p = this.pace;
+    if (obj.t === "s") {
+      if (now - (p.s || 0) < RTC.relaySnapEvery) return;
+      p.s = now;
+    } else if (obj.t === "room") {
+      if (now - (p.room || 0) < RTC.relayRoomEvery) return;
+      p.room = now;
+    } else if (obj.t === "in") {
+      /* Buttons pressed since the last send are OR-ed in, so a tap shorter
+         than one send interval still reaches the host as a press. */
+      p.acc = (p.acc || 0) | obj.k;
+      const changed = p.acc !== p.lastK;
+      if (now - (p.in || 0) < (changed ? RTC.relayInEvery : RTC.relayIdleEvery)) return;
+      obj = Object.assign({}, obj, { k: p.acc });
+      p.lastK = p.acc; p.acc = 0; p.in = now;
+    }
+    this.relayRaw({ d: obj });
+  }
+
   send(obj) {
+    if (this.relay) { if (this.open) this.relaySend(obj); return; }
     if (this.dc && this.dc.readyState === "open") this.dc.send(JSON.stringify(obj));
   }
   close() {
     try { if (this.dc) this.dc.close(); } catch (e) {}
     try { this.pc.close(); } catch (e) {}
+    rtcDrop(this.relayCh); this.relayCh = null;
     this.closed();
   }
   closed() {
     if (this.done) return;
     this.done = true; this.open = false;
+    rtcDrop(this.relayCh); this.relayCh = null;
     this.peer.forget(this);
     this.emit("close");
   }
@@ -7723,6 +7829,7 @@ class RtcPeer extends Emitter {
     super();
     this.id = roomCode ? "host" : "g" + Math.random().toString(36).slice(2, 10);
     this.isHost = !!roomCode;
+    this.room = roomCode || "";
     this.conns = new Map();     // remoteId -> RtcConn
     this.ch = null;
     this.destroyed = false;
@@ -7735,24 +7842,10 @@ class RtcPeer extends Emitter {
     this.emit("error", { type, message: (e && e.message) || String(e || type) });
   }
 
-  joinRoom(code) {
-    return new Promise((res, rej) => {
-      this.ch = rtcClient().channel(RTC.channel + code, {
-        config: { broadcast: { self: false }, presence: { key: this.id } },
-      });
-      this.ch.on("broadcast", { event: "sig" }, m => this.onSignal(m.payload || {}));
-      let settled = false;
-      setTimeout(() => {
-        if (!settled) { settled = true; rej(new Error("couldn't reach the matchmaking server — check your internet, or try a hotspot")); }
-      }, RTC.serverTimeout);
-      this.ch.subscribe(st => {
-        if (settled) return;
-        if (st === "SUBSCRIBED") { settled = true; res(); }
-        else if (st === "CHANNEL_ERROR" || st === "TIMED_OUT") {
-          settled = true; rej(new Error("couldn't reach the matchmaking server"));
-        }
-      });
-    });
+  async joinRoom(code) {
+    this.room = code;
+    this.ch = await rtcSubscribe(RTC.channel + code, { presence: { key: this.id } },
+                                 d => this.onSignal(d));
   }
 
   /* Codes are random from ~1M, but two hosts on one code would split the
@@ -7769,10 +7862,17 @@ class RtcPeer extends Emitter {
 
   signal(payload) {
     if (!this.ch || this.destroyed) return;
-    this.ch.send({ type: "broadcast", event: "sig", payload: Object.assign({ from: this.id }, payload) });
+    this.ch.send({ type: "broadcast", event: "m", payload: Object.assign({ from: this.id }, payload) });
   }
 
   forget(conn) { if (this.conns.get(conn.remoteId) === conn) this.conns.delete(conn.remoteId); }
+
+  /** Guest: give up on the direct link and move onto the relay. */
+  useRelay(c) {
+    if (c.relay || c.open || c.done) return;
+    this.signal({ t: "relay", to: "host" });
+    c.startRelay();
+  }
 
   async onSignal(d) {
     if (this.destroyed || (d.to && d.to !== this.id) || !d.from) return;
@@ -7780,56 +7880,71 @@ class RtcPeer extends Emitter {
 
     if (this.isHost && d.t === "hello") {
       if (c && !c.done) return;                            // a repeated hello
-      c = new RtcConn(this, d.from);
+      c = new RtcConn(this, d.from, d.from);
       this.conns.set(d.from, c);
       // unordered and unretransmitted: the netcode resends whatever matters
       c.attach(c.pc.createDataChannel("game", { ordered: false, maxRetransmits: 0 }));
       this.emit("connection", c);
+      if (d.relay) { c.startRelay(); return; }
       const offer = await c.pc.createOffer();
       await c.pc.setLocalDescription(offer);
       this.signal({ t: "offer", to: d.from, sdp: c.pc.localDescription.toJSON() });
       return;
     }
     if (!c) return;
-    if (d.t === "offer" && !this.isHost) {
-      this.emit("found");
-      await c.pc.setRemoteDescription(d.sdp);
-      await c.flushIce();
-      const ans = await c.pc.createAnswer();
-      await c.pc.setLocalDescription(ans);
-      this.signal({ t: "answer", to: d.from, sdp: c.pc.localDescription.toJSON() });
-    } else if (d.t === "answer" && this.isHost) {
-      await c.pc.setRemoteDescription(d.sdp);
-      await c.flushIce();
-    } else if (d.t === "ice") {
-      c.addIce(d.c);
+    if (d.t === "relay" && this.isHost) { c.startRelay(); return; }
+    if (c.relay) return;
+    try {
+      if (d.t === "offer" && !this.isHost) {
+        this.emit("found");
+        await c.pc.setRemoteDescription(d.sdp);
+        await c.flushIce();
+        const ans = await c.pc.createAnswer();
+        await c.pc.setLocalDescription(ans);
+        this.signal({ t: "answer", to: d.from, sdp: c.pc.localDescription.toJSON() });
+      } else if (d.t === "answer" && this.isHost) {
+        await c.pc.setRemoteDescription(d.sdp);
+        await c.flushIce();
+      } else if (d.t === "ice") {
+        c.addIce(d.c);
+      }
+    } catch (e) {
+      // a broken negotiation is just another reason to relay
+      if (!this.isHost) this.useRelay(c);
     }
   }
 
-  /** Guest: find the host of roomCode and open a direct link to it. */
+  /** Guest: find the host of roomCode and link to it. */
   connect(roomCode) {
-    const c = new RtcConn(this, "host");
+    const c = new RtcConn(this, "host", this.id);
     this.conns.set("host", c);
     this.joinRoom(roomCode).then(() => {
-      let answered = false, tries = 0;
+      let found = false, tries = 0;
       const hello = () => {
-        if (this.destroyed || c.open || c.done) return;
-        if (c.pc.remoteDescription) answered = true;
-        if (!answered) {
-          if (++tries * RTC.helloEvery > RTC.findTimeout) return this.fail("peer-unavailable", "no game found with that code");
-          this.signal({ t: "hello", to: "host" });
-        }
+        if (this.destroyed || c.open || c.done || found) return;
+        if (++tries * RTC.helloEvery > RTC.findTimeout) return this.fail("peer-unavailable", "no game found with that code");
+        this.signal({ t: "hello", to: "host", relay: RTC.forceRelay || undefined });
         setTimeout(hello, RTC.helloEvery);
       };
+      this.on("found", () => {
+        found = true;
+        // the host answered: give the direct link a fair chance, then relay
+        setTimeout(() => this.useRelay(c), RTC.p2pTimeout);
+      });
+      if (RTC.forceRelay) {
+        // the host relays as soon as it sees the hello; mark found once it does
+        c.on("open", () => { found = true; });
+        c.startRelay();
+      }
       hello();
       setTimeout(() => {
-        if (!c.open && !c.done && answered) {
+        if (!c.open && !c.done) {
           c.close();
-          this.fail("p2p", "found the game, but your networks wouldn't link directly — try another Wi-Fi or a hotspot");
+          this.fail("p2p", "found the game but couldn't connect — check both of you are online, then try again");
         }
-      }, RTC.connectTimeout);
-      // once the link is up, the introduction channel is no longer needed
-      c.on("open", () => { try { rtcClient().removeChannel(this.ch); } catch (e) {} this.ch = null; });
+      }, RTC.p2pTimeout + RTC.relayTimeout);
+      // once linked, the introduction channel is no longer needed
+      c.on("open", () => { rtcDrop(this.ch); this.ch = null; });
     }).catch(e => this.fail("network", e));
     return c;
   }
@@ -7837,7 +7952,7 @@ class RtcPeer extends Emitter {
   destroy() {
     this.destroyed = true;
     for (const c of [...this.conns.values()]) c.close();
-    if (this.ch) { try { rtcClient().removeChannel(this.ch); } catch (e) {} this.ch = null; }
+    rtcDrop(this.ch); this.ch = null;
   }
 }
 
@@ -7901,12 +8016,19 @@ class NetPad {
     BUTTONS.forEach(b => { this.cur[b] = false; this.prev[b] = false; });
     this.ax = 0; this.ay = 0;
     this.mask = 0;
+    this.latch = 0;           // buttons pressed since the last poll
     this.hasGamepad = false;
   }
-  setMask(m) { this.mask = m | 0; }
+  /* Presses are latched until the fighter next polls. The host can go several
+     frames without polling (every hit-pause freezes the simulation), and a
+     quick tap that was pressed and released inside that window used to
+     vanish. Now it still lands as one press. */
+  setMask(m) { this.mask = m | 0; this.latch |= this.mask; }
   poll() {
     this.prev = Object.assign({}, this.cur);
-    BUTTONS.forEach((b, i) => { this.cur[b] = !!(this.mask & (1 << i)); });
+    const eff = this.mask | this.latch;
+    this.latch = 0;
+    BUTTONS.forEach((b, i) => { this.cur[b] = !!(eff & (1 << i)); });
     this.ax = (this.cur.right ? 1 : 0) - (this.cur.left ? 1 : 0);
     this.ay = (this.cur.down ? 1 : 0) - (this.cur.up ? 1 : 0);
   }
@@ -8095,6 +8217,11 @@ const Net = {
     if (this.isHost) return i === 0 ? "host" : this.guests.some(gu => gu.slot === i) ? "guest" : null;
     const r = this.room;
     return r && r.seats ? r.seats[i] : null;
+  },
+  /** True when seat i reaches the host over the relay rather than directly. */
+  relayOf(i) {
+    if (this.isHost) { const gu = this.guests.find(x => x.slot === i); return !!(gu && gu.conn.relay); }
+    return i === this.slot && !!(this.conn && this.conn.relay);
   },
   pingOf(i) {
     if (this.isHost) { const gu = this.guests.find(x => x.slot === i); return gu ? gu.ping : 0; }
@@ -8468,6 +8595,12 @@ const Net = {
 
     // ---- entities: rebuilt wholesale, they are only drawn here ----
     const bySlot = s => m.fighters.find(f => f.slot === s);
+    /* Over the relay, snapshots arrive ~8 times a second instead of 60. Each
+       fighter glides from where it was drawn toward the newest snapshot over
+       one relay interval, instead of jumping 8 times a second. */
+    const relayed = !!(this.conn && this.conn.relay);
+    const glide = clamp((performance.now() - (this.snapAt || 0)) / RTC.relaySnapEvery, 0, 1);
+    this.from = this.from || {};
     Entities.list = (snap.en || []).map(e => ({
       kind: ENT_KINDS[e[0]], owner: bySlot(e[1]), x: e[2], y: e[3], r: e[4],
       life: e[5], dir: e[6], landed: !!e[7], storm: !!e[8], max: e[9], hitIds: [],
@@ -8482,7 +8615,12 @@ const Net = {
       if (!f) continue;
       const before = this.lastSeen && this.lastSeen.fs[fd.s];
       f.px = f.x; f.py = f.y;                       // keep render interpolation
-      f.x = fd.x; f.y = fd.y; f.vx = fd.vx; f.vy = fd.vy;
+      if (fresh) this.from[fd.s] = { x: f.x, y: f.y };
+      const fr = this.from[fd.s];
+      if (relayed && fr && Math.hypot(fd.x - fr.x, fd.y - fr.y) < 300) {
+        f.x = lerp(fr.x, fd.x, glide); f.y = lerp(fr.y, fd.y, glide);
+      } else { f.x = fd.x; f.y = fd.y; }               // teleports and respawns snap
+      f.vx = fd.vx; f.vy = fd.vy;
       f.facing = fd.fa; f.state = fd.st; f.stateTimer = fd.tt;
       f.percent = fd.sp; f.stocks = fd.sk;
       f.shield = fd.sh; f.meter = fd.mr;
@@ -8575,6 +8713,12 @@ function frame(now) {
   let steps = 0;
   while (acc >= STEP && steps < CFG.maxFrameSkip) {
     Game.update();
+    /* A key press belongs to exactly one simulation step. When a display
+       frame runs two steps (common at 60Hz with any jitter), clearing only
+       after the frame let both steps see the same press -- one keystroke in
+       the room-code box typed its letter twice. */
+    Keys.pressed = Object.create(null);
+    Keys.tapped = Object.create(null);
     acc -= STEP;
     steps++;
   }
@@ -8583,17 +8727,25 @@ function frame(now) {
   RA = clamp(acc / STEP, 0, 1);
   Game.draw(RA);
 
-  /* Menu screens hit-test inside draw(), so one-shot edges are consumed only
-     after drawing — otherwise a click would never reach a button. */
-  if (steps > 0) {
-    Keys.pressed = Object.create(null);
-    Mouse.click = false;
-  }
+  /* Menu screens hit-test inside draw(), so a click is consumed only after
+     drawing — otherwise it would never reach a button. */
+  if (steps > 0) Mouse.click = false;
   requestAnimationFrame(frame);
 }
 
 Settings.load();
 Stage.select(STAGES[0]);
+
+/* Pasting into the join box takes a bare code or a whole invite link. */
+addEventListener("paste", e => {
+  if (Game.screen !== "online" || Game.joinEntry === null) return;
+  const text = ((e.clipboardData && e.clipboardData.getData("text")) || "").toUpperCase();
+  const m = text.match(/JOIN=([A-Z0-9]{4})/) || text.match(/\b([A-Z0-9]{4})\b/);
+  if (!m) return;
+  e.preventDefault();
+  Game.joinEntry = m[1];
+  Snd.ui();
+});
 
 /* An invite link (?join=ABCD) skips the menus and joins that room. The code
    is stripped from the address bar so a refresh doesn't rejoin a dead room. */

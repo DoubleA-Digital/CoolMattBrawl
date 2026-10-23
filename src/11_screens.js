@@ -993,7 +993,7 @@ const Game = {
       } else {
         g.save(); g.textAlign = "center";
         g.font = `700 13px ${FONT_MONO}`; g.fillStyle = UI.dim;
-        g.fillText("TYPE THE 4-CHARACTER CODE, THEN PRESS ENTER", cx, 212);
+        g.fillText("TYPE OR PASTE THE 4-CHARACTER CODE, THEN PRESS ENTER", cx, 212);
         g.restore();
         for (let i = 0; i < 4; i++) {
           const bx = cx - 150 + i * 76;
@@ -1117,10 +1117,11 @@ const Game = {
       const role = i === mine ? "YOU" : who === "host" ? "HOST" : who === "guest" ? "PLAYER"
                  : s.mode === "cpu" ? "CPU" : "OPEN";
       g.fillText(`P${i + 1} · ${role}`, sx + 14, sy + 22);
-      const ping = Net.pingOf(i);
-      if (ping) {
-        g.font = `400 9px ${FONT_MONO}`; g.fillStyle = "#6b6a85"; g.textAlign = "right";
-        g.fillText(`${ping} ms`, sx + sw - 12, sy + 20);
+      const ping = Net.pingOf(i), relay = Net.relayOf(i);
+      if (ping || relay) {
+        g.font = `400 9px ${FONT_MONO}`; g.textAlign = "right";
+        g.fillStyle = relay ? "#ffc83d" : "#6b6a85";
+        g.fillText(`${relay ? "RELAY · " : ""}${ping ? ping + " ms" : ""}`, sx + sw - 12, sy + 20);
         g.textAlign = "left";
       }
       g.font = `900 22px ${FONT_DISPLAY}`;

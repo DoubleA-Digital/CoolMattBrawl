@@ -31,6 +31,12 @@ function frame(now) {
   let steps = 0;
   while (acc >= STEP && steps < CFG.maxFrameSkip) {
     Game.update();
+    /* A key press belongs to exactly one simulation step. When a display
+       frame runs two steps (common at 60Hz with any jitter), clearing only
+       after the frame let both steps see the same press -- one keystroke in
+       the room-code box typed its letter twice. */
+    Keys.pressed = Object.create(null);
+    Keys.tapped = Object.create(null);
     acc -= STEP;
     steps++;
   }
@@ -39,17 +45,25 @@ function frame(now) {
   RA = clamp(acc / STEP, 0, 1);
   Game.draw(RA);
 
-  /* Menu screens hit-test inside draw(), so one-shot edges are consumed only
-     after drawing — otherwise a click would never reach a button. */
-  if (steps > 0) {
-    Keys.pressed = Object.create(null);
-    Mouse.click = false;
-  }
+  /* Menu screens hit-test inside draw(), so a click is consumed only after
+     drawing — otherwise it would never reach a button. */
+  if (steps > 0) Mouse.click = false;
   requestAnimationFrame(frame);
 }
 
 Settings.load();
 Stage.select(STAGES[0]);
+
+/* Pasting into the join box takes a bare code or a whole invite link. */
+addEventListener("paste", e => {
+  if (Game.screen !== "online" || Game.joinEntry === null) return;
+  const text = ((e.clipboardData && e.clipboardData.getData("text")) || "").toUpperCase();
+  const m = text.match(/JOIN=([A-Z0-9]{4})/) || text.match(/\b([A-Z0-9]{4})\b/);
+  if (!m) return;
+  e.preventDefault();
+  Game.joinEntry = m[1];
+  Snd.ui();
+});
 
 /* An invite link (?join=ABCD) skips the menus and joins that room. The code
    is stripped from the address bar so a refresh doesn't rejoin a dead room. */

@@ -104,6 +104,10 @@ function keyLabel(code) {
 const Keys = {
   down: Object.create(null),
   pressed: Object.create(null),
+  /* Keys pressed since the last simulation step, even if already released.
+     Fighters read this as well as `down`, so a tap shorter than one frame —
+     or one that lands between two frames on a 30Hz tab — still counts. */
+  tapped: Object.create(null),
   capture: null,          // set to a callback while the Controls screen listens
 };
 
@@ -114,7 +118,7 @@ addEventListener("keydown", e => {
     cb(e.code);
     return;
   }
-  if (!Keys.down[e.code]) Keys.pressed[e.code] = true;
+  if (!Keys.down[e.code]) { Keys.pressed[e.code] = true; Keys.tapped[e.code] = true; }
   Keys.down[e.code] = true;
   if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab", "Quote", "Slash"].includes(e.code))
     e.preventDefault();
@@ -135,7 +139,7 @@ class Pad {
   poll() {
     const m = Settings.binds[this.slot];
     this.prev = Object.assign({}, this.cur);
-    for (const b of BUTTONS) this.cur[b] = m[b] ? !!Keys.down[m[b]] : false;
+    for (const b of BUTTONS) this.cur[b] = m[b] ? !!(Keys.down[m[b]] || Keys.tapped[m[b]]) : false;
 
     const gps = navigator.getGamepads ? navigator.getGamepads() : null;
     const gp = gps && gps[this.slot];
