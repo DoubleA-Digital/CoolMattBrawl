@@ -7398,17 +7398,48 @@ const Game = {
     outlineText(g, st.name, host ? 795 : 740, py + 61, st.pal.platEdge, 5);
     g.restore();
 
-    /* ---- leave / start ---- */
+    /* ---- status line, under the settings ---- */
     const problem = this.startProblem(this.slots, this.teams);
-    if (btn(150, H - 72, 170, 46, "◀ LEAVE", { color: "#ff2e88" }))
-      { Net.reset(); this.screen = "title"; Snd.ui(); }
     g.save();
     g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`;
     g.fillStyle = problem ? "#ff2e88" : "#b6ff3b";
     g.fillText(host ? (problem || `${Net.guestCount()} FRIEND${Net.guestCount() === 1 ? "" : "S"} CONNECTED — READY`)
-                    : "THE HOST STARTS THE MATCH", W / 2, H - 44);
+                    : "THE HOST STARTS THE MATCH", W / 2, py + 112);
     g.restore();
-    if (host && btn(W - 380, H - 72, 230, 46, "START ▶",
+
+    /* ---- the room code, big, with a one-click invite ----
+       It used to live only in the small print at the top of the screen, so a
+       host landing here had no idea what to tell their friends. */
+    const code = Net.code || "";
+    const bx0 = 352, by0 = H - 92;
+    g.save();
+    g.textAlign = "left"; g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#b6ff3b";
+    g.fillText("ROOM CODE — FRIENDS TYPE THIS UNDER JOIN", bx0, by0 - 6);
+    g.restore();
+    for (let i = 0; i < 4; i++) {
+      const bx = bx0 + i * 58;
+      panel(g, bx, by0, 50, 60, { cut: 8, fill: "#14112a", accent: "#b6ff3b", accentA: 0.95, glow: 14 });
+      g.save(); g.textAlign = "center";
+      g.font = `900 34px ${FONT_DISPLAY}`;
+      g.shadowColor = "#b6ff3b"; g.shadowBlur = 10; g.fillStyle = "#ffffff";
+      g.fillText(code[i] || "", bx + 25, by0 + 44);
+      g.restore();
+    }
+    const copied = this.copiedAt && performance.now() - this.copiedAt < 2000;
+    if (btn(bx0 + 4 * 58 + 10, by0 + 8, 220, 44, copied ? "LINK COPIED!" : "COPY INVITE LINK",
+        { color: "#b6ff3b", active: copied, font: `700 13px ${FONT_MONO}` })) {
+      const link = location.origin + location.pathname + "?join=" + code;
+      try {
+        navigator.clipboard.writeText(link).then(() => { this.copiedAt = performance.now(); },
+                                                  () => { this.copiedAt = 0; });
+      } catch (e) { /* no clipboard: the code is on screen anyway */ }
+      Snd.uiBig();
+    }
+
+    /* ---- leave / start ---- */
+    if (btn(150, H - 72, 170, 46, "◀ LEAVE", { color: "#ff2e88" }))
+      { Net.reset(); this.screen = "title"; Snd.ui(); }
+    if (host && btn(W - 330, H - 72, 180, 46, "START ▶",
         { color: problem ? "#444" : "#b6ff3b", disabled: !!problem, font: `700 18px ${FONT_MONO}` }))
       this.start();
   },
@@ -8525,6 +8556,17 @@ function frame(now) {
 
 Settings.load();
 Stage.select(STAGES[0]);
+
+/* An invite link (?join=ABCD) skips the menus and joins that room. The code
+   is stripped from the address bar so a refresh doesn't rejoin a dead room. */
+{
+  const code = (new URLSearchParams(location.search).get("join") || "").toUpperCase();
+  if (/^[A-Z0-9]{4}$/.test(code)) {
+    history.replaceState(null, "", location.pathname);
+    Game.screen = "online";
+    Net.join(code);
+  }
+}
 fitCanvas();
 Snd.init();
 requestAnimationFrame(frame);

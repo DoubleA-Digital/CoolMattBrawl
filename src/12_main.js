@@ -50,6 +50,17 @@ function frame(now) {
 
 Settings.load();
 Stage.select(STAGES[0]);
+
+/* An invite link (?join=ABCD) skips the menus and joins that room. The code
+   is stripped from the address bar so a refresh doesn't rejoin a dead room. */
+{
+  const code = (new URLSearchParams(location.search).get("join") || "").toUpperCase();
+  if (/^[A-Z0-9]{4}$/.test(code)) {
+    history.replaceState(null, "", location.pathname);
+    Game.screen = "online";
+    Net.join(code);
+  }
+}
 fitCanvas();
 Snd.init();
 requestAnimationFrame(frame);
