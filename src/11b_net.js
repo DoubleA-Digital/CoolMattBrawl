@@ -124,7 +124,8 @@ function maskFromPad(pad) {
   return m;
 }
 
-const ENT_KINDS = ["orb", "wave", "well", "ballast", "draft"];
+const ENT_KINDS = ["orb", "wave", "well", "draft", "ice", "hex", "bomb", "payload",
+                   "disc", "rdisc", "flower", "ghost", "ring", "doom", "tether"];
 
 const Net = {
   mode: "off",            // off | hosting | joining | connected | error
@@ -637,10 +638,11 @@ const Net = {
       mt: [m.countdown, m.timeLeft, m.over ? 1 : 0, m.endTimer,
            m.suddenDeath ? 1 : 0, m.frenzy ? 1 : 0,
            m.winner ? m.winner.slot : -1, m.winTeam == null ? -1 : m.winTeam,
-           m.endedBy, m.frames, FX.pause],
+           m.endedBy, m.frames, FX.pause, m.darkT],
       en: Entities.list.map(e => [ENT_KINDS.indexOf(e.kind), e.owner.slot,
                                   Math.round(e.x), Math.round(e.y), r2(e.r), e.life,
-                                  e.dir || 0, e.landed ? 1 : 0, e.storm ? 1 : 0, e.max || 0]),
+                                  e.dir || 0, e.landed ? 1 : 0, e.storm ? 1 : 0, e.max || 0,
+                                  e.w || 0]),
       ev: this.events.length ? this.events.slice() : undefined,
       fs: m.fighters.map(f => ({
         s: f.slot,
@@ -658,6 +660,8 @@ const Net = {
         aq: (f.pad && f.pad.ack) || 0,
         aj: f.airJumps, ff: f.fastFalling ? 1 : 0, dt: f.dropThrough,
         sq: f.squatHeld ? 1 : 0, rd: f.rollDir || 0, lh: f.attack ? f.attack.lastHitFrame : 0,
+        // status effects: [chill, frozen, curse, root, stealth, echo, ambush]
+        fx: [f.slowT, f.frozenT, f.curseT, f.rootT, f.stealthT, f.echoT, f.ambushT],
         sx: [f.stats.kos, f.stats.falls, r2(f.stats.damageDealt), f.stats.supers, r2(f.stats.bestHit)],
       })),
     };
@@ -689,6 +693,7 @@ const Net = {
     m.winTeam = mt[7] >= 0 ? mt[7] : null;
     m.endedBy = mt[8]; m.frames = mt[9];
     this.hostPause = mt[10] || 0;
+    m.darkT = mt[11] || 0;
 
     // ---- entities: rebuilt wholesale, they are only drawn here ----
     const bySlot = s => m.fighters.find(f => f.slot === s);
@@ -712,7 +717,7 @@ const Net = {
     this.ease = this.ease || {};
     Entities.list = (snap.en || []).map(e => ({
       kind: ENT_KINDS[e[0]], owner: bySlot(e[1]), x: e[2], y: e[3], r: e[4],
-      life: e[5], dir: e[6], landed: !!e[7], storm: !!e[8], max: e[9], hitIds: [],
+      life: e[5], dir: e[6], landed: !!e[7], storm: !!e[8], max: e[9], w: e[10], hitIds: [],
     })).filter(e => e.owner && e.kind);
 
     // ---- banners the host raised (a predicted special already showed its own) ----
@@ -753,6 +758,7 @@ const Net = {
       f.respawnTimer = fd.rt; f.hitFlash = fd.hf;
       f.specialCD = fd.cd; f.runPhase = fd.rp; f.animTime = fd.at;
       f.anchorGlow = fd.ag; f.pinned = !!fd.pn; f.isCPU = !!fd.cpu;
+      this.applyStatus(f, fd);
       this.applyStats(f, fd);
       this.findGround(f);
       this.applyAttack(f, fd);
@@ -770,6 +776,11 @@ const Net = {
     }
   },
 
+  applyStatus(f, fd) {
+    const s = fd.fx || [];
+    f.slowT = s[0] || 0; f.frozenT = s[1] || 0; f.curseT = s[2] || 0; f.rootT = s[3] || 0;
+    f.stealthT = s[4] || 0; f.echoT = s[5] || 0; f.ambushT = s[6] || 0;
+  },
   applyStats(f, fd) {
     f.stats.kos = fd.sx[0]; f.stats.falls = fd.sx[1]; f.stats.damageDealt = fd.sx[2];
     f.stats.supers = fd.sx[3]; f.stats.bestHit = fd.sx[4];
@@ -799,6 +810,7 @@ const Net = {
   canPredict(fd, m) {
     if (m.countdown > 0 || m.over || !fd.al) return false;
     if (["hitstun", "grabbed", "grabbing", "dead", "respawn", "shieldbreak"].includes(fd.st)) return false;
+    if (fd.fx && fd.fx[1] > 0) return false;           // frozen: the host's to thaw
     if (fd.ak === "super") return false;
     if (fd.ak === "special" && !this.ownSpecialSafe()) return false;
     return true;
@@ -914,6 +926,7 @@ const Net = {
     f.specialCD = fd.cd; f.anchorGlow = fd.ag; f.pinned = !!fd.pn;
     f.airJumps = fd.aj; f.fastFalling = !!fd.ff; f.dropThrough = fd.dt || 0;
     f.squatHeld = !!fd.sq; f.rollDir = fd.rd || 0;
+    this.applyStatus(f, fd);
     this.findGround(f);
     this.applyAttack(f, fd);
   },
@@ -936,12 +949,13 @@ const Net = {
     pad.setMask(mask & ~this.noPredictMask());
     f.pad = pad;
     f.checkBlastZones = noop_;
-    const spawns = ["orb", "shockwave", "well", "ballast", "updraft"].map(k => [k, Entities[k]]);
-    for (const [k] of spawns) Entities[k] = noop_;
+    // whatever the move spawns lands in a scratch list and is dropped
+    const real = Entities.list;
+    Entities.list = [];
     try { f.update(Game.match); }
     finally {
       delete f.checkBlastZones;
-      for (const [k, fn] of spawns) Entities[k] = fn;
+      Entities.list = real;
     }
   },
 
@@ -988,4 +1002,5 @@ const SUPER_MASK = 1 << BUTTONS.indexOf("super");
 const SPECIAL_MASK = 1 << BUTTONS.indexOf("special");
 /* Fighters whose special only moves themselves (spawned entities come from
    the host's snapshot), so a guest can predict it like any other move. */
-const SAFE_SPECIALS = ["BOLDER", "ZIP", "ORBIT", "BALLAST", "KITE", "HUSK", "MIRA"];
+const SAFE_SPECIALS = ["BOLDER", "ZIP", "ORBIT", "KITE", "HUSK", "MIRA",
+                       "RIME", "HEX", "SHADE", "FUSE", "RICO", "SPROUT", "TEMPO"];

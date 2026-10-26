@@ -48,6 +48,16 @@ class Fighter {
     this.anchorGlow = 0; this.flipGlow = 0;
     this.launchFx = 0;        // frames of smoke trail after a SMASH-strength hit
     this.stealWait = 0;       // a CPU that is out counts this up before stealing
+    /* ---- status effects. Each is a frame countdown; see STATUS below. ---- */
+    this.slowT = 0;           // Rime's chill: moves and jumps slower
+    this.frozenT = 0;         // Rime's Absolute Zero: encased, cannot act
+    this.curseT = 0;          // Hex: takes more knockback
+    this.rootT = 0;           // Sprout: feet held to the floor
+    this.stealthT = 0;        // Shade: nearly invisible
+    this.ambushT = 0;         // Shade: the next hit out of stealth is stronger
+    this.echoT = 0;           // Echo's Deja Vu: damage taken now comes back later
+    this.echoDmg = 0; this.echoBy = null;
+    this.posHist = [];        // Echo: where she has been, for Recall
     this.specialCD = 0;
     this.pinned = false;
     this.hotTick = 0;         // cooldown between burns from a hot platform
@@ -69,6 +79,54 @@ class Fighter {
   get w() { return this.ch.size.w; }
   get feetY() { return this.y + this.h * 0.5; }
   get meterFull() { return this.meter >= CFG.meter.max; }
+  /** Ground and air speed: chilled is slower, stealthed is a little faster. */
+  get moveMul() { return (this.slowT > 0 ? 0.55 : 1) * (this.stealthT > 0 ? 1.15 : 1); }
+
+  /* ----------------------------------------------------- status effects */
+  tickStatus() {
+    if (this.slowT > 0) {
+      this.slowT--;
+      if (this.slowT % 9 === 0) FX.spark(this.x + rnd(-14, 14), this.y + rnd(-20, 20), "#d4f1ff");
+    }
+    if (this.frozenT > 0 && --this.frozenT === 0) {
+      FX.burst(this.x, this.y, 14, "#d4f1ff", 4);
+      Snd.tone(1600, 0.08, "triangle", 0.08, 2400);
+    }
+    if (this.curseT > 0) this.curseT--;
+    if (this.rootT > 0 && (--this.rootT === 0 || !this.grounded)) this.rootT = 0;
+    if (this.stealthT > 0) this.stealthT--;
+    if (this.ambushT > 0) this.ambushT--;
+    if (this.echoT > 0 && --this.echoT === 0) this.echoBack();
+    if (this.ch.recall) {
+      this.posHist.push({ x: this.x, y: this.y, p: this.percent });
+      if (this.posHist.length > this.ch.recall) this.posHist.shift();
+    }
+  }
+
+  /** Echo's Deja Vu runs out: everything taken during it lands again. */
+  echoBack() {
+    const by = this.echoBy, dmg = Math.min(this.echoDmg, 24);
+    this.echoBy = null; this.echoDmg = 0;
+    if (!by || dmg < 1 || !this.alive || this.state === ST.DEAD) return;
+    const dirX = this.x >= by.x ? 1 : -1;
+    const rad = 50 * Math.PI / 180;
+    const mag = (CFG.kbBase + 4.6 + dmg * CFG.kbDamageScale + this.percent * CFG.kbPercentScale * 1.0 * 1.9)
+              * ((CFG.kbWeightRef + 0.55) / (this.ch.weight + 0.55));
+    FX.ring(this.x, this.y, 8, 160, by.ch.color, 4);
+    FX.damageText(this.x, this.y - 44, "ECHO", by.ch.accent);
+    FX.burst(this.x, this.y, 20, by.ch.color, 7);
+    Snd.superHit();
+    this.applyKnockback(Math.cos(rad) * mag * dirX, -Math.sin(rad) * mag, dmg, mag, by);
+    by.stats.damageDealt += dmg;
+  }
+
+  /** Leaving stealth by attacking primes an ambush for the next hit. */
+  breakStealth() {
+    if (this.stealthT <= 0) return;
+    this.stealthT = 0;
+    this.ambushT = 40;
+    FX.ring(this.x, this.y, 6, 60, this.ch.accent, 2);
+  }
   get inSuper() { return this.attack && this.attack.kind === "super"; }
 
   addMeter(v) {
@@ -129,6 +187,17 @@ class Fighter {
       this.launchFx--;
       if (this.launchFx % 2 === 0) FX.burst(this.x, this.y, 2, "#ffffff", 1.2);
     }
+    this.tickStatus();
+
+    /* Frozen solid: no input at all. The block still falls and slides, and
+       the next hit shatters it (see applyKnockback). */
+    if (this.frozenT > 0) {
+      this.attack = null; this.pinned = false;
+      if (this.grounded) this.vx *= 0.9;
+      this.integrate();
+      this.checkBlastZones(match);
+      return;
+    }
     this.addMeter(CFG.meter.passive);
 
     switch (this.state) {
@@ -184,15 +253,16 @@ class Fighter {
     if (inp.hit("heavy")) { this.startAttack("heavy"); return; }
     if (inp.hit("light")) { this.startAttack("light"); return; }
     if (inp.hit("special")) { this.startSpecial(); return; }
-    if (inp.hit("up")) { this.setState(ST.JUMPSQUAT, CFG.jumpSquat); this.squatHeld = true; return; }
+    if (inp.hit("up") && this.rootT <= 0) { this.setState(ST.JUMPSQUAT, CFG.jumpSquat); this.squatHeld = true; return; }
 
-    if (inp.ay > 0 && this.groundSeg && !this.groundSeg.solid) {
+    if (inp.ay > 0 && this.groundSeg && !this.groundSeg.solid && this.rootT <= 0) {
       this.grounded = false; this.groundSeg = null;
       this.dropThrough = 10; this.setState(ST.AIR); this.y += 6;
       return;
     }
 
-    const target = ax * ch.speed;
+    // rooted: feet stay put (attacks, shield and turning still work)
+    const target = this.rootT > 0 ? 0 : ax * ch.speed * this.moveMul;
     this.vx += (target - this.vx) * (ax !== 0 ? ch.accel * 0.45 : 0.35);
     this.setState(Math.abs(this.vx) > 0.6 ? ST.RUN : ST.IDLE);
     if (ax !== 0) this.facing = ax;
@@ -201,7 +271,7 @@ class Fighter {
   updateJumpSquat(inp) {
     this.squatHeld = this.squatHeld && inp.held("up");
     if (--this.stateTimer <= 0) {
-      this.vy = -this.ch.jump * (this.squatHeld ? 1 : CFG.shortHopMul);
+      this.vy = -this.ch.jump * (this.squatHeld ? 1 : CFG.shortHopMul) * (this.slowT > 0 ? 0.86 : 1);
       this.grounded = false; this.groundSeg = null;
       this.setState(ST.AIR); this.fastFalling = false;
       Snd.jump();
@@ -229,7 +299,8 @@ class Fighter {
     }
     if (inp.hit("down") && this.vy > -1) this.fastFalling = true;
     if (inp.ax !== 0) {
-      this.vx = clamp(this.vx + inp.ax * ch.accel * 0.42, -ch.airSpeed * 1.6, ch.airSpeed * 1.6);
+      const am = this.moveMul;
+      this.vx = clamp(this.vx + inp.ax * ch.accel * 0.42 * am, -ch.airSpeed * 1.6 * am, ch.airSpeed * 1.6 * am);
       this.facing = inp.ax;
     }
   }
@@ -281,6 +352,7 @@ class Fighter {
 
   /* ------------------------------------------------------------ attacks */
   startAttack(kind) {
+    this.breakStealth();
     const m = this.ch[kind];
     this.attack = {
       kind, data: m, t: 0,
@@ -308,6 +380,7 @@ class Fighter {
   }
 
   startSuper() {
+    this.breakStealth();
     const m = this.ch.super;
     this.meter = 0;
     this.armorDamage = 0;
@@ -374,6 +447,7 @@ class Fighter {
 
   /* -------------------------------------------------------------- grabs */
   startGrab() {
+    this.breakStealth();
     this.attack = {
       kind: "grab",
       data: { startup: CFG.grabStartup, active: CFG.grabActive,
@@ -510,6 +584,22 @@ class Fighter {
     }
     if (this.pinned) { this.percent += dmg * 0.4; this.hitFlash = 4; return; }
 
+    // frozen: the hit shatters the ice and lands harder for it
+    if (this.frozenT > 0) {
+      this.frozenT = 0;
+      dmg += 7; vx *= 1.25; vy *= 1.25; mag *= 1.25;
+      FX.burst(this.x, this.y, 30, "#d4f1ff", 9);
+      FX.ring(this.x, this.y, 8, 120, "#ffffff", 4);
+      FX.damageText(this.x, this.y - 44, "SHATTER", "#d4f1ff");
+      Snd.shieldBreak();
+    }
+    // cursed: flies further from everything
+    if (this.curseT > 0) { vx *= 1.22; vy *= 1.22; mag *= 1.22; }
+    // marked by Deja Vu: remember it, it comes back
+    if (this.echoT > 0) this.echoDmg += dmg;
+    // any hit knocks a hidden fighter out of hiding
+    if (this.stealthT > 0) this.stealthT = 0;
+
     // Orbit's Keel Anchor: full damage still lands, but the brace halves
     // how far it sends her — survivability, not immunity.
     if (this.anchorGlow > 0) { vx *= 0.55; vy *= 0.55; mag *= 0.55; }
@@ -616,6 +706,8 @@ class Fighter {
     this.percent = 0; this.vx = 0; this.vy = 0;
     this.lastHitBy = null; this.pinned = false; this.attack = null;
     this.moveLog = []; this.armorDamage = 0; this.launchFx = 0;
+    this.slowT = this.frozenT = this.curseT = this.rootT = 0;
+    this.stealthT = this.ambushT = this.echoT = 0; this.echoDmg = 0; this.posHist.length = 0;
     if (this.grabTarget) this.releaseGrab();
     if (this.grabbedBy) this.grabbedBy.releaseGrab();
     match.onKO(this);

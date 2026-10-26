@@ -225,7 +225,7 @@ const Game = {
        This used to be a hard-coded 340 with fighters placed every 156 units
        from -234, which fitted a roster of four exactly -- at eight, the last
        four stood on thin air past the end of the beam. */
-    const beamHalf = 430;
+    const beamHalf = 590;
     g.save();
     g.translate(W / 2, H * 0.84); g.rotate(a);
     g.fillStyle = "#15102b";
@@ -242,15 +242,15 @@ const Game = {
     g.restore();
 
     // spread whatever the roster is evenly along the beam, inside its ends
-    const inset = 52, n = ROSTER.length;
+    const inset = 40, n = ROSTER.length;
     const span = (beamHalf - inset) * 2;
     const step = n > 1 ? span / (n - 1) : 0;
     ROSTER.forEach((c, i) => {
       const lx = -(beamHalf - inset) + i * step;
       const x = W / 2 + lx * Math.cos(a), y = H * 0.84 + lx * Math.sin(a);
       g.save();
-      g.translate(x, y - 28); g.rotate(a);
-      g.scale(0.78, 0.78);
+      g.translate(x, y - 22); g.rotate(a);
+      g.scale(0.62, 0.62);
       c.draw(g, { time: this.titleT + i * 40, runPhase: 0, running: false, air: false,
                   vx: 0, vy: 0, state: ST.IDLE, flash: false, atkPhase: -1 });
       g.restore();
@@ -314,11 +314,10 @@ const Game = {
     g.save(); g.fillStyle = "rgba(6,5,14,.68)"; g.fillRect(0, 0, W, H); g.restore();
     screenTitleBar("COOL MATT GAMES", "CHOOSE YOUR FIGHTERS");
 
-    /* Eight fighters will not fit in one row, so the roster is a 4x2 grid of
-       compact cards. The full write-up for whichever one you are pointing at
-       goes in the panel underneath, which is where there is actually room to
-       explain what a character does. */
-    const cols = 4, cw = 236, chh = 136, gapX = 18, gapY = 14;
+    /* Sixteen fighters: an 8x2 grid of compact portrait cards. Stats and the
+       full write-up for whoever you are pointing at go in the panel
+       underneath, which is where there is room to explain a character. */
+    const cols = 8, cw = 140, chh = 136, gapX = 10, gapY = 14;
     const gridW = cols * cw + (cols - 1) * gapX;
     const gx0 = (W - gridW) / 2, gy0 = 104;
     let hoverChar = null;
@@ -335,62 +334,50 @@ const Game = {
       g.save();
       g.translate(0, hov ? -3 : 0);
       panel(g, x, cy, cw, chh, {
-        cut: 13, fill: "#110e24", accent: c.color,
+        cut: 11, fill: "#110e24", accent: c.color,
         accentA: hov ? 1 : picked.length ? 0.7 : 0.4,
         glow: hov ? 20 : picked.length ? 10 : 0,
       });
       // colour wash + initial watermark
       g.save();
-      notchPath(g, x, cy, cw, chh, 13); g.clip();
+      notchPath(g, x, cy, cw, chh, 11); g.clip();
       const wq = g.createLinearGradient(0, cy + chh, 0, cy + 30);
-      wq.addColorStop(0, hexA(c.color, hov ? 0.22 : 0.1));
+      wq.addColorStop(0, hexA(c.color, hov ? 0.24 : 0.1));
       wq.addColorStop(1, hexA(c.color, 0));
       g.fillStyle = wq; g.fillRect(x, cy, cw, chh);
-      g.globalAlpha = 0.06;
-      g.font = `900 120px ${FONT_DISPLAY}`; g.textAlign = "center";
+      g.globalAlpha = 0.07;
+      g.font = `900 96px ${FONT_DISPLAY}`; g.textAlign = "center";
       g.fillStyle = c.color;
-      g.fillText(c.name[0], x + cw - 44, cy + 112);
+      g.fillText(c.name[0], x + cw / 2, cy + 90);
       g.restore();
 
-      /* Art on the left, text on the right. Clipped to the card: several
-         fighters are wider than their hurtbox (Kite's sail, Ballast's jib)
-         and spilled over the neighbouring card without this. */
+      /* The portrait, clipped to the card: several fighters are wider than
+         their hurtbox (Kite's sail, Hex's hat) and would spill over. */
       g.save();
-      notchPath(g, x + 2, cy + 2, cw - 4, chh - 4, 12); g.clip();
-      g.translate(x + 58, cy + chh - 30);
-      const sc2 = hov ? 1.20 : 1.12;
+      notchPath(g, x + 2, cy + 2, cw - 4, chh - 4, 10); g.clip();
+      g.translate(x + cw / 2, cy + chh - 46);
+      const sc2 = hov ? 1.22 : 1.12;
       g.scale(sc2, sc2);
-      c.draw(g, { time: performance.now() / 16, runPhase: 0, running: false,
+      c.draw(g, { time: performance.now() / 16 + i * 20, runPhase: 0, running: false,
                   air: false, vx: 0, vy: 0, state: ST.IDLE, flash: false, atkPhase: -1 });
       g.restore();
 
-      g.textAlign = "left";
-      g.font = `900 24px ${FONT_DISPLAY}`;
-      g.shadowColor = c.color; g.shadowBlur = hov ? 14 : 8;
-      outlineText(g, c.name, x + 104, cy + 40, c.color, 6);
+      g.textAlign = "center";
+      g.font = `900 17px ${FONT_DISPLAY}`;
+      g.shadowColor = c.color; g.shadowBlur = hov ? 12 : 6;
+      outlineText(g, c.name, x + cw / 2, cy + chh - 18, c.color, 5);
       g.shadowBlur = 0;
-      g.font = `700 8px ${FONT_MONO}`;
-      g.fillStyle = "#8f8cb5"; g.fillText(c.tag, x + 104, cy + 54);
-
-      const stats = [["WGT", c.weight / 1.5], ["SPD", c.speed / 6], ["JMP", (c.jump - 10.5) / 3.2]];
-      let sy = cy + 68;
-      stats.forEach(([label, v]) => {
-        g.font = `700 8px ${FONT_MONO}`;
-        g.fillStyle = "#6b6a85"; g.fillText(label, x + 104, sy + 7);
-        slot(g, x + 130, sy + 1, cw - 146, 6, 3);
-        bar(g, x + 130, sy + 1, cw - 146, 6, clamp(v, 0.08, 1), c.color, { r: 3 });
-        sy += 13;
-      });
+      g.font = `700 7px ${FONT_MONO}`;
+      g.fillStyle = "#8f8cb5"; g.fillText(c.tag, x + cw / 2, cy + chh - 7);
 
       picked.forEach((pi, k) => {
         g.save();
-        notchPath(g, x + cw - 34 - k * 32, cy + 8, 28, 17, 5);
+        notchPath(g, x + cw - 30, cy + 7 + k * 19, 24, 16, 4);
         g.fillStyle = PLAYER_TINT[pi];
         g.shadowColor = PLAYER_TINT[pi]; g.shadowBlur = 12; g.fill();
         g.restore();
-        g.fillStyle = "#07060f"; g.font = `700 10px ${FONT_MONO}`; g.textAlign = "center";
-        g.fillText("P" + (pi + 1), x + cw - 20 - k * 32, cy + 20.5);
-        g.textAlign = "left";
+        g.fillStyle = "#07060f"; g.font = `700 9px ${FONT_MONO}`; g.textAlign = "center";
+        g.fillText("P" + (pi + 1), x + cw - 18, cy + 18.5 + k * 19);
       });
       g.restore();
 
@@ -469,6 +456,15 @@ const Game = {
 
     g.font = `400 12px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
     g.fillText(sc.blurb, 110, dy + 48);
+    // the stat bars that used to sit on every card
+    [["WEIGHT", sc.weight / 1.5], ["SPEED", sc.speed / 6], ["JUMP", (sc.jump - 10.5) / 3.2]].forEach(([lab, v], k) => {
+      const ry = dy + 14 + k * 13;
+      g.font = `700 8px ${FONT_MONO}`; g.fillStyle = "#6b6a85"; g.textAlign = "right";
+      g.fillText(lab, W - 250, ry + 7);
+      g.textAlign = "left";
+      slot(g, W - 240, ry + 1, 130, 6, 3);
+      bar(g, W - 240, ry + 1, 130, 6, clamp(v, 0.08, 1), sc.color, { r: 3 });
+    });
     if (sc.power) {
       g.font = `700 8px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
       g.fillText("POWER", 110, dy + 66);
@@ -1087,7 +1083,7 @@ const Game = {
     if (this.lobbySeat == null || !this.canEditSeat(this.lobbySeat)) this.lobbySeat = mine;
 
     /* ---- the four seats ---- */
-    const sw = 286, sgap = 14, sh = 150, sy = 108;
+    const sw = 286, sgap = 14, sh = 128, sy = 108;
     let sx = (W - (4 * sw + 3 * sgap)) / 2;
     let hoverChar = null;
     this.slots.forEach((s, i) => {
@@ -1136,7 +1132,7 @@ const Game = {
       // team badge: the host can switch anyone, a guest only themself
       if (this.teams && !off) {
         const canTeam = host || i === mine;
-        if (btn(sx + 122, sy + 88, 74, 22, TEAM_NAME[s.team || 0],
+        if (btn(sx + 122, sy + 82, 74, 20, TEAM_NAME[s.team || 0],
                 { active: true, color: TEAM_TINT[s.team || 0], disabled: !canTeam,
                   font: `700 10px ${FONT_MONO}` }) && canTeam) {
           Net.setTeam(i, 1 - (s.team || 0)); Snd.ui();
@@ -1145,25 +1141,26 @@ const Game = {
       // the host fills or empties any seat a person is not sitting in
       if (host && !who) {
         [["OPEN", "off"], ["CPU", "cpu"]].forEach(([lab, m], k) => {
-          if (btn(sx + 122 + k * 78, sy + 118, 72, 22, lab, {
+          if (btn(sx + 122 + k * 78, sy + 104, 72, 20, lab, {
             active: s.mode === m, color: m === "cpu" ? "#ffc83d" : "#6b6a85",
             font: `700 10px ${FONT_MONO}`,
           })) { Net.setSeatMode(i, m); if (m === "cpu") this.lobbySeat = i; Snd.ui(); }
         });
       } else if (who === "guest" && i !== mine && !host) {
         g.save(); g.font = `400 9px ${FONT_MONO}`; g.fillStyle = "#6b6a85"; g.textAlign = "left";
-        g.fillText("connected", sx + 122, sy + 132); g.restore();
+        g.fillText("connected", sx + 122, sy + 116); g.restore();
       }
       if (Mouse.click && Mouse.x > sx && Mouse.x < sx + 116 && Mouse.y > sy && Mouse.y < sy + sh
           && this.canEditSeat(i)) { this.lobbySeat = i; Snd.ui(); }
       sx += sw + sgap;
     });
 
-    /* ---- the roster: click to give the selected seat that fighter ---- */
-    const n = ROSTER.length, cw = 140, cgap = 8, ch = 118, cy = 274;
-    let cx = (W - (n * cw + (n - 1) * cgap)) / 2;
+    /* ---- the roster, two rows: click to give the selected seat that fighter ---- */
+    const per = 8, cw = 140, cgap = 8, ch = 76;
+    const rowX = (W - (per * cw + (per - 1) * cgap)) / 2;
     const seatChar = this.slots[this.lobbySeat].charId;
-    ROSTER.forEach(c => {
+    ROSTER.forEach((c, i) => {
+      const cx = rowX + (i % per) * (cw + cgap), cy = 246 + ((i / per) | 0) * (ch + 8);
       const hov = Mouse.x > cx && Mouse.x < cx + cw && Mouse.y > cy && Mouse.y < cy + ch;
       if (hov) hoverChar = c;
       const on = c.id === seatChar;
@@ -1173,15 +1170,14 @@ const Game = {
         accentA: on ? 1 : hov ? 0.8 : 0.35, glow: on ? 16 : hov ? 10 : 0 });
       g.save();
       notchPath(g, cx + 2, cy + 2, cw - 4, ch - 4, 9); g.clip();
-      g.translate(cx + cw / 2, cy + ch - 34); g.scale(0.95, 0.95);
+      g.translate(cx + 34, cy + ch - 14); g.scale(0.82, 0.82);
       c.draw(g, { time: performance.now() / 16, runPhase: 0, running: false, air: false,
                   vx: 0, vy: 0, state: ST.IDLE, flash: false, atkPhase: -1 });
       g.restore();
-      g.textAlign = "center"; g.font = `900 15px ${FONT_DISPLAY}`;
-      outlineText(g, c.name, cx + cw / 2, cy + ch - 10, c.color, 4);
+      g.textAlign = "left"; g.font = `900 14px ${FONT_DISPLAY}`;
+      outlineText(g, c.name, cx + 66, cy + 42, c.color, 4);
       g.restore();
       if (hov && Mouse.click) { Net.pick(this.lobbySeat, c.id); Snd.ui(); }
-      cx += cw + cgap;
     });
 
     /* ---- write-up of whoever is pointed at, else the selected seat ---- */
@@ -1189,16 +1185,16 @@ const Game = {
     g.save();
     g.textAlign = "center";
     g.font = `700 12px ${FONT_MONO}`; g.fillStyle = sc.color;
-    g.fillText(`${sc.name} — ${sc.tag}`, W / 2, 418);
+    g.fillText(`${sc.name} — ${sc.tag}`, W / 2, 422);
     g.font = `400 12px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
-    g.fillText(sc.power || sc.blurb, W / 2, 438);
+    g.fillText(sc.power || sc.blurb, W / 2, 440);
     g.font = `400 11px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
-    g.fillText(`SPECIAL  ${sc.special.name.toUpperCase()}   ·   SUPER  ${sc.super.name.toUpperCase()}`, W / 2, 458);
+    g.fillText(`SPECIAL  ${sc.special.name.toUpperCase()}   ·   SUPER  ${sc.super.name.toUpperCase()}`, W / 2, 457);
     g.restore();
 
     /* ---- match settings: the host sets them, guests read them ---- */
-    const py = 478;
-    panel(g, 150, py, W - 300, 92, { cut: 12, fill: "#100d20", accent: "#ff2e88", accentA: 0.35 });
+    const py = 470;
+    panel(g, 150, py, W - 300, 84, { cut: 12, fill: "#100d20", accent: "#ff2e88", accentA: 0.35 });
     g.save();
     g.textAlign = "left"; g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
     g.fillText("MODE", 176, py + 24);
@@ -1230,7 +1226,7 @@ const Game = {
     g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`;
     g.fillStyle = problem ? "#ff2e88" : "#b6ff3b";
     g.fillText(host ? (problem || `${Net.guestCount()} FRIEND${Net.guestCount() === 1 ? "" : "S"} CONNECTED — READY`)
-                    : "THE HOST STARTS THE MATCH", W / 2, py + 112);
+                    : "THE HOST STARTS THE MATCH", W / 2, py + 106);
     g.restore();
 
     /* ---- the room code, big, with a one-click invite ----

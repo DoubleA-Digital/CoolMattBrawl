@@ -22,6 +22,7 @@ class Match {
     this.timeLeft = CFG.matchSeconds * 60;
     this.endedBy = null; this.winner = null; this.winTeam = null;
     this.frenzy = false; this.suddenDeath = false;
+    this.darkT = 0;             // Shade's Nightfall: frames of darkness left
     Snd.startMusic(stageDef);
   }
 
@@ -136,6 +137,7 @@ class Match {
     }
     else if (this.timeLeft === 10 * 60) FX.banner("10 SECONDS", "#ffc83d");
 
+    if (this.darkT > 0) this.darkT--;
     for (const f of this.fighters) f.update(this);
     Combat.resolve(this.fighters);
     Entities.update(this.fighters);
@@ -164,6 +166,7 @@ class Match {
     Light.post(g, cv, W, H);
 
     FX.drawOverlay(g);
+    if (this.darkT > 0) drawDarkness(this, cam, alpha);
     if (Net.hostStalled) {
       g.save();
       g.fillStyle = "rgba(6,5,14,.55)"; g.fillRect(0, H / 2 - 44, W, 70);

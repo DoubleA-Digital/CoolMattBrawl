@@ -21,15 +21,6 @@ const Entities = {
   well(owner, x, y, move) {
     this.list.push({ kind: "well", owner, x, y, move, life: 62, r: 38, pull: 180, hitIds: [] });
   },
-  /** Ballast's cube: falls, lands on the deck, then sits there as a planted
-      obstacle that still hits anyone who walks into it until it expires.
-      passAbove: a cube called down on a foe drops through any soft platform
-      above that height, so a shelf overhead cannot catch it. */
-  ballast(owner, x, y, vx, w, life, move, passAbove) {
-    this.list.push({ kind: "ballast", owner, x, y, vx, vy: -2, w, move,
-                     life, r: 22, landed: false, passAbove: passAbove == null ? -Infinity : passAbove,
-                     hitIds: [] });
-  },
   /** Kite's updraft: a rising column that carries anyone inside it upward.
       A storm column (her super) lifts only her foes, and lifts them hard. */
   updraft(owner, x, y, life, storm) {
@@ -49,38 +40,8 @@ const Entities = {
         if (e.x < -300 || e.x > CFG.world.w + 300 || e.y > CFG.world.h + 300) gone = true;
         if (!gone) gone = this._touch(e, fighters, true);
 
-      } else if (e.kind === "ballast") {
-        if (!e.landed) {
-          e.x += e.vx; e.y += e.vy; e.vy += 0.72; e.vx *= 0.995;
-          for (const seg of Stage.segs) {
-            const sy = Stage.surfaceY(seg, e.x);
-            if (sy != null && !seg.solid && sy < e.passAbove) continue;
-            if (sy != null && e.y + e.r >= sy && e.y + e.r <= sy + 46 && e.vy > 0) {
-              e.y = sy - e.r; e.vy = 0; e.vx = 0; e.landed = true;
-              FX.burst(e.x, e.y + e.r, 16, e.owner.ch.color, 6);
-              FX.dustLine(e.x, e.y + e.r, 90, e.owner.ch.color2);
-              FX.crack(e.x, e.y + e.r - 2, 1, 22, e.owner.ch.color, 2);
-              FX.shake(8); Snd.bigHit();
-              break;
-            }
-          }
-          if (e.y > CFG.world.h + 400) gone = true;
-          if (!gone && !e.landed) gone = this._touch(e, fighters, false);
-        } else {
-          /* Resting: a planted obstacle. Each fighter still eats one hit
-             walking into it (hitIds already dedupes), so it keeps mattering
-             for its whole lifetime instead of going inert the moment it lands. */
-          let sy = null;
-          for (const seg of Stage.segs) {
-            const y2 = Stage.surfaceY(seg, e.x);
-            if (y2 != null && (sy === null || y2 < sy)) sy = y2;
-          }
-          if (sy === null) { e.landed = false; e.vy = 0; }   // the platform it sat on is gone
-          else {
-            e.y = sy - e.r;
-            this._touch(e, fighters, false);
-          }
-        }
+      } else if (KINDS[e.kind]) {
+        if (KINDS[e.kind].update(e, fighters)) gone = true;
 
       } else if (e.kind === "draft") {
         e.y -= 1.2;
@@ -156,8 +117,27 @@ const Entities = {
 
       if (gone) {
         if (e.kind === "orb") FX.burst(e.x, e.y, 8, e.owner.ch.color, 4);
-        this.list.splice(i, 1);
+        if (KINDS[e.kind] && KINDS[e.kind].end) KINDS[e.kind].end(e, fighters);
+        const k = this.list.indexOf(e);
+        if (k >= 0) this.list.splice(k, 1);
       }
+    }
+  },
+
+  /** Spawn any of the newer kinds below: fields are kind-specific. */
+  add(kind, owner, fields) {
+    const e = Object.assign({ kind, owner, x: owner.x, y: owner.y, vx: 0, vy: 0,
+                              r: 14, life: 60, hitIds: [] }, fields);
+    e.max = e.max || e.life;
+    this.list.push(e);
+    return e;
+  },
+
+  /** Hit every foe of owner within r of (x, y) once. Used by explosions. */
+  blast(owner, x, y, r, move, fighters) {
+    for (const f of fighters) {
+      if (allies(f, owner) || !f.alive || f.state === ST.DEAD || f.intangible()) continue;
+      if (dist(x, y, f.x, f.y) < r + f.ch.hurt) Combat.land(owner, f, move, x, y);
     }
   },
 
@@ -187,44 +167,8 @@ const Entities = {
         g.fillStyle = "#fff"; g.shadowBlur = 8;
         g.beginPath(); g.arc(e.x, e.y, e.r * 0.45, 0, 7); g.fill();
 
-      } else if (e.kind === "ballast") {
-        /* A solid object, not an energy effect — so it draws normally with an
-           ink outline like the fighters, not additively like a projectile. */
-        g.globalCompositeOperation = "source-over";
-        const blink = e.life < 40 && Math.floor(e.life / 4) % 2 === 0;
-        g.globalAlpha = blink ? 0.45 : 1;
-        g.save();
-        g.translate(e.x, e.y);
-        if (!e.landed) g.rotate(e.life * 0.09);
-        plate(g, [-e.r, -e.r, e.r, -e.r, e.r, e.r, -e.r, e.r], e.owner.ch.color,
-              { up: 0.3, down: 0.4, under: true });
-        g.fillStyle = hexA("#000000", 0.35);
-        g.fillRect(-e.r + 5, -3, e.r * 2 - 10, 6);
-        g.fillStyle = hexA(e.owner.ch.accent, 0.8);
-        g.fillRect(-e.r + 5, -3, e.r * 2 - 10, 2);
-        rivets(g, -e.r + 7, -e.r + 7, 3, (e.r * 2 - 14) / 2, e.owner.ch.accent);
-        g.restore();
-        /* Falling: a target reticle on the floor it will hit, so a cube
-           dropped from off-screen is fair. Resting: a fuse bar showing how
-           long it will stay. */
-        if (!e.landed) {
-          const fy = Stage.floorBelow(e.x, e.y + e.r);
-          if (fy !== null) {
-            g.globalCompositeOperation = "lighter";
-            g.globalAlpha = 0.45 + 0.35 * Math.abs(Math.sin(e.life * 0.3));
-            g.strokeStyle = c; g.lineWidth = 2.5;
-            g.beginPath(); g.ellipse(e.x, fy - 2, e.r * 1.2, 5, 0, 0, 7); g.stroke();
-            g.beginPath(); g.moveTo(e.x - e.r * 1.6, fy - 2); g.lineTo(e.x - e.r * 0.6, fy - 2);
-            g.moveTo(e.x + e.r * 0.6, fy - 2); g.lineTo(e.x + e.r * 1.6, fy - 2); g.stroke();
-          }
-        }
-        if (e.landed) {
-          g.globalCompositeOperation = "lighter";
-          g.strokeStyle = hexA(c, 0.5); g.lineWidth = 2;
-          g.beginPath(); g.moveTo(e.x - e.r, e.y + e.r + 5);
-          g.lineTo(e.x - e.r + (e.r * 2) * clamp(e.life / 480, 0, 1), e.y + e.r + 5);
-          g.stroke();
-        }
+      } else if (KINDS[e.kind]) {
+        KINDS[e.kind].draw(g, e, c);
 
       } else if (e.kind === "draft") {
         const a = clamp(e.life / 110, 0, 1) * (e.storm ? 1.5 : 1);
@@ -289,6 +233,13 @@ const Combat = {
     return Match.current.fighters.filter(o =>
       !allies(o, f) && o.alive && o.state !== ST.DEAD);
   },
+  /** Within a few frames of the stage music's beat? Tempo's hits pay more. */
+  onBeat() {
+    const p = this.beatPeriod();
+    const ph = (Match.current ? Match.current.frames : 0) % p;
+    return Math.min(ph, p - ph) <= 4;
+  },
+  beatPeriod() { return 3600 / ((Stage.def.music && Stage.def.music.bpm) || 120); },
   /** The closest foe, optionally only within range. Teammates never count. */
   nearestFoe(f, range) {
     let best = null, bd = range || Infinity;
@@ -330,7 +281,9 @@ const Combat = {
       the attacker — Pivot's Tipping Point throws foes off their own side. */
   land(atk, def, move, hx, hy, hbR, dirOverride) {
     const dirX = dirOverride || (def.x >= atk.x ? 1 : -1);
-    const isSuper = move === (atk.ch.super) || (atk.attack && atk.attack.kind === "super" && atk.attack.data === move);
+    // delayed super hits (a bomb, a curse, an echo) carry `unblockable`
+    const isSuper = move.unblockable || move === (atk.ch.super) ||
+                    (atk.attack && atk.attack.kind === "super" && atk.attack.data === move);
     const K = CFG.skill;
 
     /* ---- skill modifiers, applied before anything reads move.dmg ----
@@ -344,9 +297,24 @@ const Combat = {
       tip = d > hbR * K.tipZone;
     }
     staleMul = atk.staleMul(move);
-    const dmg = move.dmg * staleMul * (tip ? K.tipBonus : 1);
+    let dmg = move.dmg * staleMul * (tip ? K.tipBonus : 1);
+    let kbMul = move.kbMul || 1;
+
+    /* ---- fighter-specific bonuses ---- */
+    // Shade: the first hit out of stealth is an ambush
+    const ambush = atk.ambushT > 0;
+    if (ambush) { atk.ambushT = 0; dmg *= 1.35; kbMul *= 1.2; }
+    // Tempo: a hit that lands on the stage music's beat
+    const onBeat = atk.ch.rhythm && this.onBeat();
+    if (onBeat) { dmg *= 1.2; atk.addMeter(4); }
 
     // ---------------- shield ----------------
+    // Tempo's sound waves shatter a held shield outright
+    if (def.shielding() && move.breaksShield) {
+      def.breakShield();
+      FX.ring(def.x, def.y, 10, 90, atk.ch.color, 3);
+      return;
+    }
     if (def.shielding() && !isSuper) {
       const facingHit = (def.facing === -dirX) || Math.abs(def.x - atk.x) < 8;
       if (facingHit) {
@@ -364,12 +332,21 @@ const Combat = {
     const base = move.base || 2, scale = move.scale || 0.5;
     const kb = CFG.kbBase + base + dmg * CFG.kbDamageScale
              + def.percent * CFG.kbPercentScale * scale * 1.9;
-    const mag = kb * ((CFG.kbWeightRef + 0.55) / (def.ch.weight + 0.55));
+    const mag = kb * kbMul * ((CFG.kbWeightRef + 0.55) / (def.ch.weight + 0.55));
     const rad = (move.angle != null ? move.angle : 45) * Math.PI / 180;
 
     def.applyKnockback(Math.cos(rad) * mag * dirX, -Math.sin(rad) * mag, dmg, mag, atk);
     atk.stats.damageDealt += dmg;
     atk.stats.bestHit = Math.max(atk.stats.bestHit, dmg);
+    // Vex: her hits heal her own damage
+    const steal = move.lifesteal != null ? move.lifesteal : (atk.ch.lifesteal || 0);
+    if (steal > 0 && atk.percent > 0) {
+      const heal = Math.min(atk.percent, dmg * steal);
+      atk.percent -= heal;
+      FX.damageText(atk.x, atk.y - 50, "+" + heal.toFixed(1), "#7dff9a");
+    }
+    if (ambush) { FX.damageText(hx, hy - 62, "AMBUSH!", atk.ch.accent); FX.flash(atk.ch.color, 0.15); }
+    if (onBeat) { FX.damageText(hx, hy - 62, "ON BEAT", atk.ch.accent); FX.ring(hx, hy, 8, 90, atk.ch.color, 3); }
     atk.addMeter(dmg * CFG.meter.onDeal);
     atk.recordMove(move);
     if (move.onHit) move.onHit(atk, def);
@@ -445,8 +422,15 @@ const CPU = {
     };
     const press = b => { ai.cur[b] = true; };
 
-    const foes = Combat.foes(f);
-    if (!foes.length) return inp;
+    // a stealthed Shade is lost to the CPU unless she is close enough to
+    // catch the shimmer -- about what a person watching the screen can manage
+    const foes = Combat.foes(f).filter(o => o.stealthT <= 0 || dist(f.x, f.y, o.x, o.y) < 200);
+    if (!foes.length) {
+      // nobody visible: drift back toward the middle of the stage and wait
+      const home = Stage.pivot.x - f.x;
+      if (Math.abs(home) > 80) { const dir = home > 0 ? "right" : "left"; press(dir); inp.ax = home > 0 ? 1 : -1; }
+      return inp;
+    }
     let target = foes[0], bd = Infinity;
     for (const o of foes) { const d = dist(f.x, f.y, o.x, o.y); if (d < bd) { bd = d; target = o; } }
 
@@ -460,18 +444,40 @@ const CPU = {
       press(dir); inp.ax = dir === "right" ? 1 : -1;
       if (f.vy > 1 && f.airJumps > 0 && ai.t % 14 < 2) press("up");
       if (f.y > Stage.pivot.y + 20 && ai.t % 10 < 2) press("up");
+      // Echo can simply rewind to where she was standing
+      const back = f.posHist[0];
+      if (f.ch.id === "ECHO" && f.specialCD <= 0 && back && Math.abs(back.x - centerX) < halfDeck &&
+          back.y < Stage.pivot.y) press("special");
       return inp;
     }
 
     const dx = target.x - f.x, dy = target.y - f.y, adx = Math.abs(dx);
 
+    // --- get out of anything about to go off ---
+    for (const e of Entities.list) {
+      if (allies(e.owner, f)) continue;
+      const danger = e.kind === "payload" ? e.w + 30 : e.kind === "ghost" ? 80 : 0;
+      if (!danger || dist(e.x, e.y, f.x, f.y) > danger) continue;
+      const dir = f.x < e.x ? "left" : "right";
+      press(dir); inp.ax = dir === "right" ? 1 : -1;
+      if (f.grounded && ai.t % 20 < 2) press("up");
+      return inp;
+    }
+    // Vex keeps her siphon going by holding the button
+    if (f.ch.id === "VEX" && f.state === ST.ATTACK && f.attack && f.attack.kind === "special") {
+      press("special"); return inp;
+    }
+
     // --- super when it's up and the target is worth it ---
     /* Supers have different ideal ranges: some reach across the stage, some
        only touch whoever is close. A CPU that fires them blind wastes them. */
-    const superRange = { ZIP: 900, BALLAST: 900, KITE: 900, HUSK: 460,
-                         PIVOT: 260, ORBIT: 300, MIRA: 120, BOLDER: 200 }[f.ch.id] || 320;
-    if (f.meterFull && Math.random() < CFG.cpu.superChance && bd < superRange &&
-        (f.ch.id !== "BOLDER" || f.grounded)) {
+    const superRange = { ZIP: 900, KITE: 900, HUSK: 460, PIVOT: 260, ORBIT: 300, MIRA: 120,
+                         BOLDER: 200, RIME: 220, HEX: 1200, SHADE: 1200, VEX: 150, FUSE: 150,
+                         RICO: 600, SPROUT: 1200, ECHO: 400, TEMPO: 190 }[f.ch.id] || 320;
+    // Overgrowth only catches foes who are standing on something
+    const superOk = f.ch.id === "SPROUT" ? foes.some(o => o.grounded)
+                  : f.ch.id === "BOLDER" ? f.grounded : true;
+    if (f.meterFull && Math.random() < CFG.cpu.superChance && bd < superRange && superOk) {
       press("super"); return inp;
     }
 
@@ -499,11 +505,21 @@ const CPU = {
         case "ORBIT":  if (adx < 260) press("special"); break;
         // swap when the foe is the one closer to the edge
         case "PIVOT":  if (facingFoe && adx < 260 && Math.abs(dy) < 40 && nearEdge) press("special"); break;
-        case "BALLAST": if (adx < 340) press("special"); break;
         case "KITE":    if (!f.grounded) press("special"); break;
         case "HUSK":    if (adx < 150) press("special"); break;
         // hold the counter when someone is in swinging range
         case "MIRA":    if (adx < 90) press("special"); break;
+        case "RIME":    if (facingFoe && adx < 420 && Math.abs(dy) < 50 && target.slowT <= 0) press("special"); break;
+        case "HEX":     if (adx < 420 && target.curseT <= 0) press("special"); break;
+        // fade on the approach, so the ambush lands
+        case "SHADE":   if (adx > 220 && adx < 600) press("special"); break;
+        case "VEX":     if (bd < 280 && f.percent > 20) press("special"); break;
+        case "FUSE":    if (facingFoe && adx < 280) press("special"); break;
+        case "RICO":    if (facingFoe && adx < 380 && Math.abs(dy) < 50) press("special"); break;
+        case "SPROUT":  if (f.grounded && f.percent > 25 && adx > 160) press("special"); break;
+        // rewind out of trouble: high damage, or off the stage
+        case "ECHO":    if (f.percent > 60 || !onStage && f.y > Stage.pivot.y) press("special"); break;
+        case "TEMPO":   if (adx < 150 || (target.shielding() && adx < 170)) press("special"); break;
       }
     }
     if (f.state === ST.GRABBED && ai.t % 3 === 0) press("light");

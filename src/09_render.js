@@ -418,8 +418,16 @@ function drawFighter(f, alpha) {
   g.scale(f.facing, squash * stretch * breathe);
 
   if (f.intangible()) g.globalAlpha = 0.42;
+  /* Shade's Fade: nearly gone. Online, her own player still sees her
+     clearly enough to play; on a shared screen everyone sees the shimmer. */
+  if (f.stealthT > 0) {
+    const mine = Net.active && f.slot === Net.slot;
+    g.globalAlpha = (mine ? 0.42 : 0.1) + 0.06 * Math.sin(f.animTime * 0.3);
+  }
   ch.draw(g, A);
   g.restore();
+
+  drawStatus(f, rx, ry);
 
   /* ---- world-space overlays ---- */
   if (f.shielding()) {
@@ -731,4 +739,82 @@ function drawBanner() {
   g.shadowColor = FX.bannerColor; g.shadowBlur = 30;
   outlineText(g, FX.bannerText, 0, 0, FX.bannerColor, 9);
   g.restore();
+}
+
+/* ------------------------------------------------------------ status */
+/** What a status effect looks like on whoever has it. Every one of these is
+    readable at a glance, because each changes how that fighter can be played
+    against: chilled is slow, frozen is free damage, cursed flies further,
+    rooted can't move, and marked takes everything twice. */
+function drawStatus(f, rx, ry) {
+  const ch = f.ch, hw = ch.size.w / 2, hh = ch.size.h / 2;
+  g.save();
+  if (f.frozenT > 0) {
+    // an ice block around the whole body, with a hard shine
+    g.globalAlpha = 0.55;
+    const q = g.createLinearGradient(rx - hw, ry - hh, rx + hw, ry + hh);
+    q.addColorStop(0, "rgba(220,245,255,.85)"); q.addColorStop(1, "rgba(120,190,240,.55)");
+    g.fillStyle = q;
+    roundRect(g, rx - hw - 8, ry - hh - 8, ch.size.w + 16, ch.size.h + 14, 6); g.fill();
+    g.globalAlpha = 0.9; g.strokeStyle = "#ffffff"; g.lineWidth = 2;
+    g.stroke();
+    g.beginPath(); g.moveTo(rx - hw - 2, ry - hh + 6); g.lineTo(rx - hw + 10, ry - hh - 4); g.stroke();
+  } else if (f.slowT > 0) {
+    g.globalAlpha = 0.5;
+    g.strokeStyle = "#bfe9ff"; g.lineWidth = 2;
+    g.beginPath(); g.ellipse(rx, ry + hh - 2, hw + 6, 5, 0, 0, 7); g.stroke();
+  }
+  if (f.curseT > 0) {
+    // a turning hexagon over the head
+    g.globalAlpha = 0.85;
+    g.translate(rx, ry - hh - 20); g.rotate(f.animTime * 0.06);
+    g.strokeStyle = "#e040fb"; g.lineWidth = 2.2; g.shadowColor = "#e040fb"; g.shadowBlur = 10;
+    g.beginPath();
+    for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; g.lineTo(Math.cos(a) * 8, Math.sin(a) * 8); }
+    g.closePath(); g.stroke();
+  }
+  g.restore();
+  g.save();
+  if (f.rootT > 0) {
+    // vines up the legs
+    g.strokeStyle = "#2f9a52"; g.lineWidth = 3; g.lineCap = "round";
+    for (let i = -1; i <= 1; i += 2) {
+      g.beginPath(); g.moveTo(rx + i * 10, ry + hh);
+      g.quadraticCurveTo(rx + i * 16, ry + hh - 14, rx + i * 4, ry + hh - 22 - Math.sin(f.animTime * 0.1) * 2);
+      g.stroke();
+    }
+    g.fillStyle = "#3ddc84";
+    g.beginPath(); g.ellipse(rx + 12, ry + hh - 12, 4, 2, 0.6, 0, 7); g.fill();
+  }
+  if (f.echoT > 0) {
+    // a clock ring counting down to the echo
+    const k = f.echoT / 180;
+    g.strokeStyle = "#b9a6ff"; g.lineWidth = 2.4; g.shadowColor = "#b9a6ff"; g.shadowBlur = 10;
+    g.beginPath(); g.arc(rx, ry, ch.hurt * 1.5, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2); g.stroke();
+  }
+  g.restore();
+}
+
+/* Shade's Nightfall: the screen goes dark except for a little light around
+   each fighter (and a little more around Shade, who knows where she is). */
+let _darkCv = null;
+function drawDarkness(match, cam, alpha) {
+  const k = Math.min(1, match.darkT / 20);
+  if (!_darkCv) { _darkCv = document.createElement("canvas"); _darkCv.width = W; _darkCv.height = H; }
+  const d = _darkCv.getContext("2d");
+  d.globalCompositeOperation = "source-over";
+  d.clearRect(0, 0, W, H);
+  d.fillStyle = `rgba(2,2,10,${0.86 * k})`;
+  d.fillRect(0, 0, W, H);
+  d.globalCompositeOperation = "destination-out";
+  for (const f of match.fighters) {
+    if (!f.alive || f.state === ST.DEAD) continue;
+    const sx = (lerp(f.px, f.x, alpha) - cam.x) * cam.z + W / 2;
+    const sy = (lerp(f.py, f.y, alpha) - cam.y) * cam.z + H / 2;
+    const r = (f.ch.id === "SHADE" ? 120 : 70) * cam.z;
+    const q = d.createRadialGradient(sx, sy, r * 0.3, sx, sy, r);
+    q.addColorStop(0, "rgba(0,0,0,1)"); q.addColorStop(1, "rgba(0,0,0,0)");
+    d.fillStyle = q; d.beginPath(); d.arc(sx, sy, r, 0, 7); d.fill();
+  }
+  g.drawImage(_darkCv, 0, 0, W, H);
 }

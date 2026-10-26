@@ -745,7 +745,8 @@ const Mouse = { x: 0, y: 0, click: false, down: false, wheel: 0 };
 
 /* ===== src/04_roster.js ===== */
 /* ==========================================================================
-   5. ROSTER — eight fighters, each with their own art and their own moveset
+   5. ROSTER — the original fighters, each with their own art and moveset
+              (the newer ones live in 04a_newcomers.js)
 
    Every character owns:
      stats    weight / speed / jump, which also decide how far they fly and recover
@@ -1834,176 +1835,6 @@ const ROSTER = [
 },
 
 /* ======================================================================== */
-/* BALLAST — THE LOADER                                                      */
-/* The only fighter who can threaten a spot without standing in it: its      */
-/* cubes sit as live obstacles wherever they land until they expire.         */
-/* ======================================================================== */
-{
-  id: "BALLAST", name: "BALLAST", tag: "THE LOADER",
-  blurb: "Dockyard loader who drops cubes of real weight onto the deck.",
-  power: "Places cubes remotely — they sit as live obstacles wherever they land, even far from where she's standing.",
-  color: "#ffa424", color2: "#5a3708", color3: "#241502", accent: "#ffe6b0",
-  weight: 1.18, speed: 3.40, accel: 0.60, jump: 11.4, airSpeed: 3.2, fallMul: 1.08,
-  size: { w: 42, h: 58 }, hurt: 29,
-  specialCooldown: 200,
-
-  light: { name: "Load Arm", startup: 4, active: 3, recovery: 11,
-    dmg: 4.2, base: 2.1, scale: 0.52, angle: 40, ox: 40, oy: -6, r: 24,
-    vfx(f) {
-      const ang = faceAng(f);
-      FX.blade(f.x + f.facing * 12, f.y - 6, ang, 28, 58, 0.44, f.ch.color, { w: 13, life: 10 });
-      FX.glyph(hbAt(f, this).x, f.y - 6, "wedge", 11, f.ch.accent, 11);
-      Snd.tone(190, 0.05, "square", 0.08, 120);
-    } },
-
-  heavy: { name: "Counterweight", startup: 15, active: 4, recovery: 29,
-    dmg: 17, base: 5.0, scale: 1.10, angle: 36, ox: 56, oy: -4, r: 36,
-    onStart(f) { Snd.whoosh(1.5); },
-    vfx(f) {
-      const ang = faceAng(f);
-      // a cube on a chain, so the arc is a long low sweep with a heavy tip
-      FX.blade(f.x, f.y - 6, ang - 0.8 * f.facing, 58, 92, 1.7, f.ch.color,
-               { w: 20, life: 16, spin: f.facing * 0.07 });
-      FX.streak(f.x + f.facing * 10, f.y - 14,
-                f.x + f.facing * 78, f.y - 2, f.ch.accent);
-      if (f.grounded) FX.dustLine(f.x + f.facing * 34, f.feetY, 110, f.ch.color2);
-      FX.shake(7);
-      Snd.tone(96, 0.16, "sawtooth", 0.15, 50, 0, 0.4);
-    } },
-
-  special: { name: "Drop Anchor", startup: 10, active: 6, recovery: 22,
-    dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
-    desc: "Lobs a ballast cube that sits where it lands as an obstacle for eight seconds.",
-    onStart(f) { Snd.whoosh(1.1); },
-    tick(f, a) {
-      const m = a.data;
-      if (a.t === m.startup && !a.fired) {
-        a.fired = true;
-        Entities.ballast(f, f.x + f.facing * 34, f.y - 40, f.facing * 7.2, 2.4, 480, m);
-        FX.banner("DROP ANCHOR", f.ch.color);
-        FX.ring(f.x + f.facing * 34, f.y - 40, 10, 90, f.ch.accent, 3);
-        Snd.tone(150, 0.2, "triangle", 0.14, 70);
-      }
-    } },
-
-  /* Used to drop three cubes on fixed spots around the stage centre, which
-     only mattered on the main deck and were easy to stand clear of. Each cube
-     is now called down over a foe, leading where they are heading, with a
-     reticle on the floor so it can still be dodged. */
-  super: { name: "Overload",
-    desc: "Calls a ballast cube down on top of every foe — three drops, each with a warning reticle — and the cubes stay put as obstacles once they land.",
-    startup: 22, active: 30, recovery: 38,
-    dmg: 11, base: 3.8, scale: 0.9, angle: 60, ox: 0, oy: -20, r: 60,
-    onStart(f) { Snd.superCharge(); FX.flash("#ffa424", 0.3); f.vy = -6; },
-    tick(f, a) {
-      const m = a.data;
-      if (a.t < m.startup) { f.vx *= 0.82; FX.spark(f.x + rnd(-30, 30), f.y + rnd(-40, 20), f.ch.color); }
-      if (a.t >= m.startup && (a.t - m.startup) % 9 === 0 && (a.dropped || 0) < 3) {
-        a.dropped = (a.dropped || 0) + 1;
-        const foes = Combat.foes(f).sort((p, q) =>
-          dist(f.x, f.y, p.x, p.y) - dist(f.x, f.y, q.x, q.y));
-        const tgt = foes.length ? foes[(a.dropped - 1) % foes.length] : null;
-        const x = tgt ? clamp(tgt.x + tgt.vx * 14, 40, CFG.world.w - 40)
-                      : Stage.pivot.x + (a.dropped - 2) * 150;
-        const y = Math.min(tgt ? tgt.y - 300 : Stage.pivot.y - 320, Stage.pivot.y - 200);
-        Entities.ballast(f, x, y, 0, 3.1, 420, m, tgt ? tgt.feetY - 30 : undefined);
-        FX.streak(f.x, f.y - 30, x, y, f.ch.accent);
-        FX.shake(9);
-        Snd.tone(120 - a.dropped * 14, 0.2, "sawtooth", 0.14, 48);
-      }
-      if (a.t === m.startup) FX.banner("OVERLOAD", f.ch.color);
-    } },
-
-  /* ---- art: a dockyard loader. Boxy chassis, a shoulder jib with a hook,
-           hazard striping, and treads instead of feet. ---- */
-  draw(g, A) {
-    const c = this.color, c2 = this.color2, c3 = this.color3, ac = this.accent;
-    const body = A.flash ? "#ffffff" : c;
-    const dark = A.flash ? "#ffe2ad" : c2;
-    const deep = A.flash ? "#ffcf80" : c3;
-    const sw = swing(A, -10, 44);
-
-    /* --- the jib arm and its hanging cube, behind the body --- */
-    const jibA = -0.5 + (A.atkPhase >= 0 ? sw * 0.012 : 0);
-    g.save();
-    g.translate(-10, -12); g.rotate(jibA + 0.25);
-    limb(g, 0, 0, 34, 0, 6.5, mid_(c, c2));
-    // the chain and the counterweight cube on the end
-    g.strokeStyle = INK; g.lineWidth = 3.2;
-    g.beginPath(); g.moveTo(34, 0); g.lineTo(34, 13); g.stroke();
-    g.strokeStyle = hexA(ac, 0.55); g.lineWidth = 1.3;
-    g.beginPath(); g.moveTo(34, 0); g.lineTo(34, 13); g.stroke();
-    g.save(); g.translate(34, 19); g.rotate(-jibA * 0.6);
-    plate(g, [-6, -6, 6, -6, 6, 6, -6, 6], deep, { up: 0.2, rim: false });
-    g.fillStyle = hexA(ac, 0.6); g.fillRect(-6, -1.2, 12, 1.4);
-    g.restore();
-    g.restore();
-
-    /* --- treads instead of feet: he rolls, he does not walk --- */
-    const roll = A.running ? A.runPhase * 2 : 0;
-    for (const sx of [-1, 1]) {
-      g.save(); g.translate(sx * 12, 25);
-      plateRect(g, -11, -6, 22, 13, 5, deep, { up: 0.16 });
-      g.strokeStyle = hexA(INK, 0.6); g.lineWidth = 1.6;
-      for (let i = 0; i < 4; i++) {
-        const tx = -8 + ((i * 5.5 + roll * 2) % 17);
-        g.beginPath(); g.moveTo(tx, -5); g.lineTo(tx, 6); g.stroke();
-      }
-      g.restore();
-    }
-    jointLimb(g, -8, 10, -11, 20, -3, 9, dark);
-    jointLimb(g, 9, 10, 12, 20, 3, 9, dark);
-
-    /* --- torso: a loader cab, wider at the base than the shoulders --- */
-    plate(g, [-17, -18, 17, -18, 20, 12, -20, 12], body, { up: 0.3, down: 0.36, under: true });
-    plate(g, [-13, -14, 13, -14, 15, 4, -15, 4], dark, { up: 0.12, down: 0.3, rimA: 0.26 });
-    // hazard stripe across the chest — the one piece of pure signage on him
-    g.save();
-    poly(g, [-13, -2, 13, -2, 13, 4, -13, 4]); g.clip();
-    g.fillStyle = deep; g.fillRect(-13, -2, 26, 6);
-    hatch(g, -13, -2, 26, 6, ac, 7, 0.5);
-    g.restore();
-    g.strokeStyle = INK; g.lineWidth = 2;
-    g.strokeRect(-13, -2, 26, 6);
-    rivets(g, -11, -10, 6, 4, ac);
-
-    /* --- shoulders: one bare mount for the jib, one armoured --- */
-    plate(g, [-22, -22, -6, -24, -4, -10, -20, -8], deep, { up: 0.24 });
-    plate(g, [22, -22, 6, -24, 4, -10, 20, -8], body, { up: 0.4, down: 0.28 });
-    screw(g, -13, -16, 2.4, ac);
-
-    /* --- head: a low cab with a wide window and a lamp --- */
-    plateRect(g, -9, -34, 18, 15, 4, body, { up: 0.3, down: 0.3 });
-    g.fillStyle = INK; roundRect(g, -10.5, -31, 21, 7, 2.5); g.fill();
-    lens(g, () => roundRect(g, -3, -30, 11, 4.6, 2), A.flash ? "#ffffff" : ac, c, 14);
-    // work lamp on top, actually lit
-    g.save();
-    plate(g, [-3, -34, 5, -34, 4, -39, -2, -39], deep, { up: 0.2, rim: false });
-    g.globalCompositeOperation = "lighter";
-    const lq = g.createLinearGradient(0, -38, 22, -26);
-    lq.addColorStop(0, hexA(ac, 0.2)); lq.addColorStop(1, hexA(ac, 0));
-    g.fillStyle = lq;
-    poly(g, [3, -38, 24, -33, 24, -22, 3, -34]); g.fill();
-    g.restore();
-
-    /* --- arms: a short fixed arm, and the loading ram --- */
-    jointLimb(g, -15, -13, -21, 2, -3.5, 9, dark);
-    plateRect(g, -27, -2, 12, 12, 4, dark, { up: 0.2 });
-    const ax = 26 + sw, ay = -5;
-    jointLimb(g, 15, -13, (15 + ax) / 2, ay - 1, 2, 9.5, dark);
-    limb(g, (15 + ax) / 2, ay - 1, ax - 3, ay, 11, mid_(c, c2));
-    g.save(); g.translate(ax, ay);
-    // a ram head: narrow at the wrist, flaring to a flat striking face
-    plateRect(g, -11, -5, 8, 10, 2.5, deep, { up: 0.12, rim: false });
-    plate(g, [-4, -8, 8, -9, 11, -6, 11, 6, 8, 9, -4, 8], body,
-          { up: 0.3, down: 0.36, under: true });
-    g.fillStyle = INK; g.fillRect(-3, -2.4, 13, 3.4);
-    plate(g, [8, -8, 11, -6.5, 11, 6, 8, 7.5], ac, { up: 0.1, ink: 2 });
-    g.restore();
-  },
-},
-
-/* ======================================================================== */
 /* KITE — THE DRIFTER                                                        */
 /* Lightest fighter in the game. Flies a shorter distance per hit and sheds  */
 /* hitstun faster than anyone else, so she's hard to keep stunned or kill.   */
@@ -2674,6 +2505,1171 @@ const ROSTER = [
 
 const CHAR_BY_ID = {};
 ROSTER.forEach(c => { CHAR_BY_ID[c.id] = c; });
+
+
+/* ===== src/04a_newcomers.js ===== */
+/* ==========================================================================
+   5a. NEWCOMERS — nine fighters, each built on a mechanic nobody else has
+
+     RIME    freezing        chill slows; a freeze is shattered by the next hit
+     HEX     curses          cursed foes fly further; Doom calls lightning
+     SHADE   stealth         fades out; the first hit from hiding is an ambush
+     VEX     lifesteal       every hit heals her; Siphon drains a foe directly
+     FUSE    explosives      sticky bombs and a countdown Payload (replaces Ballast)
+     RICO    ricochet        a disc that hits going out and coming back
+     SPROUT  healing/roots   a flower that heals her; roots every grounded foe
+     ECHO    time            Recall rewinds her; Deja Vu makes damage land twice
+     TEMPO   rhythm          hits on the music's beat pay more; waves break shields
+
+   Their numbers sit inside the original roster's ranges: lights 3-5%, heavies
+   13-17%, supers worth roughly 18-26% when they fully land. The status effects
+   live on Fighter (07_fighter.js) and the things they spawn in 08a_kinds.js.
+   ========================================================================== */
+
+/** A move object for an entity's hit, named so stale-move tracking works. */
+function hitMove(name, o) { return Object.assign({ name, base: 2, scale: 0.5, angle: 45 }, o); }
+
+const NEWCOMERS = [
+
+/* ======================================================================== */
+/* RIME — THE FROSTBITE                                                      */
+/* ======================================================================== */
+{
+  id: "RIME", name: "RIME", tag: "THE FROSTBITE",
+  blurb: "A walking cold front. Slows you down, then stops you dead.",
+  power: "Her hits chill (you move and jump slower). Absolute Zero freezes foes solid — the next hit shatters them for bonus damage.",
+  color: "#a8e4ff", color2: "#1d4b66", color3: "#0b2233", accent: "#f2fbff",
+  weight: 1.0, speed: 4.5, accel: 0.86, jump: 12.2, airSpeed: 4.2, fallMul: 1.0,
+  size: { w: 34, h: 56 }, hurt: 26,
+  specialCooldown: 85,
+
+  light: { name: "Rime Jab", startup: 3, active: 3, recovery: 9,
+    dmg: 4.2, base: 1.9, scale: 0.46, angle: 44, ox: 38, oy: -8, r: 23,
+    onHit(f, d) { d.slowT = Math.max(d.slowT, 45); },
+    vfx(f) {
+      FX.blade(f.x + f.facing * 10, f.y - 8, faceAng(f), 24, 56, 0.4, f.ch.color, { w: 9, life: 10 });
+      FX.spark(hbAt(f, this).x, f.y - 8, f.ch.accent);
+      Snd.tone(1800, 0.04, "triangle", 0.07, 2600);
+    } },
+
+  heavy: { name: "Glacier Spike", startup: 13, active: 4, recovery: 26,
+    dmg: 15.5, base: 4.7, scale: 1.06, angle: 58, ox: 46, oy: 0, r: 32,
+    onHit(f, d) { d.slowT = Math.max(d.slowT, 90); },
+    onStart() { Snd.whoosh(1.3); },
+    vfx(f) {
+      const p = hbAt(f, this);
+      // a spike of ice punching up out of the floor in front of her
+      for (let i = 0; i < 3; i++)
+        FX.blade(p.x + f.facing * (i - 1) * 14, p.y + 22, -Math.PI / 2 + (i - 1) * 0.25, 10, 60 - i * 8, 0.18,
+                 i === 1 ? "#ffffff" : f.ch.color, { w: 14 - i * 3, life: 16 });
+      FX.burst(p.x, p.y + 16, 12, "#d4f1ff", 5);
+      FX.shake(6);
+      Snd.tone(2200, 0.12, "triangle", 0.1, 900);
+    } },
+
+  special: { name: "Ice Lance", startup: 9, active: 2, recovery: 18,
+    dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
+    desc: "Fires a lance of ice straight ahead. Whoever it hits is chilled for 2.5 seconds — slower on the ground and in the air.",
+    tick(f, a) {
+      if (a.t !== a.data.startup || a.fired) return;
+      a.fired = true;
+      Entities.add("ice", f, { x: f.x + f.facing * 26, y: f.y - 8, vx: f.facing * 12, dir: f.facing,
+        r: 13, life: 70, move: hitMove("Ice Lance", { dmg: 6.5, base: 2.4, scale: 0.45, angle: 30,
+          onHit(o, d) { d.slowT = Math.max(d.slowT, 150); } }) });
+      Snd.tone(2400, 0.1, "triangle", 0.1, 1400);
+    } },
+
+  super: { name: "Absolute Zero",
+    desc: "A burst of cold around her deals 10% and freezes every foe in range solid for almost two seconds. The next hit on a frozen foe shatters the ice for +7% and extra knockback.",
+    startup: 18, active: 6, recovery: 30,
+    dmg: 10, base: 1.2, scale: 0.1, angle: 85, kbMul: 0.4, ox: 0, oy: 0, r: 0, radius: 230,
+    onStart(f) { Snd.superCharge(); FX.flash("#a8e4ff", 0.35); },
+    tick(f, a) {
+      const m = a.data;
+      if (a.t < m.startup) { f.vx *= 0.7; f.vy *= 0.7; FX.spark(f.x + rnd(-40, 40), f.y + rnd(-40, 30), "#ffffff"); return; }
+      if (a.t !== m.startup) return;
+      FX.banner("ABSOLUTE ZERO", f.ch.color);
+      FX.ring(f.x, f.y, 20, m.radius, "#ffffff", 6);
+      FX.ring(f.x, f.y, 10, m.radius * 0.8, f.ch.color, 4);
+      FX.burst(f.x, f.y, 50, "#d4f1ff", 12);
+      FX.shake(22); Snd.superHit();
+      for (const o of Combat.foes(f)) {
+        if (o.intangible() || dist(f.x, f.y, o.x, o.y) > m.radius) continue;
+        Combat.land(f, o, m, o.x, o.y);
+        if (o.state === ST.HITSTUN) { o.frozenT = 100; o.vx *= 0.2; }
+      }
+    } },
+
+  /* ---- art: a cloaked figure of cut ice. A crown of three icicles, a
+           smooth mask with one cold slit, and a hem that breaks into shards. ---- */
+  draw(g, A) {
+    const c = this.color, c2 = this.color2, c3 = this.color3, ac = this.accent;
+    const body = A.flash ? "#ffffff" : c, dark = A.flash ? "#e6f6ff" : c2, deep = A.flash ? "#cfeaff" : c3;
+    const sw = swing(A, -10, 44);
+    aura(g, 0, -4, 36, c, 0.16);
+
+    // legs, mostly hidden by the cloak
+    const st = Math.sin(A.runPhase) * (A.running ? 10 : 0);
+    jointLimb(g, -5, 12, -8 + st, 26, -3, 5.5, deep);
+    jointLimb(g, 5, 12, 9 - st, 26, 3, 5.5, deep);
+    plateRect(g, -13 + st, 24, 10, 5, 2, dark, { up: 0.2 });
+    plateRect(g, 4 - st, 24, 10, 5, 2, dark, { up: 0.2 });
+
+    // the cloak: a long trapezoid whose hem breaks into shards
+    plate(g, [-11, -16, 11, -16, 16, 16, -16, 16], dark, { up: 0.2, down: 0.4 });
+    for (let i = 0; i < 6; i++) {
+      const x0 = -16 + i * 5.4;
+      plate(g, [x0, 15, x0 + 5.4, 15, x0 + 2.7, 22 + (i % 2) * 4], i % 2 ? deep : dark, { ink: 1.8, rimA: 0.3 });
+    }
+    // chest: a faceted breastplate of ice
+    plate(g, [-9, -15, 9, -15, 7, 4, 0, 9, -7, 4], body, { up: 0.4, down: 0.3, under: true });
+    g.fillStyle = hexA("#ffffff", 0.4); poly(g, [-9, -15, -1, -15, -4, 2]); g.fill();
+    // shoulder shards
+    plate(g, [-9, -16, -18, -24, -14, -10], body, { up: 0.5, ink: 2.4 });
+    plate(g, [9, -16, 19, -25, 14, -10], body, { up: 0.5, ink: 2.4 });
+
+    // head: smooth mask, one cold slit, a crown of icicles
+    g.save(); g.translate(0, -26);
+    ink(g, () => { g.beginPath(); g.ellipse(0, 0, 8, 9, 0, 0, 7); }, vol(g, -9, 9, body, 0.4, 0.3));
+    rim(g, () => { g.beginPath(); g.ellipse(0, 0, 8, 9, 0, 0, 7); }, "#ffffff", 3, 0.6);
+    lens(g, () => roundRect(g, -1, -2, 9, 2.6, 1.2), A.flash ? c : "#ffffff", c, 14);
+    for (const [x, h] of [[-5, 9], [0, 14], [5, 9]])
+      plate(g, [x - 2.6, -7, x + 2.6, -7, x, -7 - h], "#ffffff", { ink: 1.8, rimA: 0.2, up: 0.1 });
+    g.restore();
+
+    // back arm under the cloak
+    jointLimb(g, -8, -12, -14, 2, -3, 4.6, deep);
+
+    // spear arm: a long thin crystal held forward
+    const ax = 14 + sw, ay = -6;
+    jointLimb(g, 8, -12, (8 + ax) / 2, ay - 1, 2.5, 5, dark);
+    limb(g, (8 + ax) / 2, ay - 1, ax - 2, ay, 6, mid_(c, c2));
+    g.save(); g.translate(ax, ay); g.rotate(A.atkPhase >= 0 ? -0.05 : -0.4);
+    g.strokeStyle = INK; g.lineWidth = 4; g.lineCap = "round";
+    g.beginPath(); g.moveTo(-14, 0); g.lineTo(24, 0); g.stroke();
+    g.strokeStyle = mid_(c, c2); g.lineWidth = 2.2; g.stroke();
+    plate(g, [22, -5, 36, 0, 22, 5, 25, 0], "#ffffff", { ink: 2, rimA: 0.3 });
+    glow(g, c, 12, () => { g.fillStyle = hexA(c, 0.7); poly(g, [24, -2, 33, 0, 24, 2]); g.fill(); });
+    g.restore();
+  },
+},
+
+/* ======================================================================== */
+/* HEX — THE WITCH                                                           */
+/* ======================================================================== */
+{
+  id: "HEX", name: "HEX", tag: "THE WITCH",
+  blurb: "Doesn't hit the hardest — just makes everything else hit harder.",
+  power: "Hex Bolt curses a foe: for 5 seconds every hit sends them 22% further. Doom curses everyone, then calls lightning down on each of them.",
+  color: "#e040fb", color2: "#4a0e57", color3: "#22052a", accent: "#fbd4ff",
+  weight: 0.86, speed: 4.1, accel: 0.85, jump: 12.6, airSpeed: 4.6, fallMul: 0.85,
+  size: { w: 32, h: 56 }, hurt: 25,
+  specialCooldown: 230,
+
+  light: { name: "Hexing Flick", startup: 3, active: 3, recovery: 9,
+    dmg: 3.4, base: 1.6, scale: 0.42, angle: 48, ox: 36, oy: -10, r: 22,
+    vfx(f) {
+      FX.blade(f.x + f.facing * 8, f.y - 10, faceAng(f) - 0.3 * f.facing, 22, 52, 0.9, f.ch.color, { w: 6, life: 10 });
+      FX.spark(hbAt(f, this).x, f.y - 10, f.ch.accent);
+      Snd.tone(1300, 0.05, "sine", 0.07, 700);
+    } },
+
+  heavy: { name: "Cauldron Burst", startup: 14, active: 5, recovery: 26,
+    dmg: 14, base: 4.4, scale: 1.02, angle: 72, ox: 34, oy: -4, r: 34,
+    onStart() { Snd.whoosh(1.2); },
+    vfx(f) {
+      const p = hbAt(f, this);
+      FX.ring(p.x, p.y + 10, 8, 70, f.ch.color, 3);
+      for (let i = 0; i < 5; i++)
+        FX.blade(p.x + rnd(-12, 12), p.y + 18, -Math.PI / 2 + rnd(-0.3, 0.3), 8, 60, 0.2, i % 2 ? f.ch.accent : f.ch.color, { w: 8, life: 14 });
+      FX.burst(p.x, p.y, 14, f.ch.color, 5);
+      FX.shake(5);
+      Snd.tone(220, 0.16, "sawtooth", 0.12, 660);
+    } },
+
+  special: { name: "Hex Bolt", startup: 10, active: 2, recovery: 20,
+    dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
+    desc: "A slow bolt that bends toward the nearest foe. A hit curses them for five seconds: everything sends them 22% further.",
+    tick(f, a) {
+      if (a.t !== a.data.startup || a.fired) return;
+      a.fired = true;
+      Entities.add("hex", f, { x: f.x + f.facing * 24, y: f.y - 14, vx: f.facing * 6.5, vy: 0,
+        r: 12, life: 110, move: hitMove("Hex Bolt", { dmg: 4, base: 1.4, scale: 0.3, angle: 50,
+          onHit(o, d) { d.curseT = Math.max(d.curseT, 300); FX.damageText(d.x, d.y - 50, "CURSED", o.ch.accent); } }) });
+      Snd.tone(500, 0.18, "sine", 0.1, 1500);
+    } },
+
+  super: { name: "Doom",
+    desc: "Curses every foe at once, and a second later lightning strikes each one for 15%. Cursed, that strike sends them a long way.",
+    startup: 16, active: 8, recovery: 30,
+    dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
+    bolt: { name: "Doom", dmg: 15, base: 5.0, scale: 1.0, angle: 82, unblockable: true },
+    onStart(f) { Snd.superCharge(); FX.flash("#e040fb", 0.32); },
+    tick(f, a) {
+      const m = a.data;
+      if (a.t < m.startup) { f.vx *= 0.8; f.vy *= 0.8; FX.spark(f.x + rnd(-30, 30), f.y + rnd(-50, 20), f.ch.color); return; }
+      if (a.t !== m.startup) return;
+      FX.banner("DOOM", f.ch.color);
+      FX.shake(12);
+      for (const o of Combat.foes(f)) {
+        o.curseT = Math.max(o.curseT, 360);
+        Entities.add("doom", f, { tgt: o, x: o.x, y: o.y, life: 60, r: 0, move: m.bolt });
+        FX.streak(f.x, f.y - 30, o.x, o.y - 60, f.ch.accent);
+      }
+    } },
+
+  /* ---- art: a witch in a crooked hat. Robe, glowing eyes under the brim,
+           a staff with an eye in it, and a sigil that orbits her. ---- */
+  draw(g, A) {
+    const c = this.color, c2 = this.color2, c3 = this.color3, ac = this.accent;
+    const body = A.flash ? "#ffffff" : c, dark = A.flash ? "#f3c8ff" : c2, deep = A.flash ? "#e8a8ff" : c3;
+    const sw = swing(A, -8, 40);
+    aura(g, 0, -10, 34, c, 0.18);
+
+    // the orbiting sigil, behind her
+    g.save(); g.globalCompositeOperation = "lighter";
+    const an = A.time * 0.05;
+    g.strokeStyle = hexA(ac, 0.45); g.lineWidth = 1.4;
+    g.beginPath(); g.ellipse(0, -2, 26, 8, 0.2, 0, 7); g.stroke();
+    g.fillStyle = ac; g.shadowColor = c; g.shadowBlur = 10;
+    g.beginPath(); g.arc(Math.cos(an) * 26, -2 + Math.sin(an) * 8, 2.4, 0, 7); g.fill();
+    g.restore();
+
+    // robe: a bell to the floor, legs barely showing
+    const st = Math.sin(A.runPhase) * (A.running ? 8 : 0);
+    plateRect(g, -10 + st, 22, 9, 6, 2, deep, { up: 0.2 });
+    plateRect(g, 2 - st, 22, 9, 6, 2, deep, { up: 0.2 });
+    plate(g, [-8, -14, 8, -14, 15, 24, -15, 24], dark, { up: 0.2, down: 0.4, under: true });
+    plate(g, [-5, -12, 5, -12, 8, 22, -8, 22], body, { up: 0.3, down: 0.4, rimA: 0.35 });
+    // sash and stitched hem
+    plate(g, [-9, 2, 10, 0, 10, 5, -9, 7], deep, { ink: 2, rim: false });
+    g.strokeStyle = hexA(ac, 0.4); g.lineWidth = 1;
+    for (let i = 0; i < 6; i++) { g.beginPath(); g.moveTo(-13 + i * 5, 23); g.lineTo(-11 + i * 5, 20); g.stroke(); }
+
+    // head: a face in shadow, two glowing eyes
+    g.save(); g.translate(0, -22);
+    ink(g, () => { g.beginPath(); g.ellipse(0, 0, 7, 7.5, 0, 0, 7); }, deep);
+    lens(g, () => { g.beginPath(); g.ellipse(2, 0, 1.6, 2.2, 0, 0, 7); }, ac, c, 12);
+    lens(g, () => { g.beginPath(); g.ellipse(6, 0.5, 1.4, 2, 0, 0, 7); }, ac, c, 12);
+    // the hat: wide brim, tall crooked cone with a band and buckle
+    plate(g, [-15, -5, 16, -6, 12, -2, -12, -1], dark, { up: 0.3, ink: 2.4 });
+    const tip = Math.sin(A.time * 0.05) * 2;
+    plate(g, [-8, -5, 9, -5, 4, -16, -6 + tip, -28, -2, -17], body, { up: 0.4, down: 0.3 });
+    plate(g, [-8, -5, 9, -5, 8, -8.5, -7, -8.5], deep, { ink: 2, rim: false });
+    g.fillStyle = "#ffe14d"; g.fillRect(-1.5, -8.5, 4, 3.6);
+    g.restore();
+
+    // back arm
+    jointLimb(g, -7, -10, -13, 0, -3, 4.6, dark);
+
+    // staff arm: the staff stands upright, with an eye in a crescent
+    const ax = 13 + sw * 0.8, ay = -4;
+    jointLimb(g, 7, -10, (7 + ax) / 2, ay - 1, 2.5, 5, dark);
+    limb(g, (7 + ax) / 2, ay - 1, ax - 1, ay, 6, mid_(c, c2));
+    g.save(); g.translate(ax, ay); g.rotate(A.atkPhase >= 0 ? 0.5 : 0.1);
+    g.strokeStyle = INK; g.lineWidth = 4.4; g.lineCap = "round";
+    g.beginPath(); g.moveTo(0, 22); g.lineTo(0, -26); g.stroke();
+    g.strokeStyle = "#7a4a2a"; g.lineWidth = 2.4; g.stroke();
+    g.translate(0, -30);
+    g.strokeStyle = INK; g.lineWidth = 4;
+    g.beginPath(); g.arc(0, 0, 7, 0.4, Math.PI * 2 - 0.4); g.stroke();
+    g.strokeStyle = body; g.lineWidth = 2.2; g.stroke();
+    lens(g, () => { g.beginPath(); g.arc(0, 0, 3.4, 0, 7); }, ac, c, A.atkPhase >= 0 ? 20 : 10);
+    g.restore();
+  },
+},
+
+/* ======================================================================== */
+/* SHADE — THE PHANTOM                                                       */
+/* ======================================================================== */
+{
+  id: "SHADE", name: "SHADE", tag: "THE PHANTOM",
+  blurb: "You won't see it coming. That's the whole idea.",
+  power: "Fade turns her nearly invisible and quicker; her first hit out of hiding is an AMBUSH for +35% damage and extra knockback.",
+  color: "#5b6cff", color2: "#141a52", color3: "#080b26", accent: "#dfe3ff",
+  weight: 0.8, speed: 5.0, accel: 1.0, jump: 12.8, airSpeed: 4.8, fallMul: 0.95,
+  size: { w: 30, h: 52 }, hurt: 24,
+  specialCooldown: 420,
+
+  light: { name: "Shadow Cut", startup: 3, active: 3, recovery: 9,
+    dmg: 3.6, base: 1.6, scale: 0.42, angle: 42, ox: 36, oy: -8, r: 22,
+    vfx(f) {
+      FX.blade(f.x + f.facing * 8, f.y - 8, faceAng(f) + 0.2 * f.facing, 22, 54, 0.7, f.ch.color, { w: 8, life: 9 });
+      Snd.noise(0.05, 0.07, 3200, 1.1, "bandpass");
+    } },
+
+  heavy: { name: "Umbral Reap", startup: 13, active: 4, recovery: 27,
+    dmg: 14, base: 4.2, scale: 1.04, angle: 36, ox: 50, oy: -6, r: 30,
+    onStart() { Snd.whoosh(1.3); },
+    vfx(f) {
+      FX.blade(f.x, f.y - 6, faceAng(f) - 1.1 * f.facing, 44, 86, 2.0, f.ch.color, { w: 14, life: 16, spin: f.facing * 0.08 });
+      FX.blade(f.x, f.y - 6, faceAng(f) - 1.0 * f.facing, 40, 80, 1.7, f.ch.accent, { w: 4, life: 11, core: false, spin: f.facing * 0.08 });
+      FX.shake(5);
+      Snd.tone(160, 0.18, "sawtooth", 0.12, 80);
+    } },
+
+  special: { name: "Fade", startup: 6, active: 4, recovery: 10,
+    dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
+    desc: "Melts into the dark for two and a half seconds: almost invisible and 15% faster. Her first attack out of it is an AMBUSH (+35% damage, more knockback). Getting hit ends it.",
+    tick(f, a) {
+      if (a.t !== a.data.startup || a.fired) return;
+      a.fired = true;
+      f.stealthT = 150;
+      FX.burst(f.x, f.y, 18, f.ch.color2, 4);
+      FX.ring(f.x, f.y, 8, 70, f.ch.color, 2);
+      Snd.noise(0.4, 0.14, 600, 0.8, "lowpass");
+    } },
+
+  super: { name: "Nightfall",
+    desc: "The lights go out for everyone. In the dark she blinks behind each foe in turn and strikes — three strikes, the last one a launcher.",
+    startup: 14, active: 62, recovery: 30,
+    dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
+    strike: { name: "Nightfall", dmg: 6, base: 2.4, scale: 0.5, angle: 60 },
+    finale: { name: "Nightfall", dmg: 9, base: 4.4, scale: 0.98, angle: 40 },
+    onStart(f) { Snd.superCharge(); FX.flash("#000000", 0.5); },
+    tick(f, a) {
+      const m = a.data;
+      if (a.t < m.startup) { f.vx *= 0.7; f.vy *= 0.7; return; }
+      if (a.t === m.startup) {
+        FX.banner("NIGHTFALL", f.ch.color);
+        if (Match.current) Match.current.darkT = 170;
+      }
+      const s = a.t - m.startup;
+      f.vx = 0; f.vy = 0;
+      if (s % 22 !== 0 || s > 44) return;
+      const foes = Combat.foes(f).filter(o => !o.intangible());
+      if (!foes.length) return;
+      const t = foes[(s / 22) % foes.length];
+      // blink behind them
+      FX.burst(f.x, f.y, 10, f.ch.color2, 4);
+      f.x = t.x - t.facing * 38; f.y = t.y; f.facing = t.x >= f.x ? 1 : -1;
+      f.invuln = Math.max(f.invuln, 6);
+      FX.streak(f.x, f.y, t.x, t.y, f.ch.accent);
+      FX.blade(t.x, t.y, faceAng(f), 20, 60, 1.6, f.ch.color, { w: 10, life: 10 });
+      Combat.land(f, t, s === 44 ? m.finale : m.strike, t.x, t.y);
+      Snd.tone(300 + s * 8, 0.08, "square", 0.12, 120);
+    } },
+
+  /* ---- art: a ragged hood with nothing in it but two eyes, a body that
+           thins to smoke instead of legs, and a curved blade. ---- */
+  draw(g, A) {
+    const c = this.color, c2 = this.color2, c3 = this.color3, ac = this.accent;
+    const body = A.flash ? "#ffffff" : c, dark = A.flash ? "#c9d0ff" : c2, deep = A.flash ? "#aab4ff" : c3;
+    const sw = swing(A, -10, 42);
+    aura(g, 0, -4, 34, c, 0.14);
+
+    // smoke where the legs would be
+    g.save(); g.globalCompositeOperation = "lighter";
+    for (let i = 0; i < 5; i++) {
+      const yy = 10 + i * 4, ww = 12 - i * 2 + Math.sin(A.time * 0.15 + i) * 2;
+      g.globalAlpha = 0.35 - i * 0.06;
+      g.fillStyle = c;
+      g.beginPath(); g.ellipse(Math.sin(A.time * 0.1 + i) * 3 - A.vx * i * 0.4, yy, ww, 3, 0, 0, 7); g.fill();
+    }
+    g.restore();
+
+    // the cloak, tattered at the bottom
+    plate(g, [-10, -18, 10, -18, 13, 6, 8, 12, 4, 7, 0, 14, -4, 8, -8, 13, -13, 6], dark,
+          { up: 0.2, down: 0.4, under: true });
+    plate(g, [-6, -16, 6, -16, 8, 2, -8, 2], deep, { up: 0.1, rimA: 0.2 });
+
+    // the hood, and nothing in it but eyes
+    g.save(); g.translate(1, -24);
+    const hood = () => poly(g, [-9, 6, -10, -4, -4, -12, 4, -12, 10, -3, 10, 6]);
+    ink(g, hood, vol(g, -12, 6, body, 0.3, 0.4));
+    rim(g, hood, "#ffffff", 3, 0.4);
+    g.fillStyle = INK; poly(g, [-6, 5, -7, -3, 0, -8, 7, -3, 7, 5]); g.fill();
+    lens(g, () => poly(g, [0, -1, 5, -2, 5, 0, 0, 0.6]), ac, c, 14);
+    lens(g, () => poly(g, [-4, -0.5, -1.5, -1, -1.5, 0.6, -4, 0.8]), ac, c, 10);
+    g.restore();
+
+    // back arm, a wisp
+    jointLimb(g, -7, -12, -13, -2, -3, 4, dark);
+
+    // blade arm: a thin curved knife, held low and forward
+    const ax = 13 + sw, ay = -4;
+    jointLimb(g, 7, -12, (7 + ax) / 2, ay - 1, 2.5, 4.6, dark);
+    limb(g, (7 + ax) / 2, ay - 1, ax - 1, ay, 5.4, mid_(c, c2));
+    g.save(); g.translate(ax, ay); g.rotate(A.atkPhase >= 0 ? 0.1 : 0.5);
+    g.strokeStyle = INK; g.lineWidth = 5; g.lineCap = "round";
+    g.beginPath(); g.moveTo(0, 0); g.quadraticCurveTo(14, -10, 26, -2); g.stroke();
+    g.strokeStyle = ac; g.lineWidth = 2.4; g.stroke();
+    glow(g, c, 10, () => {
+      g.strokeStyle = hexA(c, 0.8); g.lineWidth = 1.2;
+      g.beginPath(); g.moveTo(4, -2); g.quadraticCurveTo(14, -9, 24, -2); g.stroke();
+    });
+    g.restore();
+  },
+},
+
+/* ======================================================================== */
+/* VEX — THE SIPHON                                                          */
+/* ======================================================================== */
+{
+  id: "VEX", name: "VEX", tag: "THE SIPHON",
+  blurb: "Every hit she lands is a hit she gets back.",
+  power: "Lifesteal: every hit heals 20% of its damage off her own %. Siphon tethers a foe and drains them straight into her.",
+  color: "#ff6fd8", color2: "#5a1048", color3: "#2a0722", accent: "#ffe0f6",
+  weight: 0.92, speed: 4.5, accel: 0.92, jump: 12.2, airSpeed: 4.3, fallMul: 1.0,
+  lifesteal: 0.2,
+  size: { w: 32, h: 54 }, hurt: 25,
+  specialCooldown: 320,
+
+  light: { name: "Needle", startup: 3, active: 3, recovery: 9,
+    dmg: 3.2, base: 1.5, scale: 0.4, angle: 44, ox: 38, oy: -8, r: 21,
+    vfx(f) {
+      FX.blade(f.x + f.facing * 10, f.y - 8, faceAng(f), 30, 60, 0.18, f.ch.color, { w: 12, life: 8 });
+      Snd.tone(1600, 0.035, "square", 0.06, 2200);
+    } },
+
+  heavy: { name: "Draining Claw", startup: 13, active: 4, recovery: 26,
+    dmg: 13, base: 4.0, scale: 1.0, angle: 40, ox: 44, oy: -6, r: 30,
+    onStart() { Snd.whoosh(1.2); },
+    vfx(f) {
+      for (let i = 0; i < 3; i++)
+        FX.blade(f.x + f.facing * 6, f.y - 14 + i * 8, faceAng(f) - 0.4 * f.facing, 30, 74, 1.0, i === 1 ? f.ch.accent : f.ch.color, { w: 5, life: 13 });
+      FX.shake(5);
+      Snd.tone(300, 0.12, "sawtooth", 0.1, 150);
+    } },
+
+  special: { name: "Siphon", startup: 6, active: 90, recovery: 18,
+    dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
+    desc: "Latches a tether onto the nearest foe in range and drains them: 1.5% every sixth of a second moves from her damage onto theirs. Breaks if they get too far away, or when she lets go.",
+    tick(f, a, inp) {
+      const m = a.data;
+      if (a.t < m.startup) { f.vx *= 0.8; return; }
+      if (a.t === m.startup) {
+        const t = Combat.nearestFoe(f, 320);
+        a.tgt = t && !t.intangible() ? t : null;
+        if (!a.tgt) { a.t = m.startup + m.active; FX.ring(f.x, f.y, 6, 40, f.ch.color, 2); return; }
+        Entities.add("tether", f, { tgt: a.tgt, x: a.tgt.x, y: a.tgt.y, life: m.active + 2, r: 0 });
+        Snd.tone(220, 0.3, "sine", 0.12, 440);
+      }
+      const t = a.tgt;
+      if (!t || a.t > m.startup + m.active) return;
+      f.vx *= 0.7;
+      const broke = !t.alive || t.state === ST.DEAD || t.intangible() || dist(f.x, f.y, t.x, t.y) > 380;
+      if (broke || (a.t > m.startup + 20 && !inp.held("special"))) { a.t = m.startup + m.active; return; }
+      if ((a.t - m.startup) % 10 === 9) {
+        t.percent = Math.min(999, t.percent + 1.5); t.hitFlash = 3;
+        t.lastHitBy = f;
+        f.percent = Math.max(0, f.percent - 1.5);
+        f.stats.damageDealt += 1.5;
+        f.addMeter(1.5 * CFG.meter.onDeal);
+        FX.spark(t.x, t.y, f.ch.color);
+        Snd.tone(700, 0.04, "sine", 0.06, 500);
+      }
+    } },
+
+  super: { name: "Eclipse Bite",
+    desc: "A lunging bite that heals her for every point of damage it deals.",
+    startup: 12, active: 8, recovery: 30,
+    dmg: 17, base: 5.4, scale: 1.04, angle: 42, ox: 30, oy: -6, r: 40, lifesteal: 1.0,
+    onStart(f) { Snd.superCharge(); FX.flash("#ff6fd8", 0.3); },
+    tick(f, a) {
+      const m = a.data;
+      if (a.t < m.startup) { f.vx *= 0.6; FX.spark(f.x + rnd(-24, 24), f.y + rnd(-30, 20), f.ch.color); return; }
+      if (a.t === m.startup) {
+        FX.banner("ECLIPSE BITE", f.ch.color);
+        f.vx = f.facing * 15; f.vy = Math.min(f.vy, -2);
+        Snd.whoosh(1.8);
+      }
+      if (a.t <= m.startup + m.active) {
+        FX.blade(f.x + f.facing * 20, f.y - 6, faceAng(f), 20, 56, 1.2, f.ch.color, { w: 10, life: 6 });
+      }
+    } },
+
+  /* ---- art: a slim figure in a high-collared coat, a fanged mask, and a
+           harness of glass vials on her back that fill as she drains. ---- */
+  draw(g, A) {
+    const c = this.color, c2 = this.color2, c3 = this.color3, ac = this.accent;
+    const body = A.flash ? "#ffffff" : c, dark = A.flash ? "#ffd0f0" : c2, deep = A.flash ? "#ffb0e4" : c3;
+    const sw = swing(A, -10, 44);
+    aura(g, 0, -4, 32, c, 0.14);
+
+    // the vial harness, behind her
+    for (let i = 0; i < 3; i++) {
+      const vx = -14 - i * 3, vy = -16 + i * 7;
+      plateRect(g, vx - 3, vy, 6, 9, 2.5, hexA("#ffffff", 0.25), { flat: true, rim: false, ink: 1.8 });
+      g.fillStyle = hexA(c, 0.8); g.fillRect(vx - 2, vy + 3 + Math.sin(A.time * 0.08 + i) * 1.2, 4, 5);
+    }
+
+    const st = Math.sin(A.runPhase) * (A.running ? 12 : 0);
+    jointLimb(g, -5, 9, -9 + st, 25, -4, 5.5, dark);
+    jointLimb(g, 6, 9, 10 - st, 25, 4, 5.5, dark);
+    plateRect(g, -14 + st, 23, 11, 6, 2, deep, { up: 0.16 });
+    plateRect(g, 5 - st, 23, 11, 6, 2, deep, { up: 0.16 });
+
+    // the coat, flared below the waist
+    plate(g, [-9, -15, 9, -15, 12, 14, 4, 10, -4, 10, -12, 14], dark, { up: 0.2, down: 0.4, under: true });
+    plate(g, [-7, -13, 7, -13, 6, 4, -6, 4], body, { up: 0.34, down: 0.3 });
+    g.strokeStyle = hexA(ac, 0.5); g.lineWidth = 1.1;
+    g.beginPath(); g.moveTo(0, -12); g.lineTo(0, 4); g.stroke();
+    // the high collar
+    plate(g, [-10, -15, -6, -26, -2, -16], deep, { ink: 2, up: 0.3 });
+    plate(g, [10, -15, 6, -26, 2, -16], deep, { ink: 2, up: 0.3 });
+
+    // head: a pale mask with a fanged grin
+    g.save(); g.translate(1, -24);
+    ink(g, () => { g.beginPath(); g.ellipse(0, 0, 6.6, 7.6, 0, 0, 7); }, vol(g, -8, 8, "#fbe6f3", 0.2, 0.3));
+    lens(g, () => poly(g, [0, -3, 5.5, -2.5, 5.5, -1, 0, -1.4]), c, c, 12);
+    g.fillStyle = INK; poly(g, [-2, 3, 6, 2.4, 5, 4.6, -1.5, 5]); g.fill();
+    g.fillStyle = "#ffffff"; poly(g, [1, 3, 2.2, 3, 1.6, 5.4]); g.fill(); poly(g, [3.6, 2.8, 4.8, 2.8, 4.2, 5]); g.fill();
+    // swept hair
+    plate(g, [-7, -4, -2, -9, 6, -8, 3, -5, -6, 1], body, { up: 0.4, ink: 2.2 });
+    g.restore();
+
+    jointLimb(g, -7, -11, -14, -1, -3, 4.6, dark);
+
+    // claw arm: three thin needles off the knuckles
+    const ax = 14 + sw, ay = -6;
+    jointLimb(g, 7, -11, (7 + ax) / 2, ay - 1, 2.5, 5, dark);
+    limb(g, (7 + ax) / 2, ay - 1, ax - 2, ay, 6, mid_(c, c2));
+    g.save(); g.translate(ax, ay);
+    plateRect(g, -4, -4, 8, 8, 3, deep, { up: 0.2, rim: false });
+    for (let i = 0; i < 3; i++) {
+      const yy = -3 + i * 3;
+      g.strokeStyle = INK; g.lineWidth = 2.6; g.lineCap = "round";
+      g.beginPath(); g.moveTo(3, yy); g.lineTo(15, yy - 1 + i); g.stroke();
+      g.strokeStyle = ac; g.lineWidth = 1.2; g.stroke();
+    }
+    g.restore();
+  },
+},
+
+/* ======================================================================== */
+/* FUSE — THE DEMOLITIONIST  (takes Ballast's place)                         */
+/* ======================================================================== */
+{
+  id: "FUSE", name: "FUSE", tag: "THE DEMOLITIONIST",
+  blurb: "Every problem has a blast radius. Hers are bigger.",
+  power: "Sticky Charge clings to whoever it touches and blows. Payload is a giant countdown bomb — everyone sees the blast radius and has two seconds to get out.",
+  color: "#ff9f1c", color2: "#5c3200", color3: "#261400", accent: "#fff0c4",
+  weight: 1.2, speed: 4.0, accel: 0.76, jump: 11.7, airSpeed: 3.7, fallMul: 1.08,
+  size: { w: 42, h: 56 }, hurt: 29,
+  specialCooldown: 200,
+
+  light: { name: "Wrench Swing", startup: 4, active: 3, recovery: 11,
+    dmg: 4.4, base: 2.1, scale: 0.52, angle: 40, ox: 40, oy: -6, r: 24,
+    vfx(f) {
+      FX.blade(f.x + f.facing * 10, f.y - 8, faceAng(f) - 0.2 * f.facing, 26, 60, 0.9, f.ch.color, { w: 11, life: 10 });
+      Snd.tone(200, 0.05, "square", 0.08, 120);
+    } },
+
+  heavy: { name: "Breaching Charge", startup: 14, active: 4, recovery: 27,
+    dmg: 17, base: 5.0, scale: 1.1, angle: 45, ox: 50, oy: -2, r: 36,
+    onStart() { Snd.tone(1200, 0.2, "square", 0.06, 1200); },
+    vfx(f) {
+      const p = hbAt(f, this);
+      FX.ring(p.x, p.y, 10, 90, "#ffd27a", 4);
+      FX.burst(p.x, p.y, 24, f.ch.color, 8);
+      FX.burst(p.x, p.y, 10, "#3a2f40", 4);
+      FX.shake(10); FX.flash("#ffd27a", 0.12);
+      Snd.bigHit();
+    } },
+
+  special: { name: "Sticky Charge", startup: 10, active: 2, recovery: 20,
+    dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
+    desc: "Lobs a bomb that sticks to the first foe it touches (or wherever it lands) and explodes a moment later for 13%.",
+    tick(f, a) {
+      if (a.t !== a.data.startup || a.fired) return;
+      a.fired = true;
+      Entities.add("bomb", f, { x: f.x + f.facing * 20, y: f.y - 24, vx: f.facing * 7.5, vy: -6,
+        r: 9, life: 105, move: hitMove("Sticky Charge", { dmg: 13, base: 4.8, scale: 0.98, angle: 55 }) });
+      Snd.whoosh(1.1);
+    } },
+
+  super: { name: "Payload",
+    desc: "Drops a giant bomb at her feet with a two-second countdown and its blast radius painted on the floor. Anyone still inside when it hits zero takes 22%. She's immune to her own blast.",
+    startup: 14, active: 4, recovery: 26,
+    dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
+    boom: { name: "Payload", dmg: 22, base: 7.0, scale: 1.15, angle: 58, unblockable: true },
+    onStart(f) { Snd.superCharge(); FX.flash("#ff9f1c", 0.3); },
+    tick(f, a) {
+      const m = a.data;
+      if (a.t !== m.startup) { if (a.t < m.startup) f.vx *= 0.7; return; }
+      FX.banner("PAYLOAD", f.ch.color);
+      Entities.add("payload", f, { x: f.x, y: f.y, vy: 0, r: 24, life: 120, w: 250, move: m.boom });
+      Snd.bigHit(); FX.shake(8);
+    } },
+
+  /* ---- art: stocky, hard hat with a lamp, goggles pushed up, a round bomb
+           strapped to the back and a heavy wrench. ---- */
+  draw(g, A) {
+    const c = this.color, c2 = this.color2, c3 = this.color3, ac = this.accent;
+    const body = A.flash ? "#ffffff" : c, dark = A.flash ? "#ffe2b0" : c2, deep = A.flash ? "#ffcf80" : c3;
+    const sw = swing(A, -10, 44);
+
+    // the backpack bomb, with a lit fuse
+    g.save(); g.translate(-16, -6);
+    ink(g, () => { g.beginPath(); g.arc(0, 0, 11, 0, 7); }, vol(g, -11, 11, "#3a2f40", 0.3, 0.4));
+    g.fillStyle = hexA("#ffffff", 0.3); g.beginPath(); g.arc(-3, -4, 3.5, 0, 7); g.fill();
+    g.strokeStyle = "#c8a070"; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(0, -11); g.quadraticCurveTo(-6, -17, -3, -21); g.stroke();
+    g.fillStyle = "#ffe36b"; g.shadowColor = "#ff8a1f"; g.shadowBlur = 10;
+    g.beginPath(); g.arc(-3, -21, 2 + Math.abs(Math.sin(A.time * 0.5)) * 1.4, 0, 7); g.fill();
+    g.restore();
+
+    const st = Math.sin(A.runPhase) * (A.running ? 9 : 0);
+    jointLimb(g, -8, 10, -12 + st, 26, -3.5, 10, dark);
+    jointLimb(g, 9, 10, 13 - st, 26, 3.5, 10, dark);
+    plateRect(g, -19 + st * 0.6, 24, 15, 8, 2.5, deep, { up: 0.18 });
+    plateRect(g, 5 - st * 0.6, 24, 15, 8, 2.5, deep, { up: 0.18 });
+
+    // torso: overalls with a hazard stripe
+    plate(g, [-16, -14, 16, -14, 14, 14, -14, 14], body, { up: 0.3, down: 0.36, under: true });
+    plate(g, [-11, -8, 11, -8, 10, 12, -10, 12], dark, { up: 0.12, down: 0.3, rimA: 0.26 });
+    g.save(); poly(g, [-11, 2, 10, 2, 10, 7, -11, 7]); g.clip();
+    hatch(g, -11, 2, 22, 5, "#ffe14d", 6, 0.9); g.restore();
+    // bandolier of charges
+    plate(g, [-14, -12, 14, 6, 14, 10, -14, -8], deep, { ink: 2, rim: false });
+    for (let i = 0; i < 4; i++) { g.fillStyle = "#e0423a"; g.fillRect(-9 + i * 6, -7 + i * 4, 3.6, 6); }
+
+    // head under a hard hat
+    g.save(); g.translate(0, -22);
+    ink(g, () => roundRect(g, -8, -7, 16, 14, 5), vol(g, -7, 7, "#f2c9a0", 0.2, 0.3));
+    g.fillStyle = INK; g.fillRect(1, -1, 6, 2.2);
+    // goggles pushed up
+    plate(g, [-8, -7, 9, -7, 9, -3, -8, -3], deep, { ink: 2, rim: false });
+    lens(g, () => { g.beginPath(); g.arc(4, -5, 2.4, 0, 7); }, "#9fd8ff", "#9fd8ff", 6);
+    // the hard hat
+    plate(g, [-11, -8, 12, -8, 9, -15, 0, -18, -8, -15], body, { up: 0.45, down: 0.2 });
+    plateRect(g, -12, -9, 25, 3, 1.2, dark, { rim: false, ink: 2 });
+    lens(g, () => roundRect(g, 6, -16, 5, 4, 1.5), "#fff6c2", "#ffe36b", 14);
+    g.restore();
+
+    // wrench arm
+    const ax = 18 + sw, ay = -4;
+    jointLimb(g, 13, -10, (13 + ax) / 2, ay - 1, 2, 9, dark);
+    limb(g, (13 + ax) / 2, ay - 1, ax - 3, ay, 10, mid_(c, c2));
+    g.save(); g.translate(ax, ay); g.rotate(A.atkPhase >= 0 ? 0 : -0.7);
+    g.strokeStyle = INK; g.lineWidth = 6; g.lineCap = "round";
+    g.beginPath(); g.moveTo(-4, 0); g.lineTo(20, 0); g.stroke();
+    g.strokeStyle = "#9aa3b5"; g.lineWidth = 3.4; g.stroke();
+    plate(g, [18, -7, 27, -7, 27, -2, 23, -2, 23, 2, 27, 2, 27, 7, 18, 7], "#c4ccdb", { ink: 2.2, up: 0.3 });
+    g.restore();
+    jointLimb(g, -13, -10, -20, 2, -3.5, 8, dark);
+  },
+},
+
+/* ======================================================================== */
+/* RICO — THE RICOCHET                                                       */
+/* ======================================================================== */
+{
+  id: "RICO", name: "RICO", tag: "THE RICOCHET",
+  blurb: "Throws once, hits twice. Never misses the catch.",
+  power: "Return Disc flies out, turns, and comes back to her hand — it hits on the way out AND on the way back. Bank Shot fills the stage with bouncing discs.",
+  color: "#ff5a36", color2: "#5e1606", color3: "#2a0802", accent: "#ffe2d9",
+  weight: 0.84, speed: 4.9, accel: 0.98, jump: 12.7, airSpeed: 4.7, fallMul: 0.95,
+  size: { w: 32, h: 52 }, hurt: 25,
+  specialCooldown: 110,
+
+  light: { name: "Rim Strike", startup: 3, active: 3, recovery: 9,
+    dmg: 3.4, base: 1.6, scale: 0.42, angle: 46, ox: 36, oy: -8, r: 22,
+    vfx(f) {
+      FX.blade(f.x + f.facing * 8, f.y - 8, faceAng(f), 22, 52, 0.9, f.ch.color, { w: 7, life: 9 });
+      Snd.tone(1100, 0.04, "square", 0.07, 1500);
+    } },
+
+  heavy: { name: "Spin Volley", startup: 12, active: 5, recovery: 25,
+    dmg: 14, base: 4.3, scale: 1.03, angle: 45, ox: 40, oy: -8, r: 33,
+    onStart() { Snd.whoosh(1.2); },
+    vfx(f) {
+      FX.blade(f.x, f.y - 8, 0, 30, 70, 6.28, f.ch.color, { w: 9, life: 11, spin: f.facing * 0.22 });
+      FX.blade(f.x, f.y - 8, 3, 34, 64, 6.28, f.ch.accent, { w: 3, life: 9, core: false, spin: f.facing * 0.22 });
+      FX.shake(5);
+      Snd.tone(900, 0.08, "square", 0.1, 1500);
+    } },
+
+  special: { name: "Return Disc", startup: 8, active: 2, recovery: 16,
+    dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
+    desc: "Throws a disc that slows, turns, and flies back to her hand. It can hit on the way out and again on the way back.",
+    tick(f, a) {
+      if (a.t !== a.data.startup || a.fired) return;
+      a.fired = true;
+      Entities.add("disc", f, { x: f.x + f.facing * 22, y: f.y - 8, vx: f.facing * 14, vy: 0, dir: f.facing,
+        r: 15, life: 150, move: hitMove("Return Disc", { dmg: 7, base: 2.7, scale: 0.55, angle: 40 }) });
+      Snd.tone(900, 0.1, "square", 0.08, 1400);
+    } },
+
+  super: { name: "Bank Shot",
+    desc: "Hurls five discs that ricochet off the edges of the stage for three seconds. Each foe can be clipped up to four times in all.",
+    startup: 14, active: 6, recovery: 26,
+    dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
+    onStart(f) { Snd.superCharge(); FX.flash("#ff5a36", 0.3); },
+    tick(f, a) {
+      const m = a.data;
+      if (a.t !== m.startup) { if (a.t < m.startup) f.vx *= 0.7; return; }
+      FX.banner("BANK SHOT", f.ch.color);
+      // one hit log shared by all five discs, so they can't stack five times
+      // the damage: four hits per foe in total, at most one every 20 frames
+      const log = {};
+      for (let i = 0; i < 5; i++) {
+        const an = -1.0 + i * 0.45;
+        Entities.add("rdisc", f, { x: f.x, y: f.y - 10, vx: Math.cos(an) * 11 * f.facing, vy: Math.sin(an) * 11,
+          r: 15, life: 180, hitLog: log, cap: 4, seek: true,
+          move: hitMove("Bank Shot", { dmg: 5, base: 2.6, scale: 0.6, angle: 48, unblockable: true }) });
+      }
+      Snd.bigHit();
+    } },
+
+  /* ---- art: an athlete. Sweatband, wraparound shades, a numbered jersey,
+           a ponytail, and a disc ready at the hand. ---- */
+  draw(g, A) {
+    const c = this.color, c2 = this.color2, c3 = this.color3, ac = this.accent;
+    const body = A.flash ? "#ffffff" : c, dark = A.flash ? "#ffc8b8" : c2, deep = A.flash ? "#ffa894" : c3;
+    const sw = swing(A, -10, 42);
+    aura(g, 0, -6, 30, c, 0.14);
+
+    // ponytail
+    g.save(); g.lineCap = "round";
+    const tail = Math.sin(A.time * 0.12) * 3 - A.vx * 0.6;
+    g.strokeStyle = INK; g.lineWidth = 6.6;
+    g.beginPath(); g.moveTo(-5, -30); g.quadraticCurveTo(-14, -28 + tail, -16, -20 + tail); g.stroke();
+    g.strokeStyle = "#3a1f14"; g.lineWidth = 4; g.stroke();
+    g.restore();
+
+    const st = Math.sin(A.runPhase) * (A.running ? 13 : 0);
+    jointLimb(g, -5, 8, -8 + st, 24, -4, 6, "#f2c9a0");
+    jointLimb(g, 5, 8, 9 - st, 24, 4, 6, "#f2c9a0");
+    plate(g, [-7, 2, 7, 2, 8, 12, -8, 12], dark, { up: 0.2, ink: 2.4 });     // shorts
+    // sneakers with a stripe
+    plateRect(g, -14 + st, 22, 12, 6, 2.5, "#ffffff", { up: 0.1 });
+    plateRect(g, 3 - st, 22, 12, 6, 2.5, "#ffffff", { up: 0.1 });
+    g.fillStyle = c; g.fillRect(-12 + st, 24, 8, 1.6); g.fillRect(5 - st, 24, 8, 1.6);
+
+    // jersey with a number
+    plate(g, [-9, -15, 9, -15, 8, 4, -8, 4], body, { up: 0.3, down: 0.34, under: true });
+    g.font = `900 9px ${FONT_DISPLAY}`; g.textAlign = "center"; g.fillStyle = ac;
+    g.fillText("7", 0, -2);
+    plate(g, [-9, -15, -4, -15, -6, -11, -10, -11], dark, { ink: 1.8, rim: false });
+    plate(g, [4, -15, 9, -15, 10, -11, 6, -11], dark, { ink: 1.8, rim: false });
+
+    // head: sweatband and wraparound shades
+    g.save(); g.translate(1, -24);
+    ink(g, () => { g.beginPath(); g.ellipse(0, 0, 6.6, 7.4, 0, 0, 7); }, vol(g, -8, 8, "#f2c9a0", 0.2, 0.3));
+    plate(g, [-7, -5, 7, -6, 7, -3, -7, -2], c, { ink: 2, rim: false });
+    lens(g, () => poly(g, [-2, -1, 7.5, -1.5, 7, 2, -1.5, 2]), "#1a1020", c, 0);
+    g.fillStyle = hexA("#ffffff", 0.5); g.fillRect(2, -0.8, 3, 0.9);
+    plate(g, [-7, -6, -1, -10, 6, -9, 7, -6], "#3a1f14", { ink: 2, up: 0.3 });
+    g.restore();
+
+    jointLimb(g, -7, -12, -13, -1, -3, 4.6, "#f2c9a0");
+
+    // throwing arm, disc held flat at the hand
+    const ax = 13 + sw, ay = -6;
+    jointLimb(g, 7, -12, (7 + ax) / 2, ay - 1, 2.5, 4.8, "#e8b98d");
+    limb(g, (7 + ax) / 2, ay - 1, ax - 2, ay, 5.4, "#f2c9a0");
+    if (A.atkKind !== "special" || A.atkPhase > 0.4) {
+      g.save(); g.translate(ax + 4, ay); g.rotate(-0.2);
+      ink(g, () => { g.beginPath(); g.ellipse(0, 0, 10, 4, 0, 0, 7); }, vol(g, -4, 4, c, 0.4, 0.3), 2.2);
+      g.strokeStyle = ac; g.lineWidth = 1.2; g.beginPath(); g.ellipse(0, 0, 6, 2.2, 0, 0, 7); g.stroke();
+      g.restore();
+    }
+  },
+},
+
+/* ======================================================================== */
+/* SPROUT — THE GARDENER                                                     */
+/* ======================================================================== */
+{
+  id: "SPROUT", name: "SPROUT", tag: "THE GARDENER",
+  blurb: "Patient. Grows on you. Then grows over you.",
+  power: "Bloom plants a flower that heals her (and teammates) standing in it. Overgrowth roots every grounded foe in place and heals her side.",
+  color: "#3ddc84", color2: "#0f4d2a", color3: "#062614", accent: "#e3ffe9",
+  weight: 1.08, speed: 4.25, accel: 0.84, jump: 12.0, airSpeed: 4.0, fallMul: 1.02,
+  size: { w: 36, h: 54 }, hurt: 27,
+  specialCooldown: 260,
+
+  light: { name: "Vine Lash", startup: 3, active: 3, recovery: 9,
+    dmg: 4.2, base: 1.9, scale: 0.44, angle: 46, ox: 44, oy: -6, r: 22,
+    vfx(f) {
+      FX.blade(f.x + f.facing * 10, f.y - 6, faceAng(f), 26, 64, 0.5, f.ch.color, { w: 6, life: 10 });
+      FX.spark(hbAt(f, this).x, f.y - 6, "#9dffbd");
+      Snd.noise(0.05, 0.07, 1800, 1, "bandpass");
+    } },
+
+  heavy: { name: "Thornburst", startup: 13, active: 5, recovery: 26,
+    dmg: 16, base: 4.8, scale: 1.06, angle: 64, ox: 30, oy: 6, r: 36,
+    onStart() { Snd.whoosh(1.3); },
+    vfx(f) {
+      const p = hbAt(f, this);
+      for (let i = 0; i < 6; i++)
+        FX.blade(p.x, p.y + 16, -Math.PI / 2 + (i - 2.5) * 0.35, 8, 56, 0.15, i % 2 ? f.ch.color : "#9a6a3a", { w: 7, life: 15 });
+      FX.burst(p.x, p.y + 14, 14, f.ch.color2, 5);
+      FX.shake(6);
+      Snd.tone(140, 0.15, "sawtooth", 0.12, 70);
+    } },
+
+  special: { name: "Bloom", startup: 12, active: 2, recovery: 18,
+    dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
+    desc: "Plants a flower at her feet for six seconds. Standing in it heals her (and teammates) 1% four times a second; a foe who walks through gets stung once. Planting a new one uproots the old.",
+    tick(f, a) {
+      if (a.t !== a.data.startup || a.fired) return;
+      a.fired = true;
+      for (const e of Entities.list) if (e.kind === "flower" && e.owner === f) e.life = Math.min(e.life, 20);
+      Entities.add("flower", f, { x: f.x, y: f.feetY, r: 70, life: 360,
+        move: hitMove("Bloom", { dmg: 3, base: 1.5, scale: 0.2, angle: 70 }) });
+      Snd.tone(660, 0.2, "sine", 0.1, 990);
+    } },
+
+  super: { name: "Overgrowth",
+    desc: "Vines burst from every platform: every foe standing on the ground is rooted in place for 2.5 seconds and takes 8%, and she and her teammates heal 8%. Rooted foes can still attack and shield — they just can't move.",
+    startup: 16, active: 6, recovery: 28,
+    dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
+    onStart(f) { Snd.superCharge(); FX.flash("#3ddc84", 0.3); },
+    tick(f, a) {
+      const m = a.data;
+      if (a.t !== m.startup) { if (a.t < m.startup) f.vx *= 0.7; return; }
+      FX.banner("OVERGROWTH", f.ch.color);
+      FX.shake(16); Snd.superHit();
+      for (const s of Stage.segs)
+        for (let x = Math.min(s.ax, s.bx); x < Math.max(s.ax, s.bx); x += 34)
+          FX.blade(x, Stage.surfaceY(s, x), -Math.PI / 2, 4, 30 + Math.random() * 30, 0.2, f.ch.color, { w: 5, life: 30 });
+      for (const o of Match.current.fighters) {
+        if (!o.alive || o.state === ST.DEAD) continue;
+        if (allies(o, f)) {
+          o.percent = Math.max(0, o.percent - 8);
+          FX.damageText(o.x, o.y - 50, "+8", "#7dff9a");
+          continue;
+        }
+        if (!o.grounded || o.intangible()) continue;
+        o.rootT = 150;
+        o.percent = Math.min(999, o.percent + 8); o.hitFlash = 6; o.lastHitBy = f;
+        o.vx = 0;
+        f.stats.damageDealt += 8; f.addMeter(8 * CFG.meter.onDeal);
+        FX.damageText(o.x, o.y - 50, "ROOTED", f.ch.accent);
+      }
+    } },
+
+  /* ---- art: a sapling of a fighter. Bark-plated body, a head of two big
+           leaves with a flower, and roots for feet. ---- */
+  draw(g, A) {
+    const c = this.color, c2 = this.color2, c3 = this.color3, ac = this.accent;
+    const body = A.flash ? "#ffffff" : c, dark = A.flash ? "#c8ffd8" : c2, deep = A.flash ? "#a8f0c0" : c3;
+    const bark = A.flash ? "#ffffff" : "#7a5230";
+    const sw = swing(A, -10, 46);
+    aura(g, 0, -4, 34, c, 0.12);
+
+    const st = Math.sin(A.runPhase) * (A.running ? 9 : 0);
+    jointLimb(g, -6, 10, -9 + st, 25, -3, 7, bark);
+    jointLimb(g, 7, 10, 10 - st, 25, 3, 7, bark);
+    // root feet
+    for (const [x, d] of [[-9 + st, -1], [10 - st, 1]]) {
+      g.strokeStyle = INK; g.lineWidth = 4; g.lineCap = "round";
+      g.beginPath(); g.moveTo(x, 25); g.lineTo(x + d * 8, 28); g.moveTo(x, 25); g.lineTo(x - d * 4, 28); g.stroke();
+      g.strokeStyle = bark; g.lineWidth = 2.2; g.stroke();
+    }
+
+    // body: bark plates over green
+    plate(g, [-12, -14, 12, -14, 10, 12, -10, 12], body, { up: 0.3, down: 0.36, under: true });
+    for (let i = 0; i < 3; i++)
+      plate(g, [-10, -10 + i * 7, 10, -12 + i * 7, 9, -6 + i * 7, -9, -4 + i * 7], bark, { up: 0.2, ink: 1.8, rimA: 0.25 });
+
+    // head: two great leaves and a flower
+    g.save(); g.translate(0, -24);
+    ink(g, () => { g.beginPath(); g.ellipse(0, 0, 7.4, 7.4, 0, 0, 7); }, vol(g, -8, 8, body, 0.3, 0.3));
+    lens(g, () => { g.beginPath(); g.arc(3, -0.5, 1.6, 0, 7); }, "#ffffff", c, 6);
+    lens(g, () => { g.beginPath(); g.arc(-1.5, -0.5, 1.4, 0, 7); }, "#ffffff", c, 6);
+    const flap = Math.sin(A.time * 0.07) * 0.12;
+    g.save(); g.rotate(-0.6 + flap);
+    plate(g, [0, -4, -6, -14, -2, -24, 4, -14], dark, { up: 0.3, ink: 2.2 }); g.restore();
+    g.save(); g.rotate(0.5 - flap);
+    plate(g, [0, -4, 6, -14, 3, -24, -3, -14], body, { up: 0.4, ink: 2.2 }); g.restore();
+    g.translate(-5, -7);
+    for (let i = 0; i < 5; i++) {
+      g.save(); g.rotate(i / 5 * Math.PI * 2);
+      ink(g, () => { g.beginPath(); g.ellipse(0, -3.2, 2, 3, 0, 0, 7); }, "#ff9ec7", 1.4); g.restore();
+    }
+    g.fillStyle = "#ffe14d"; g.beginPath(); g.arc(0, 0, 1.8, 0, 7); g.fill();
+    g.restore();
+
+    jointLimb(g, -10, -10, -16, 2, -3, 5, dark);
+
+    // vine arm: the arm itself is the whip, trailing a leaf
+    const ax = 16 + sw, ay = -4;
+    g.save(); g.lineCap = "round";
+    const path = () => { g.beginPath(); g.moveTo(10, -10); g.quadraticCurveTo((10 + ax) / 2, ay - 10, ax, ay); };
+    path(); g.strokeStyle = INK; g.lineWidth = 7.5; g.stroke();
+    path(); g.strokeStyle = dark; g.lineWidth = 5; g.stroke();
+    path(); g.strokeStyle = hexA("#ffffff", 0.2); g.lineWidth = 1.4; g.stroke();
+    g.restore();
+    g.save(); g.translate(ax, ay); g.rotate(0.4);
+    plate(g, [0, 0, 8, -4, 14, 0, 8, 4], body, { up: 0.3, ink: 2 });
+    g.restore();
+  },
+},
+
+/* ======================================================================== */
+/* ECHO — THE REWIND                                                         */
+/* ======================================================================== */
+{
+  id: "ECHO", name: "ECHO", tag: "THE REWIND",
+  blurb: "She's been here before. She'll be here again.",
+  power: "Recall snaps her back to where she was 1.5 seconds ago, undoing up to 7% damage. Deja Vu marks foes so every hit they take lands a second time.",
+  color: "#e8ecff", color2: "#3a3f66", color3: "#1a1d33", accent: "#b9a6ff",
+  weight: 0.9, speed: 4.4, accel: 0.9, jump: 12.3, airSpeed: 4.3, fallMul: 1.0,
+  recall: 90,                // frames of position history Recall can rewind
+  size: { w: 32, h: 54 }, hurt: 25,
+  specialCooldown: 380,
+
+  light: { name: "Tick", startup: 3, active: 3, recovery: 9,
+    dmg: 3.5, base: 1.6, scale: 0.42, angle: 45, ox: 37, oy: -8, r: 22,
+    vfx(f) {
+      FX.blade(f.x + f.facing * 8, f.y - 8, faceAng(f), 22, 54, 0.6, f.ch.accent, { w: 7, life: 9 });
+      Snd.tone(1900, 0.03, "square", 0.06);
+    } },
+
+  heavy: { name: "Pendulum", startup: 14, active: 5, recovery: 27,
+    dmg: 14.5, base: 4.4, scale: 1.04, angle: 38, ox: 46, oy: -2, r: 32,
+    onStart() { Snd.whoosh(1.3); },
+    vfx(f) {
+      FX.blade(f.x, f.y - 30, faceAng(f) + 1.2 * f.facing, 30, 70, 1.5, f.ch.accent, { w: 14, life: 15, spin: -f.facing * 0.07 });
+      FX.ring(hbAt(f, this).x, f.y, 8, 60, f.ch.color, 3);
+      FX.shake(5);
+      Snd.tone(400, 0.12, "triangle", 0.11, 200);
+    } },
+
+  special: { name: "Recall", startup: 6, active: 2, recovery: 14,
+    dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
+    desc: "Snaps back to wherever she stood 1.5 seconds ago, taking back up to 7% of the damage she took since. The afterimage she leaves detonates on anyone standing in it.",
+    tick(f, a) {
+      if (a.t !== a.data.startup || a.fired) return;
+      a.fired = true;
+      const back = f.posHist[0];
+      if (!back) return;
+      Entities.add("ghost", f, { x: f.x, y: f.y, dir: f.facing, life: 26, r: 0,
+        move: hitMove("Recall", { dmg: 7, base: 3.0, scale: 0.6, angle: 60 }) });
+      FX.streak(f.x, f.y, back.x, back.y, f.ch.accent);
+      f.x = f.px = back.x; f.y = f.py = back.y;
+      f.vx = 0; f.vy = 0; f.grounded = false; f.groundSeg = null;
+      f.percent = Math.max(back.p, f.percent - 7);
+      f.airJumps = CFG.airJumps;
+      f.invuln = Math.max(f.invuln, 10);
+      f.posHist.length = 0;
+      FX.ring(f.x, f.y, 6, 70, f.ch.accent, 3);
+      Snd.tone(1600, 0.2, "sine", 0.1, 400);
+    } },
+
+  super: { name: "Deja Vu",
+    desc: "Marks every foe within reach and hits them for 6%. For three seconds, every point of damage a marked foe takes is remembered — then it all lands again at once (up to 24%).",
+    startup: 14, active: 6, recovery: 28,
+    dmg: 6, base: 2.0, scale: 0.3, angle: 60, ox: 0, oy: 0, r: 0, radius: 420, unblockable: true,
+    onStart(f) { Snd.superCharge(); FX.flash("#b9a6ff", 0.3); },
+    tick(f, a) {
+      const m = a.data;
+      if (a.t !== m.startup) { if (a.t < m.startup) f.vx *= 0.7; return; }
+      FX.banner("DEJA VU", f.ch.accent);
+      FX.ring(f.x, f.y, 20, m.radius, f.ch.accent, 4);
+      Snd.superHit();
+      for (const o of Combat.foes(f)) {
+        if (o.intangible() || dist(f.x, f.y, o.x, o.y) > m.radius) continue;
+        o.echoT = 180; o.echoBy = f; o.echoDmg = 0;
+        Combat.land(f, o, m, o.x, o.y);
+      }
+    } },
+
+  /* ---- art: clockwork. A clock face for a head with real moving hands, a
+           halo ring, a gear on the chest, and a pendulum for a weapon. ---- */
+  draw(g, A) {
+    const c = this.color, c2 = this.color2, c3 = this.color3, ac = this.accent;
+    const body = A.flash ? "#ffffff" : c, dark = A.flash ? "#d0d4f0" : c2, deep = A.flash ? "#b0b6e0" : c3;
+    const sw = swing(A, -10, 44);
+    aura(g, 0, -6, 34, ac, 0.16);
+
+    // two faint afterimages trailing behind
+    g.save(); g.globalCompositeOperation = "lighter";
+    for (let i = 1; i <= 2; i++) {
+      g.globalAlpha = 0.12 / i;
+      g.fillStyle = ac;
+      roundRect(g, -12 - i * 6 - Math.abs(A.vx) * i, -30, 22, 56, 9); g.fill();
+    }
+    g.restore();
+
+    const st = Math.sin(A.runPhase) * (A.running ? 12 : 0);
+    jointLimb(g, -5, 9, -9 + st, 25, -4, 5.6, dark);
+    jointLimb(g, 6, 9, 10 - st, 25, 4, 5.6, dark);
+    plateRect(g, -14 + st, 23, 11, 6, 2, deep, { up: 0.16 });
+    plateRect(g, 5 - st, 23, 11, 6, 2, deep, { up: 0.16 });
+
+    // long coat, and a gear on the chest that turns
+    plate(g, [-10, -15, 10, -15, 12, 14, -12, 14], dark, { up: 0.2, down: 0.4, under: true });
+    plate(g, [-7, -13, 7, -13, 6, 6, -6, 6], body, { up: 0.34, down: 0.3 });
+    g.save(); g.translate(0, -4); g.rotate(A.time * 0.03);
+    g.fillStyle = INK; g.beginPath(); g.arc(0, 0, 5, 0, 7); g.fill();
+    g.fillStyle = ac;
+    for (let i = 0; i < 8; i++) { g.save(); g.rotate(i / 8 * Math.PI * 2); g.fillRect(-1, -5.6, 2, 2); g.restore(); }
+    g.beginPath(); g.arc(0, 0, 3.4, 0, 7); g.fill();
+    g.restore();
+
+    // head: a clock face, hands telling real time
+    g.save(); g.translate(0, -25);
+    ink(g, () => { g.beginPath(); g.arc(0, 0, 8.4, 0, 7); }, vol(g, -9, 9, body, 0.3, 0.3));
+    g.strokeStyle = hexA(INK, 0.6); g.lineWidth = 1;
+    for (let i = 0; i < 12; i++) {
+      const an = i / 12 * Math.PI * 2;
+      g.beginPath(); g.moveTo(Math.cos(an) * 6.4, Math.sin(an) * 6.4); g.lineTo(Math.cos(an) * 7.6, Math.sin(an) * 7.6); g.stroke();
+    }
+    const tm = A.time * 0.02;
+    g.strokeStyle = INK; g.lineWidth = 1.8; g.lineCap = "round";
+    g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.cos(tm) * 6, Math.sin(tm) * 6); g.stroke();
+    g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.cos(tm / 12) * 4, Math.sin(tm / 12) * 4); g.stroke();
+    lens(g, () => { g.beginPath(); g.arc(0, 0, 1.4, 0, 7); }, ac, ac, 8);
+    // the halo
+    g.save(); g.globalCompositeOperation = "lighter";
+    g.strokeStyle = hexA(ac, 0.7); g.lineWidth = 1.8; g.shadowColor = ac; g.shadowBlur = 10;
+    g.beginPath(); g.ellipse(0, -11, 9, 2.6, 0, 0, 7); g.stroke();
+    g.restore();
+    g.restore();
+
+    jointLimb(g, -8, -11, -14, -1, -3, 4.6, dark);
+
+    // pendulum arm: a chain and a weight that swings
+    const ax = 13 + sw * 0.6, ay = -6;
+    jointLimb(g, 8, -11, (8 + ax) / 2, ay - 1, 2.5, 5, dark);
+    limb(g, (8 + ax) / 2, ay - 1, ax - 2, ay, 6, mid_(c, c2));
+    const sa = A.atkPhase >= 0 ? -1.2 + A.atkPhase * 2.4 : Math.sin(A.time * 0.06) * 0.35;
+    const px = ax + Math.sin(sa) * 18 + (A.atkPhase >= 0 ? sw * 0.4 : 0), py = ay + Math.cos(sa) * 18;
+    g.strokeStyle = INK; g.lineWidth = 2.6;
+    g.beginPath(); g.moveTo(ax, ay); g.lineTo(px, py); g.stroke();
+    g.strokeStyle = ac; g.lineWidth = 1.2; g.stroke();
+    ink(g, () => { g.beginPath(); g.arc(px, py, 5.4, 0, 7); }, vol(g, py - 6, py + 6, ac, 0.4, 0.3));
+  },
+},
+
+/* ======================================================================== */
+/* TEMPO — THE MAESTRO                                                       */
+/* ======================================================================== */
+{
+  id: "TEMPO", name: "TEMPO", tag: "THE MAESTRO",
+  blurb: "Fights to the music. Literally — stay on beat and she hits harder.",
+  power: "Hits that land on the stage music's beat deal +20% and build extra meter (her speaker pulses with it). Crescendo's sound wave shatters shields outright.",
+  color: "#ffe14d", color2: "#5c4a06", color3: "#2a2102", accent: "#fffbe0",
+  weight: 0.96, speed: 4.3, accel: 0.88, jump: 12.2, airSpeed: 4.1, fallMul: 1.0,
+  rhythm: true,
+  size: { w: 34, h: 54 }, hurt: 26,
+  specialCooldown: 160,
+
+  light: { name: "Downbeat", startup: 4, active: 3, recovery: 9,
+    dmg: 3.6, base: 1.7, scale: 0.43, angle: 46, ox: 38, oy: -8, r: 22,
+    vfx(f) {
+      FX.blade(f.x + f.facing * 10, f.y - 10, faceAng(f) - 0.5 * f.facing, 22, 52, 1.0, f.ch.color, { w: 6, life: 9 });
+      Snd.tone(523, 0.06, "triangle", 0.08);
+    } },
+
+  heavy: { name: "Bass Drop", startup: 14, active: 5, recovery: 27,
+    dmg: 14, base: 4.4, scale: 1.04, angle: 70, ox: 34, oy: 4, r: 36,
+    onStart() { Snd.whoosh(1.2); },
+    vfx(f) {
+      const p = hbAt(f, this);
+      FX.ring(p.x, p.y + 14, 10, 90, f.ch.color, 4);
+      FX.ring(p.x, p.y + 14, 6, 60, "#ffffff", 2);
+      FX.shake(8);
+      Snd.tone(55, 0.3, "sine", 0.3, 40);
+    } },
+
+  special: { name: "Crescendo", startup: 10, active: 2, recovery: 20,
+    dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
+    desc: "A sound wave rings out around her. It hits everyone it passes for 5% — and a shield caught in it shatters on the spot.",
+    tick(f, a) {
+      if (a.t !== a.data.startup || a.fired) return;
+      a.fired = true;
+      Entities.add("ring", f, { x: f.x, y: f.y, r: 10, maxR: 170, life: 26,
+        move: hitMove("Crescendo", { dmg: 5, base: 2.6, scale: 0.45, angle: 55, breaksShield: true }) });
+      Snd.tone(660, 0.12, "square", 0.1, 990); Snd.tone(990, 0.12, "square", 0.08, 1320, 0.06);
+    } },
+
+  super: { name: "Fortissimo",
+    desc: "Three shockwaves, one per beat, each wider and harder than the last (6%, 7%, 11%). Every one of them shatters shields.",
+    startup: 12, active: 70, recovery: 26,
+    dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
+    onStart(f) { Snd.superCharge(); FX.flash("#ffe14d", 0.3); },
+    tick(f, a) {
+      const m = a.data;
+      if (a.t < m.startup) { f.vx *= 0.7; return; }
+      if (a.t === m.startup) FX.banner("FORTISSIMO", f.ch.color);
+      f.vx *= 0.8;
+      // one wave per beat, capped so even the slowest stage fits all three
+      const s = a.t - m.startup, beat = Math.min(32, Math.round(Combat.beatPeriod()));
+      const n = s / beat;
+      if (s % beat !== 0 || n > 2) return;
+      const waves = [[200, 6, 3.0], [240, 7, 3.6], [290, 11, 6.0]];
+      const [R, dmg, base] = waves[n];
+      Entities.add("ring", f, { x: f.x, y: f.y, r: 10, maxR: R, life: 24,
+        move: hitMove("Fortissimo", { dmg, base, scale: n === 2 ? 1.05 : 0.6, angle: 55,
+                                      breaksShield: true, unblockable: true }) });
+      FX.shake(10 + n * 6);
+      Snd.tone([262, 330, 392][n], 0.3, "square", 0.16, [524, 660, 784][n]);
+    } },
+
+  /* ---- art: a conductor with a DJ's habits. Headphones, a tailcoat, a
+           speaker for a chest that pulses on the stage's beat, and a baton. ---- */
+  draw(g, A) {
+    const c = this.color, c2 = this.color2, c3 = this.color3, ac = this.accent;
+    const body = A.flash ? "#ffffff" : c, dark = A.flash ? "#fff0b0" : c2, deep = A.flash ? "#ffe680" : c3;
+    const sw = swing(A, -8, 42);
+    // the beat, for the speaker pulse: the match clock when there is one
+    const frames = Match.current ? Match.current.frames : A.time;
+    const bp = 3600 / ((Stage.def.music && Stage.def.music.bpm) || 120);
+    const beat = 1 - ((frames % bp) / bp);
+    aura(g, 0, -4, 30 + beat * 8, c, 0.12 + beat * 0.12);
+
+    // tailcoat tails
+    for (let t = 0; t < 2; t++) {
+      plate(g, [-6 + t * 4, 0, -2 + t * 4, 0, -10 + t * 3 - Math.abs(A.vx) * 0.8, 20 + Math.sin(A.time * 0.1 + t) * 2,
+                -14 + t * 3 - Math.abs(A.vx) * 0.8, 18], t ? deep : dark, { ink: 2, rimA: 0.2 });
+    }
+
+    const st = Math.sin(A.runPhase) * (A.running ? 11 : 0);
+    jointLimb(g, -5, 9, -9 + st, 25, -4, 5.6, deep);
+    jointLimb(g, 6, 9, 10 - st, 25, 4, 5.6, deep);
+    plateRect(g, -14 + st, 23, 11, 6, 2, INK, { up: 0.3 });
+    plateRect(g, 5 - st, 23, 11, 6, 2, INK, { up: 0.3 });
+
+    // jacket and the speaker chest
+    plate(g, [-10, -15, 10, -15, 9, 10, -9, 10], dark, { up: 0.2, down: 0.4, under: true });
+    g.save(); g.translate(0, -3);
+    ink(g, () => { g.beginPath(); g.arc(0, 0, 7, 0, 7); }, deep);
+    const cone = 4.6 + beat * 1.6;
+    ink(g, () => { g.beginPath(); g.arc(0, 0, cone, 0, 7); }, vol(g, -cone, cone, body, 0.4, 0.3), 1.6);
+    lens(g, () => { g.beginPath(); g.arc(0, 0, 1.6, 0, 7); }, ac, c, 6 + beat * 14);
+    g.restore();
+    // bow tie
+    plate(g, [-4, -14, 0, -12, -4, -10], c, { ink: 1.6, rim: false });
+    plate(g, [4, -14, 0, -12, 4, -10], c, { ink: 1.6, rim: false });
+
+    // head with headphones
+    g.save(); g.translate(1, -24);
+    ink(g, () => { g.beginPath(); g.ellipse(0, 0, 6.8, 7.4, 0, 0, 7); }, vol(g, -8, 8, "#f2c9a0", 0.2, 0.3));
+    g.fillStyle = INK; g.fillRect(1.5, -1.5, 5, 1.6);
+    plate(g, [-7, -3, -2, -10, 4, -10, 7, -4, 4, -7, -3, -6], "#2a2030", { ink: 2, up: 0.4 });   // swept hair
+    g.strokeStyle = INK; g.lineWidth = 3.4;
+    g.beginPath(); g.arc(0, -1, 9, Math.PI * 1.05, Math.PI * 1.95); g.stroke();
+    g.strokeStyle = body; g.lineWidth = 1.8; g.stroke();
+    plateRect(g, -10, -3, 4.6, 8, 2, body, { up: 0.4, ink: 1.8 });
+    plateRect(g, 6, -3, 4.6, 8, 2, body, { up: 0.4, ink: 1.8 });
+    g.restore();
+
+    jointLimb(g, -8, -11, -14, -2, -3, 4.6, dark);
+
+    // baton arm: a thin white baton with a glowing tip
+    const ax = 14 + sw, ay = -8;
+    jointLimb(g, 8, -11, (8 + ax) / 2, ay - 1, 2.5, 5, dark);
+    limb(g, (8 + ax) / 2, ay - 1, ax - 2, ay, 6, mid_(c, c2));
+    g.save(); g.translate(ax, ay); g.rotate(A.atkPhase >= 0 ? 0.2 : -0.6 + Math.sin(A.time * 0.1) * 0.15);
+    g.strokeStyle = INK; g.lineWidth = 3.6; g.lineCap = "round";
+    g.beginPath(); g.moveTo(-2, 0); g.lineTo(22, 0); g.stroke();
+    g.strokeStyle = "#ffffff"; g.lineWidth = 1.8; g.stroke();
+    lens(g, () => { g.beginPath(); g.arc(22, 0, 2, 0, 7); }, ac, c, 12 + beat * 10);
+    g.restore();
+  },
+},
+];
+
+/* Fuse takes Ballast's old place in the line-up; the rest follow on. */
+NEWCOMERS.forEach(c => { CHAR_BY_ID[c.id] = c; });
+ROSTER.splice(4, 0, CHAR_BY_ID.FUSE);
+ROSTER.push(...NEWCOMERS.filter(c => c.id !== "FUSE"));
 
 
 /* ===== src/05_stages.js ===== */
@@ -4096,6 +5092,16 @@ class Fighter {
     this.anchorGlow = 0; this.flipGlow = 0;
     this.launchFx = 0;        // frames of smoke trail after a SMASH-strength hit
     this.stealWait = 0;       // a CPU that is out counts this up before stealing
+    /* ---- status effects. Each is a frame countdown; see STATUS below. ---- */
+    this.slowT = 0;           // Rime's chill: moves and jumps slower
+    this.frozenT = 0;         // Rime's Absolute Zero: encased, cannot act
+    this.curseT = 0;          // Hex: takes more knockback
+    this.rootT = 0;           // Sprout: feet held to the floor
+    this.stealthT = 0;        // Shade: nearly invisible
+    this.ambushT = 0;         // Shade: the next hit out of stealth is stronger
+    this.echoT = 0;           // Echo's Deja Vu: damage taken now comes back later
+    this.echoDmg = 0; this.echoBy = null;
+    this.posHist = [];        // Echo: where she has been, for Recall
     this.specialCD = 0;
     this.pinned = false;
     this.hotTick = 0;         // cooldown between burns from a hot platform
@@ -4117,6 +5123,54 @@ class Fighter {
   get w() { return this.ch.size.w; }
   get feetY() { return this.y + this.h * 0.5; }
   get meterFull() { return this.meter >= CFG.meter.max; }
+  /** Ground and air speed: chilled is slower, stealthed is a little faster. */
+  get moveMul() { return (this.slowT > 0 ? 0.55 : 1) * (this.stealthT > 0 ? 1.15 : 1); }
+
+  /* ----------------------------------------------------- status effects */
+  tickStatus() {
+    if (this.slowT > 0) {
+      this.slowT--;
+      if (this.slowT % 9 === 0) FX.spark(this.x + rnd(-14, 14), this.y + rnd(-20, 20), "#d4f1ff");
+    }
+    if (this.frozenT > 0 && --this.frozenT === 0) {
+      FX.burst(this.x, this.y, 14, "#d4f1ff", 4);
+      Snd.tone(1600, 0.08, "triangle", 0.08, 2400);
+    }
+    if (this.curseT > 0) this.curseT--;
+    if (this.rootT > 0 && (--this.rootT === 0 || !this.grounded)) this.rootT = 0;
+    if (this.stealthT > 0) this.stealthT--;
+    if (this.ambushT > 0) this.ambushT--;
+    if (this.echoT > 0 && --this.echoT === 0) this.echoBack();
+    if (this.ch.recall) {
+      this.posHist.push({ x: this.x, y: this.y, p: this.percent });
+      if (this.posHist.length > this.ch.recall) this.posHist.shift();
+    }
+  }
+
+  /** Echo's Deja Vu runs out: everything taken during it lands again. */
+  echoBack() {
+    const by = this.echoBy, dmg = Math.min(this.echoDmg, 24);
+    this.echoBy = null; this.echoDmg = 0;
+    if (!by || dmg < 1 || !this.alive || this.state === ST.DEAD) return;
+    const dirX = this.x >= by.x ? 1 : -1;
+    const rad = 50 * Math.PI / 180;
+    const mag = (CFG.kbBase + 4.6 + dmg * CFG.kbDamageScale + this.percent * CFG.kbPercentScale * 1.0 * 1.9)
+              * ((CFG.kbWeightRef + 0.55) / (this.ch.weight + 0.55));
+    FX.ring(this.x, this.y, 8, 160, by.ch.color, 4);
+    FX.damageText(this.x, this.y - 44, "ECHO", by.ch.accent);
+    FX.burst(this.x, this.y, 20, by.ch.color, 7);
+    Snd.superHit();
+    this.applyKnockback(Math.cos(rad) * mag * dirX, -Math.sin(rad) * mag, dmg, mag, by);
+    by.stats.damageDealt += dmg;
+  }
+
+  /** Leaving stealth by attacking primes an ambush for the next hit. */
+  breakStealth() {
+    if (this.stealthT <= 0) return;
+    this.stealthT = 0;
+    this.ambushT = 40;
+    FX.ring(this.x, this.y, 6, 60, this.ch.accent, 2);
+  }
   get inSuper() { return this.attack && this.attack.kind === "super"; }
 
   addMeter(v) {
@@ -4177,6 +5231,17 @@ class Fighter {
       this.launchFx--;
       if (this.launchFx % 2 === 0) FX.burst(this.x, this.y, 2, "#ffffff", 1.2);
     }
+    this.tickStatus();
+
+    /* Frozen solid: no input at all. The block still falls and slides, and
+       the next hit shatters it (see applyKnockback). */
+    if (this.frozenT > 0) {
+      this.attack = null; this.pinned = false;
+      if (this.grounded) this.vx *= 0.9;
+      this.integrate();
+      this.checkBlastZones(match);
+      return;
+    }
     this.addMeter(CFG.meter.passive);
 
     switch (this.state) {
@@ -4232,15 +5297,16 @@ class Fighter {
     if (inp.hit("heavy")) { this.startAttack("heavy"); return; }
     if (inp.hit("light")) { this.startAttack("light"); return; }
     if (inp.hit("special")) { this.startSpecial(); return; }
-    if (inp.hit("up")) { this.setState(ST.JUMPSQUAT, CFG.jumpSquat); this.squatHeld = true; return; }
+    if (inp.hit("up") && this.rootT <= 0) { this.setState(ST.JUMPSQUAT, CFG.jumpSquat); this.squatHeld = true; return; }
 
-    if (inp.ay > 0 && this.groundSeg && !this.groundSeg.solid) {
+    if (inp.ay > 0 && this.groundSeg && !this.groundSeg.solid && this.rootT <= 0) {
       this.grounded = false; this.groundSeg = null;
       this.dropThrough = 10; this.setState(ST.AIR); this.y += 6;
       return;
     }
 
-    const target = ax * ch.speed;
+    // rooted: feet stay put (attacks, shield and turning still work)
+    const target = this.rootT > 0 ? 0 : ax * ch.speed * this.moveMul;
     this.vx += (target - this.vx) * (ax !== 0 ? ch.accel * 0.45 : 0.35);
     this.setState(Math.abs(this.vx) > 0.6 ? ST.RUN : ST.IDLE);
     if (ax !== 0) this.facing = ax;
@@ -4249,7 +5315,7 @@ class Fighter {
   updateJumpSquat(inp) {
     this.squatHeld = this.squatHeld && inp.held("up");
     if (--this.stateTimer <= 0) {
-      this.vy = -this.ch.jump * (this.squatHeld ? 1 : CFG.shortHopMul);
+      this.vy = -this.ch.jump * (this.squatHeld ? 1 : CFG.shortHopMul) * (this.slowT > 0 ? 0.86 : 1);
       this.grounded = false; this.groundSeg = null;
       this.setState(ST.AIR); this.fastFalling = false;
       Snd.jump();
@@ -4277,7 +5343,8 @@ class Fighter {
     }
     if (inp.hit("down") && this.vy > -1) this.fastFalling = true;
     if (inp.ax !== 0) {
-      this.vx = clamp(this.vx + inp.ax * ch.accel * 0.42, -ch.airSpeed * 1.6, ch.airSpeed * 1.6);
+      const am = this.moveMul;
+      this.vx = clamp(this.vx + inp.ax * ch.accel * 0.42 * am, -ch.airSpeed * 1.6 * am, ch.airSpeed * 1.6 * am);
       this.facing = inp.ax;
     }
   }
@@ -4329,6 +5396,7 @@ class Fighter {
 
   /* ------------------------------------------------------------ attacks */
   startAttack(kind) {
+    this.breakStealth();
     const m = this.ch[kind];
     this.attack = {
       kind, data: m, t: 0,
@@ -4356,6 +5424,7 @@ class Fighter {
   }
 
   startSuper() {
+    this.breakStealth();
     const m = this.ch.super;
     this.meter = 0;
     this.armorDamage = 0;
@@ -4422,6 +5491,7 @@ class Fighter {
 
   /* -------------------------------------------------------------- grabs */
   startGrab() {
+    this.breakStealth();
     this.attack = {
       kind: "grab",
       data: { startup: CFG.grabStartup, active: CFG.grabActive,
@@ -4558,6 +5628,22 @@ class Fighter {
     }
     if (this.pinned) { this.percent += dmg * 0.4; this.hitFlash = 4; return; }
 
+    // frozen: the hit shatters the ice and lands harder for it
+    if (this.frozenT > 0) {
+      this.frozenT = 0;
+      dmg += 7; vx *= 1.25; vy *= 1.25; mag *= 1.25;
+      FX.burst(this.x, this.y, 30, "#d4f1ff", 9);
+      FX.ring(this.x, this.y, 8, 120, "#ffffff", 4);
+      FX.damageText(this.x, this.y - 44, "SHATTER", "#d4f1ff");
+      Snd.shieldBreak();
+    }
+    // cursed: flies further from everything
+    if (this.curseT > 0) { vx *= 1.22; vy *= 1.22; mag *= 1.22; }
+    // marked by Deja Vu: remember it, it comes back
+    if (this.echoT > 0) this.echoDmg += dmg;
+    // any hit knocks a hidden fighter out of hiding
+    if (this.stealthT > 0) this.stealthT = 0;
+
     // Orbit's Keel Anchor: full damage still lands, but the brace halves
     // how far it sends her — survivability, not immunity.
     if (this.anchorGlow > 0) { vx *= 0.55; vy *= 0.55; mag *= 0.55; }
@@ -4664,6 +5750,8 @@ class Fighter {
     this.percent = 0; this.vx = 0; this.vy = 0;
     this.lastHitBy = null; this.pinned = false; this.attack = null;
     this.moveLog = []; this.armorDamage = 0; this.launchFx = 0;
+    this.slowT = this.frozenT = this.curseT = this.rootT = 0;
+    this.stealthT = this.ambushT = this.echoT = 0; this.echoDmg = 0; this.posHist.length = 0;
     if (this.grabTarget) this.releaseGrab();
     if (this.grabbedBy) this.grabbedBy.releaseGrab();
     match.onKO(this);
@@ -4749,15 +5837,6 @@ const Entities = {
   well(owner, x, y, move) {
     this.list.push({ kind: "well", owner, x, y, move, life: 62, r: 38, pull: 180, hitIds: [] });
   },
-  /** Ballast's cube: falls, lands on the deck, then sits there as a planted
-      obstacle that still hits anyone who walks into it until it expires.
-      passAbove: a cube called down on a foe drops through any soft platform
-      above that height, so a shelf overhead cannot catch it. */
-  ballast(owner, x, y, vx, w, life, move, passAbove) {
-    this.list.push({ kind: "ballast", owner, x, y, vx, vy: -2, w, move,
-                     life, r: 22, landed: false, passAbove: passAbove == null ? -Infinity : passAbove,
-                     hitIds: [] });
-  },
   /** Kite's updraft: a rising column that carries anyone inside it upward.
       A storm column (her super) lifts only her foes, and lifts them hard. */
   updraft(owner, x, y, life, storm) {
@@ -4777,38 +5856,8 @@ const Entities = {
         if (e.x < -300 || e.x > CFG.world.w + 300 || e.y > CFG.world.h + 300) gone = true;
         if (!gone) gone = this._touch(e, fighters, true);
 
-      } else if (e.kind === "ballast") {
-        if (!e.landed) {
-          e.x += e.vx; e.y += e.vy; e.vy += 0.72; e.vx *= 0.995;
-          for (const seg of Stage.segs) {
-            const sy = Stage.surfaceY(seg, e.x);
-            if (sy != null && !seg.solid && sy < e.passAbove) continue;
-            if (sy != null && e.y + e.r >= sy && e.y + e.r <= sy + 46 && e.vy > 0) {
-              e.y = sy - e.r; e.vy = 0; e.vx = 0; e.landed = true;
-              FX.burst(e.x, e.y + e.r, 16, e.owner.ch.color, 6);
-              FX.dustLine(e.x, e.y + e.r, 90, e.owner.ch.color2);
-              FX.crack(e.x, e.y + e.r - 2, 1, 22, e.owner.ch.color, 2);
-              FX.shake(8); Snd.bigHit();
-              break;
-            }
-          }
-          if (e.y > CFG.world.h + 400) gone = true;
-          if (!gone && !e.landed) gone = this._touch(e, fighters, false);
-        } else {
-          /* Resting: a planted obstacle. Each fighter still eats one hit
-             walking into it (hitIds already dedupes), so it keeps mattering
-             for its whole lifetime instead of going inert the moment it lands. */
-          let sy = null;
-          for (const seg of Stage.segs) {
-            const y2 = Stage.surfaceY(seg, e.x);
-            if (y2 != null && (sy === null || y2 < sy)) sy = y2;
-          }
-          if (sy === null) { e.landed = false; e.vy = 0; }   // the platform it sat on is gone
-          else {
-            e.y = sy - e.r;
-            this._touch(e, fighters, false);
-          }
-        }
+      } else if (KINDS[e.kind]) {
+        if (KINDS[e.kind].update(e, fighters)) gone = true;
 
       } else if (e.kind === "draft") {
         e.y -= 1.2;
@@ -4884,8 +5933,27 @@ const Entities = {
 
       if (gone) {
         if (e.kind === "orb") FX.burst(e.x, e.y, 8, e.owner.ch.color, 4);
-        this.list.splice(i, 1);
+        if (KINDS[e.kind] && KINDS[e.kind].end) KINDS[e.kind].end(e, fighters);
+        const k = this.list.indexOf(e);
+        if (k >= 0) this.list.splice(k, 1);
       }
+    }
+  },
+
+  /** Spawn any of the newer kinds below: fields are kind-specific. */
+  add(kind, owner, fields) {
+    const e = Object.assign({ kind, owner, x: owner.x, y: owner.y, vx: 0, vy: 0,
+                              r: 14, life: 60, hitIds: [] }, fields);
+    e.max = e.max || e.life;
+    this.list.push(e);
+    return e;
+  },
+
+  /** Hit every foe of owner within r of (x, y) once. Used by explosions. */
+  blast(owner, x, y, r, move, fighters) {
+    for (const f of fighters) {
+      if (allies(f, owner) || !f.alive || f.state === ST.DEAD || f.intangible()) continue;
+      if (dist(x, y, f.x, f.y) < r + f.ch.hurt) Combat.land(owner, f, move, x, y);
     }
   },
 
@@ -4915,44 +5983,8 @@ const Entities = {
         g.fillStyle = "#fff"; g.shadowBlur = 8;
         g.beginPath(); g.arc(e.x, e.y, e.r * 0.45, 0, 7); g.fill();
 
-      } else if (e.kind === "ballast") {
-        /* A solid object, not an energy effect — so it draws normally with an
-           ink outline like the fighters, not additively like a projectile. */
-        g.globalCompositeOperation = "source-over";
-        const blink = e.life < 40 && Math.floor(e.life / 4) % 2 === 0;
-        g.globalAlpha = blink ? 0.45 : 1;
-        g.save();
-        g.translate(e.x, e.y);
-        if (!e.landed) g.rotate(e.life * 0.09);
-        plate(g, [-e.r, -e.r, e.r, -e.r, e.r, e.r, -e.r, e.r], e.owner.ch.color,
-              { up: 0.3, down: 0.4, under: true });
-        g.fillStyle = hexA("#000000", 0.35);
-        g.fillRect(-e.r + 5, -3, e.r * 2 - 10, 6);
-        g.fillStyle = hexA(e.owner.ch.accent, 0.8);
-        g.fillRect(-e.r + 5, -3, e.r * 2 - 10, 2);
-        rivets(g, -e.r + 7, -e.r + 7, 3, (e.r * 2 - 14) / 2, e.owner.ch.accent);
-        g.restore();
-        /* Falling: a target reticle on the floor it will hit, so a cube
-           dropped from off-screen is fair. Resting: a fuse bar showing how
-           long it will stay. */
-        if (!e.landed) {
-          const fy = Stage.floorBelow(e.x, e.y + e.r);
-          if (fy !== null) {
-            g.globalCompositeOperation = "lighter";
-            g.globalAlpha = 0.45 + 0.35 * Math.abs(Math.sin(e.life * 0.3));
-            g.strokeStyle = c; g.lineWidth = 2.5;
-            g.beginPath(); g.ellipse(e.x, fy - 2, e.r * 1.2, 5, 0, 0, 7); g.stroke();
-            g.beginPath(); g.moveTo(e.x - e.r * 1.6, fy - 2); g.lineTo(e.x - e.r * 0.6, fy - 2);
-            g.moveTo(e.x + e.r * 0.6, fy - 2); g.lineTo(e.x + e.r * 1.6, fy - 2); g.stroke();
-          }
-        }
-        if (e.landed) {
-          g.globalCompositeOperation = "lighter";
-          g.strokeStyle = hexA(c, 0.5); g.lineWidth = 2;
-          g.beginPath(); g.moveTo(e.x - e.r, e.y + e.r + 5);
-          g.lineTo(e.x - e.r + (e.r * 2) * clamp(e.life / 480, 0, 1), e.y + e.r + 5);
-          g.stroke();
-        }
+      } else if (KINDS[e.kind]) {
+        KINDS[e.kind].draw(g, e, c);
 
       } else if (e.kind === "draft") {
         const a = clamp(e.life / 110, 0, 1) * (e.storm ? 1.5 : 1);
@@ -5017,6 +6049,13 @@ const Combat = {
     return Match.current.fighters.filter(o =>
       !allies(o, f) && o.alive && o.state !== ST.DEAD);
   },
+  /** Within a few frames of the stage music's beat? Tempo's hits pay more. */
+  onBeat() {
+    const p = this.beatPeriod();
+    const ph = (Match.current ? Match.current.frames : 0) % p;
+    return Math.min(ph, p - ph) <= 4;
+  },
+  beatPeriod() { return 3600 / ((Stage.def.music && Stage.def.music.bpm) || 120); },
   /** The closest foe, optionally only within range. Teammates never count. */
   nearestFoe(f, range) {
     let best = null, bd = range || Infinity;
@@ -5058,7 +6097,9 @@ const Combat = {
       the attacker — Pivot's Tipping Point throws foes off their own side. */
   land(atk, def, move, hx, hy, hbR, dirOverride) {
     const dirX = dirOverride || (def.x >= atk.x ? 1 : -1);
-    const isSuper = move === (atk.ch.super) || (atk.attack && atk.attack.kind === "super" && atk.attack.data === move);
+    // delayed super hits (a bomb, a curse, an echo) carry `unblockable`
+    const isSuper = move.unblockable || move === (atk.ch.super) ||
+                    (atk.attack && atk.attack.kind === "super" && atk.attack.data === move);
     const K = CFG.skill;
 
     /* ---- skill modifiers, applied before anything reads move.dmg ----
@@ -5072,9 +6113,24 @@ const Combat = {
       tip = d > hbR * K.tipZone;
     }
     staleMul = atk.staleMul(move);
-    const dmg = move.dmg * staleMul * (tip ? K.tipBonus : 1);
+    let dmg = move.dmg * staleMul * (tip ? K.tipBonus : 1);
+    let kbMul = move.kbMul || 1;
+
+    /* ---- fighter-specific bonuses ---- */
+    // Shade: the first hit out of stealth is an ambush
+    const ambush = atk.ambushT > 0;
+    if (ambush) { atk.ambushT = 0; dmg *= 1.35; kbMul *= 1.2; }
+    // Tempo: a hit that lands on the stage music's beat
+    const onBeat = atk.ch.rhythm && this.onBeat();
+    if (onBeat) { dmg *= 1.2; atk.addMeter(4); }
 
     // ---------------- shield ----------------
+    // Tempo's sound waves shatter a held shield outright
+    if (def.shielding() && move.breaksShield) {
+      def.breakShield();
+      FX.ring(def.x, def.y, 10, 90, atk.ch.color, 3);
+      return;
+    }
     if (def.shielding() && !isSuper) {
       const facingHit = (def.facing === -dirX) || Math.abs(def.x - atk.x) < 8;
       if (facingHit) {
@@ -5092,12 +6148,21 @@ const Combat = {
     const base = move.base || 2, scale = move.scale || 0.5;
     const kb = CFG.kbBase + base + dmg * CFG.kbDamageScale
              + def.percent * CFG.kbPercentScale * scale * 1.9;
-    const mag = kb * ((CFG.kbWeightRef + 0.55) / (def.ch.weight + 0.55));
+    const mag = kb * kbMul * ((CFG.kbWeightRef + 0.55) / (def.ch.weight + 0.55));
     const rad = (move.angle != null ? move.angle : 45) * Math.PI / 180;
 
     def.applyKnockback(Math.cos(rad) * mag * dirX, -Math.sin(rad) * mag, dmg, mag, atk);
     atk.stats.damageDealt += dmg;
     atk.stats.bestHit = Math.max(atk.stats.bestHit, dmg);
+    // Vex: her hits heal her own damage
+    const steal = move.lifesteal != null ? move.lifesteal : (atk.ch.lifesteal || 0);
+    if (steal > 0 && atk.percent > 0) {
+      const heal = Math.min(atk.percent, dmg * steal);
+      atk.percent -= heal;
+      FX.damageText(atk.x, atk.y - 50, "+" + heal.toFixed(1), "#7dff9a");
+    }
+    if (ambush) { FX.damageText(hx, hy - 62, "AMBUSH!", atk.ch.accent); FX.flash(atk.ch.color, 0.15); }
+    if (onBeat) { FX.damageText(hx, hy - 62, "ON BEAT", atk.ch.accent); FX.ring(hx, hy, 8, 90, atk.ch.color, 3); }
     atk.addMeter(dmg * CFG.meter.onDeal);
     atk.recordMove(move);
     if (move.onHit) move.onHit(atk, def);
@@ -5173,8 +6238,15 @@ const CPU = {
     };
     const press = b => { ai.cur[b] = true; };
 
-    const foes = Combat.foes(f);
-    if (!foes.length) return inp;
+    // a stealthed Shade is lost to the CPU unless she is close enough to
+    // catch the shimmer -- about what a person watching the screen can manage
+    const foes = Combat.foes(f).filter(o => o.stealthT <= 0 || dist(f.x, f.y, o.x, o.y) < 200);
+    if (!foes.length) {
+      // nobody visible: drift back toward the middle of the stage and wait
+      const home = Stage.pivot.x - f.x;
+      if (Math.abs(home) > 80) { const dir = home > 0 ? "right" : "left"; press(dir); inp.ax = home > 0 ? 1 : -1; }
+      return inp;
+    }
     let target = foes[0], bd = Infinity;
     for (const o of foes) { const d = dist(f.x, f.y, o.x, o.y); if (d < bd) { bd = d; target = o; } }
 
@@ -5188,18 +6260,40 @@ const CPU = {
       press(dir); inp.ax = dir === "right" ? 1 : -1;
       if (f.vy > 1 && f.airJumps > 0 && ai.t % 14 < 2) press("up");
       if (f.y > Stage.pivot.y + 20 && ai.t % 10 < 2) press("up");
+      // Echo can simply rewind to where she was standing
+      const back = f.posHist[0];
+      if (f.ch.id === "ECHO" && f.specialCD <= 0 && back && Math.abs(back.x - centerX) < halfDeck &&
+          back.y < Stage.pivot.y) press("special");
       return inp;
     }
 
     const dx = target.x - f.x, dy = target.y - f.y, adx = Math.abs(dx);
 
+    // --- get out of anything about to go off ---
+    for (const e of Entities.list) {
+      if (allies(e.owner, f)) continue;
+      const danger = e.kind === "payload" ? e.w + 30 : e.kind === "ghost" ? 80 : 0;
+      if (!danger || dist(e.x, e.y, f.x, f.y) > danger) continue;
+      const dir = f.x < e.x ? "left" : "right";
+      press(dir); inp.ax = dir === "right" ? 1 : -1;
+      if (f.grounded && ai.t % 20 < 2) press("up");
+      return inp;
+    }
+    // Vex keeps her siphon going by holding the button
+    if (f.ch.id === "VEX" && f.state === ST.ATTACK && f.attack && f.attack.kind === "special") {
+      press("special"); return inp;
+    }
+
     // --- super when it's up and the target is worth it ---
     /* Supers have different ideal ranges: some reach across the stage, some
        only touch whoever is close. A CPU that fires them blind wastes them. */
-    const superRange = { ZIP: 900, BALLAST: 900, KITE: 900, HUSK: 460,
-                         PIVOT: 260, ORBIT: 300, MIRA: 120, BOLDER: 200 }[f.ch.id] || 320;
-    if (f.meterFull && Math.random() < CFG.cpu.superChance && bd < superRange &&
-        (f.ch.id !== "BOLDER" || f.grounded)) {
+    const superRange = { ZIP: 900, KITE: 900, HUSK: 460, PIVOT: 260, ORBIT: 300, MIRA: 120,
+                         BOLDER: 200, RIME: 220, HEX: 1200, SHADE: 1200, VEX: 150, FUSE: 150,
+                         RICO: 600, SPROUT: 1200, ECHO: 400, TEMPO: 190 }[f.ch.id] || 320;
+    // Overgrowth only catches foes who are standing on something
+    const superOk = f.ch.id === "SPROUT" ? foes.some(o => o.grounded)
+                  : f.ch.id === "BOLDER" ? f.grounded : true;
+    if (f.meterFull && Math.random() < CFG.cpu.superChance && bd < superRange && superOk) {
       press("super"); return inp;
     }
 
@@ -5227,15 +6321,425 @@ const CPU = {
         case "ORBIT":  if (adx < 260) press("special"); break;
         // swap when the foe is the one closer to the edge
         case "PIVOT":  if (facingFoe && adx < 260 && Math.abs(dy) < 40 && nearEdge) press("special"); break;
-        case "BALLAST": if (adx < 340) press("special"); break;
         case "KITE":    if (!f.grounded) press("special"); break;
         case "HUSK":    if (adx < 150) press("special"); break;
         // hold the counter when someone is in swinging range
         case "MIRA":    if (adx < 90) press("special"); break;
+        case "RIME":    if (facingFoe && adx < 420 && Math.abs(dy) < 50 && target.slowT <= 0) press("special"); break;
+        case "HEX":     if (adx < 420 && target.curseT <= 0) press("special"); break;
+        // fade on the approach, so the ambush lands
+        case "SHADE":   if (adx > 220 && adx < 600) press("special"); break;
+        case "VEX":     if (bd < 280 && f.percent > 20) press("special"); break;
+        case "FUSE":    if (facingFoe && adx < 280) press("special"); break;
+        case "RICO":    if (facingFoe && adx < 380 && Math.abs(dy) < 50) press("special"); break;
+        case "SPROUT":  if (f.grounded && f.percent > 25 && adx > 160) press("special"); break;
+        // rewind out of trouble: high damage, or off the stage
+        case "ECHO":    if (f.percent > 60 || !onStage && f.y > Stage.pivot.y) press("special"); break;
+        case "TEMPO":   if (adx < 150 || (target.shielding() && adx < 170)) press("special"); break;
       }
     }
     if (f.state === ST.GRABBED && ai.t % 3 === 0) press("light");
     return inp;
+  },
+};
+
+
+/* ===== src/08a_kinds.js ===== */
+/* ==========================================================================
+   9a. ENTITY KINDS — the things the newer fighters put into the world
+
+   Each kind is { update(e, fighters) -> gone?, draw(g, e, color), end?(e) }.
+   Entities.update/draw dispatch here for any kind listed, so a new fighter's
+   projectile is one entry in this table rather than another branch in the
+   loop. Everything a kind draws is derived from the fields the netcode ships
+   (x, y, r, life, max, dir, landed), so guests render them identically.
+   ========================================================================== */
+
+/** Straight-line flight with a lifetime; returns true once it should go. */
+function flyOff(e) {
+  e.x += e.vx; e.y += e.vy;
+  return e.x < -300 || e.x > CFG.world.w + 300 || e.y < -400 || e.y > CFG.world.h + 300;
+}
+
+/** A dashed circle — the telegraph every area attack below uses. */
+function warnCircle(g, x, y, r, col, a) {
+  g.save();
+  g.globalCompositeOperation = "source-over";
+  g.globalAlpha = a;
+  g.strokeStyle = col; g.lineWidth = 3;
+  g.setLineDash([10, 9]);
+  g.beginPath(); g.arc(x, y, r, 0, 7); g.stroke();
+  g.setLineDash([]);
+  g.globalAlpha = a * 0.25; g.fillStyle = col;
+  g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+  g.restore();
+}
+
+const KINDS = {
+
+  /* ---- RIME: Ice Lance. Straight, fast, chills whoever it hits. ---- */
+  ice: {
+    update(e, fighters) {
+      if (e.life % 2 === 0) FX.spark(e.x - e.dir * 10, e.y, "#d4f1ff");
+      return flyOff(e) || Entities._touch(e, fighters, true);
+    },
+    draw(g, e, c) {
+      g.save(); g.translate(e.x, e.y); g.scale(e.dir || 1, 1);
+      g.shadowColor = c; g.shadowBlur = 18;
+      g.fillStyle = hexA("#d4f1ff", 0.9);
+      poly(g, [22, 0, 4, -7, -18, -3, -24, 0, -18, 3, 4, 7]); g.fill();
+      g.fillStyle = "#ffffff";
+      poly(g, [22, 0, 6, -2.5, -10, 0, 6, 2.5]); g.fill();
+      g.restore();
+    },
+  },
+
+  /* ---- HEX: Hex Bolt. Slow, and bends toward the nearest foe. ---- */
+  hex: {
+    update(e, fighters) {
+      const t = Combat.nearestFoe(e.owner, 420);
+      if (t) {
+        const a = Math.atan2(t.y - e.y, t.x - e.x), sp = Math.hypot(e.vx, e.vy);
+        const cur = Math.atan2(e.vy, e.vx);
+        let d = a - cur; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
+        const turn = cur + clamp(d, -0.05, 0.05);
+        e.vx = Math.cos(turn) * sp; e.vy = Math.sin(turn) * sp;
+      }
+      if (e.life % 3 === 0) FX.spark(e.x, e.y, e.owner.ch.accent);
+      return flyOff(e) || Entities._touch(e, fighters, true);
+    },
+    draw(g, e, c) {
+      g.save(); g.translate(e.x, e.y); g.rotate(e.life * 0.12);
+      g.shadowColor = c; g.shadowBlur = 20;
+      g.strokeStyle = c; g.lineWidth = 3;
+      g.beginPath();
+      for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; g.lineTo(Math.cos(a) * 13, Math.sin(a) * 13); }
+      g.closePath(); g.stroke();
+      g.fillStyle = "#ffffff"; g.beginPath(); g.arc(0, 0, 4, 0, 7); g.fill();
+      g.restore();
+    },
+  },
+
+  /* ---- FUSE: Sticky Charge. Sticks to the first foe it touches (or the
+         floor) and goes off when its fuse runs out. ---- */
+  bomb: {
+    update(e, fighters) {
+      if (e.stuck) {
+        const s = e.stuck;
+        if (!s.alive || s.state === ST.DEAD) { e.stuck = null; e.landed = false; e.vy = 0; }
+        else { e.x = s.x + e.ox; e.y = s.y + e.oy; }
+      } else if (!e.landed) {
+        e.vy += 0.5; e.x += e.vx; e.y += e.vy; e.vx *= 0.99;
+        for (const f of fighters) {
+          if (allies(f, e.owner) || !f.alive || f.state === ST.DEAD || f.intangible()) continue;
+          if (dist(e.x, e.y, f.x, f.y) < e.r + f.ch.hurt) {
+            e.stuck = f; e.ox = clamp(e.x - f.x, -14, 14); e.oy = -6; e.landed = true;
+            FX.damageText(f.x, f.y - 50, "STUCK!", e.owner.ch.accent);
+            Snd.tone(300, 0.08, "square", 0.1, 160);
+            break;
+          }
+        }
+        if (!e.stuck && e.vy > 0) {
+          const fl = Stage.floorBelow(e.x, e.y - e.vy);
+          if (fl !== null && e.y + e.r >= fl) { e.y = fl - e.r; e.landed = true; e.vx = 0; }
+        }
+        if (e.y > CFG.world.h + 300) { e.dud = true; return true; }
+      }
+      if (e.life < 40 && e.life % (e.life < 20 ? 4 : 8) === 0) Snd.tone(1200, 0.03, "square", 0.06);
+      return false;
+    },
+    end(e, fighters) {
+      if (e.dud) return;
+      FX.ring(e.x, e.y, 10, 150, "#ffd27a", 5);
+      FX.burst(e.x, e.y, 30, e.owner.ch.color, 9);
+      FX.shake(14); Snd.bigHit();
+      Entities.blast(e.owner, e.x, e.y, 70, e.move, fighters);
+    },
+    draw(g, e, c) {
+      g.save(); g.globalCompositeOperation = "source-over";
+      g.translate(e.x, e.y);
+      const hot = e.life < 40 && Math.floor(e.life / (e.life < 20 ? 2 : 4)) % 2 === 0;
+      ink(g, () => { g.beginPath(); g.arc(0, 0, e.r, 0, 7); }, hot ? "#ff3b1f" : "#2a2230");
+      g.fillStyle = hexA("#ffffff", 0.35); g.beginPath(); g.arc(-3, -3, e.r * 0.35, 0, 7); g.fill();
+      g.strokeStyle = c; g.lineWidth = 2; g.beginPath(); g.arc(0, 0, e.r - 3, 0, 7); g.stroke();
+      // the fuse
+      g.strokeStyle = "#c8a070"; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(0, -e.r); g.quadraticCurveTo(5, -e.r - 6, 2, -e.r - 10); g.stroke();
+      g.fillStyle = "#ffe36b"; g.shadowColor = "#ff8a1f"; g.shadowBlur = 12;
+      g.beginPath(); g.arc(2, -e.r - 10, 2.6 + Math.random() * 1.4, 0, 7); g.fill();
+      g.restore();
+    },
+  },
+
+  /* ---- FUSE: Payload. A huge countdown bomb, with its blast radius drawn
+         on the floor the whole time, so it is a threat you can run from. ---- */
+  payload: {
+    update(e, fighters) {
+      if (!e.landed) {
+        e.vy += 0.6; e.y += e.vy;
+        const fl = Stage.floorBelow(e.x, e.y - e.vy);
+        if (fl !== null && e.y + e.r >= fl) { e.y = fl - e.r; e.vy = 0; e.landed = true; FX.shake(6); Snd.bigHit(); }
+        if (e.y > CFG.world.h + 300) { e.dud = true; return true; }
+      }
+      const sec = Math.ceil(e.life / 40);
+      if (e.life % 40 === 0 && sec > 0) {
+        FX.damageText(e.x, e.y - 60, String(sec), "#ff3b1f");
+        Snd.tone(sec === 1 ? 1300 : 880, 0.1, "square", 0.14);
+      }
+      return false;
+    },
+    end(e, fighters) {
+      if (e.dud) return;
+      FX.flash("#ffffff", 0.5); FX.punch(0.9);
+      FX.ring(e.x, e.y, 20, e.w, "#ffffff", 7);
+      FX.ring(e.x, e.y, 10, e.w * 0.8, e.owner.ch.color, 5);
+      FX.burst(e.x, e.y, 60, e.owner.ch.color, 14);
+      FX.shake(34); FX.hitPause(12);
+      Snd.superHit();
+      Entities.blast(e.owner, e.x, e.y, e.w, e.move, fighters);
+    },
+    draw(g, e, c) {
+      const k = 1 - e.life / e.max;
+      warnCircle(g, e.x, e.y, e.w, "#ff3b1f", 0.25 + k * 0.45 + (e.life < 40 ? 0.2 * Math.sin(e.life) : 0));
+      g.save(); g.globalCompositeOperation = "source-over";
+      g.translate(e.x, e.y);
+      const pulse = 1 + (e.life < 40 ? Math.abs(Math.sin(e.life * 0.4)) * 0.08 : 0);
+      g.scale(pulse, pulse);
+      ink(g, () => { g.beginPath(); g.arc(0, 0, e.r, 0, 7); }, vol(g, -e.r, e.r, "#3a2f40", 0.2, 0.4), 4);
+      g.fillStyle = hexA("#ffffff", 0.3); g.beginPath(); g.arc(-9, -10, e.r * 0.3, 0, 7); g.fill();
+      // hazard band
+      g.save(); g.beginPath(); g.arc(0, 0, e.r, 0, 7); g.clip();
+      hatch(g, -e.r, -5, e.r * 2, 10, "#ffc83d", 9, 0.9);
+      g.restore();
+      g.font = `900 22px ${FONT_DISPLAY}`; g.textAlign = "center";
+      outlineText(g, String(Math.max(1, Math.ceil(e.life / 40))), 0, 30 + e.r, "#ff3b1f", 5);
+      g.restore();
+    },
+  },
+
+  /* ---- RICO: Return Disc. Out, slows, turns, and comes home — it hits on
+         both legs, and she catches it. ---- */
+  disc: {
+    update(e, fighters) {
+      if (!e.turned) {
+        e.vx -= e.dir * 0.62;
+        if (Math.sign(e.vx) !== e.dir) { e.turned = true; e.hitIds = []; e.landed = true; }
+      } else {
+        const o = e.owner, dx = o.x - e.x, dy = o.y - e.y, d = Math.hypot(dx, dy) || 1;
+        const sp = Math.min(15, Math.hypot(e.vx, e.vy) + 0.7);
+        e.vx = e.vx * 0.8 + dx / d * sp * 0.2; e.vy = e.vy * 0.8 + dy / d * sp * 0.2;
+        if (d < 26 || !o.alive || o.state === ST.DEAD) {
+          if (d < 26) { FX.ring(o.x, o.y, 4, 30, o.ch.accent, 2); Snd.tone(1500, 0.04, "square", 0.06); }
+          return true;
+        }
+      }
+      e.x += e.vx; e.y += e.vy;
+      Entities._touch(e, fighters, false);
+      return e.y > CFG.world.h + 300;
+    },
+    draw(g, e, c) {
+      g.save(); g.translate(e.x, e.y); g.rotate(e.life * 0.5);
+      g.shadowColor = c; g.shadowBlur = 16;
+      g.strokeStyle = c; g.lineWidth = 4;
+      g.beginPath(); g.ellipse(0, 0, e.r, e.r * 0.55, 0, 0, 7); g.stroke();
+      g.strokeStyle = "#ffffff"; g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(-e.r * 0.7, 0); g.lineTo(e.r * 0.7, 0); g.stroke();
+      g.restore();
+    },
+  },
+
+  /* ---- RICO: Bank Shot. Bounces inside the stage's box; each disc may hit
+         the same foe again after a breather, at most three times. ---- */
+  rdisc: {
+    update(e, fighters) {
+      const P = Stage.pivot;
+      if (e.seek) {
+        const t = Combat.nearestFoe(e.owner);
+        if (t) {
+          const sp = Math.hypot(e.vx, e.vy), cur = Math.atan2(e.vy, e.vx);
+          let d = Math.atan2(t.y - e.y, t.x - e.x) - cur;
+          while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
+          const a = cur + clamp(d, -0.035, 0.035);
+          e.vx = Math.cos(a) * sp; e.vy = Math.sin(a) * sp;
+        }
+      }
+      e.x += e.vx; e.y += e.vy;
+      const L = P.x - 560, R = P.x + 560, T = P.y - 560, B = P.y - 14;
+      if (e.x < L || e.x > R) { e.vx = -e.vx; e.x = clamp(e.x, L, R); Snd.tone(900, 0.03, "square", 0.05); }
+      if (e.y < T || e.y > B) { e.vy = -e.vy; e.y = clamp(e.y, T, B); Snd.tone(700, 0.03, "square", 0.05); }
+      e.hitLog = e.hitLog || {};
+      for (const f of fighters) {
+        if (allies(f, e.owner) || !f.alive || f.state === ST.DEAD || f.intangible()) continue;
+        const h = e.hitLog[f.slot] || (e.hitLog[f.slot] = { n: 0, at: -99 });
+        if (h.n >= (e.cap || 3) || (h.at > 0 && e.life > h.at - 20)) continue;
+        if (dist(e.x, e.y, f.x, f.y) < e.r + f.ch.hurt) { h.n++; h.at = e.life; Combat.land(e.owner, f, e.move, e.x, e.y); }
+      }
+      return false;
+    },
+    draw(g, e, c) { KINDS.disc.draw(g, e, c); },
+  },
+
+  /* ---- SPROUT: Bloom. Heals its planter (and teammates) standing in it;
+         a foe who walks through takes one sting from the thorns. ---- */
+  flower: {
+    update(e, fighters) {
+      if (!e.landed) {
+        const fl = Stage.floorBelow(e.x, e.y);
+        if (fl === null) return true;
+        e.y = fl; e.landed = true;
+      }
+      for (const f of fighters) {
+        if (!f.alive || f.state === ST.DEAD) continue;
+        const d = Math.abs(f.x - e.x), dy = e.y - f.feetY;
+        if (d > e.r || dy < -10 || dy > 90) continue;
+        if (allies(f, e.owner)) {
+          if (e.life % 15 === 0 && f.percent > 0) {
+            f.percent = Math.max(0, f.percent - 1);
+            FX.damageText(f.x, f.y - 46, "+1", "#7dff9a");
+          }
+        } else if (!e.hitIds.includes(f.slot) && d < 34 && !f.intangible()) {
+          e.hitIds.push(f.slot);
+          Combat.land(e.owner, f, e.move, e.x, e.y - 20);
+        }
+      }
+      if (e.life % 6 === 0) FX.spark(e.x + rnd(-e.r, e.r), e.y - rnd(4, 40), "#9dffbd");
+      return false;
+    },
+    draw(g, e, c) {
+      const grow = clamp((e.max - e.life) / 30, 0, 1), fade = clamp(e.life / 30, 0, 1);
+      // the healing patch on the floor
+      g.save(); g.globalAlpha = 0.3 * fade;
+      const q = g.createRadialGradient(e.x, e.y, 2, e.x, e.y, e.r);
+      q.addColorStop(0, hexA("#7dff9a", 0.6)); q.addColorStop(1, hexA("#7dff9a", 0));
+      g.fillStyle = q; g.beginPath(); g.ellipse(e.x, e.y, e.r, 14, 0, 0, 7); g.fill();
+      g.restore();
+      g.save(); g.globalCompositeOperation = "source-over"; g.globalAlpha = fade;
+      g.translate(e.x, e.y);
+      const h = 34 * grow, sway = Math.sin(e.life * 0.05) * 3;
+      g.strokeStyle = INK; g.lineWidth = 5; g.lineCap = "round";
+      g.beginPath(); g.moveTo(0, 0); g.quadraticCurveTo(sway, -h * 0.5, sway, -h); g.stroke();
+      g.strokeStyle = "#2f9a52"; g.lineWidth = 3;
+      g.beginPath(); g.moveTo(0, 0); g.quadraticCurveTo(sway, -h * 0.5, sway, -h); g.stroke();
+      g.translate(sway, -h);
+      for (let i = 0; i < 6; i++) {
+        g.save(); g.rotate(i / 6 * Math.PI * 2 + e.life * 0.01);
+        ink(g, () => { g.beginPath(); g.ellipse(0, -8 * grow, 4.5 * grow, 8 * grow, 0, 0, 7); }, c, 2);
+        g.restore();
+      }
+      g.fillStyle = "#ffe14d"; g.beginPath(); g.arc(0, 0, 4 * grow, 0, 7); g.fill();
+      g.restore();
+    },
+  },
+
+  /* ---- ECHO: the afterimage Recall leaves behind. It holds for a beat,
+         then detonates on anyone who walked into where she was. ---- */
+  ghost: {
+    update() { return false; },
+    end(e, fighters) {
+      FX.ring(e.x, e.y, 8, 90, e.owner.ch.color, 4);
+      FX.burst(e.x, e.y, 16, e.owner.ch.accent, 6);
+      Snd.tone(500, 0.12, "triangle", 0.1, 1200);
+      Entities.blast(e.owner, e.x, e.y, 62, e.move, fighters);
+    },
+    draw(g, e, c) {
+      g.save(); g.globalCompositeOperation = "source-over";
+      g.globalAlpha = 0.25 + 0.25 * Math.abs(Math.sin(e.life * 0.4));
+      g.translate(e.x, e.y); g.scale(e.dir || 1, 1);
+      e.owner.ch.draw(g, { time: e.life, runPhase: 0, running: false, air: false, vx: 0, vy: 0,
+                           state: ST.IDLE, flash: true, atkPhase: -1 });
+      g.restore();
+      warnCircle(g, e.x, e.y, 62, c, 0.35);
+    },
+  },
+
+  /* ---- TEMPO: a sound wave. An expanding ring that hits each foe once as
+         it passes them; it shatters shields rather than chipping them. ---- */
+  ring: {
+    update(e, fighters) {
+      e.r = e.maxR * (1 - e.life / e.max) + 10;
+      for (const f of fighters) {
+        if (allies(f, e.owner) || !f.alive || f.state === ST.DEAD || f.intangible()) continue;
+        if (e.hitIds.includes(f.slot)) continue;
+        if (Math.abs(dist(e.x, e.y, f.x, f.y) - e.r) < f.ch.hurt + 10) {
+          e.hitIds.push(f.slot);
+          Combat.land(e.owner, f, e.move, f.x, f.y);
+        }
+      }
+      return false;
+    },
+    draw(g, e, c) {
+      const a = clamp(e.life / e.max, 0, 1);
+      g.save(); g.globalAlpha = a;
+      g.strokeStyle = c; g.lineWidth = 5; g.shadowColor = c; g.shadowBlur = 20;
+      g.beginPath(); g.arc(e.x, e.y, e.r, 0, 7); g.stroke();
+      g.strokeStyle = "#ffffff"; g.lineWidth = 1.6;
+      g.beginPath(); g.arc(e.x, e.y, e.r - 7, 0, 7); g.stroke();
+      // notes riding the ring
+      g.fillStyle = "#ffffff";
+      for (let i = 0; i < 6; i++) {
+        const an = i / 6 * Math.PI * 2 + e.life * 0.03;
+        const nx = e.x + Math.cos(an) * e.r, ny = e.y + Math.sin(an) * e.r;
+        g.beginPath(); g.ellipse(nx, ny, 3.4, 2.6, -0.4, 0, 7); g.fill();
+        g.fillRect(nx + 2.4, ny - 10, 1.4, 10);
+      }
+      g.restore();
+    },
+  },
+
+  /* ---- HEX: Doom. A mark over a cursed foe; when it closes, lightning. ---- */
+  doom: {
+    update(e) {
+      const t = e.tgt;
+      if (!t || !t.alive || t.state === ST.DEAD) { e.dud = true; return true; }
+      e.x = t.x; e.y = t.y;
+      return false;
+    },
+    end(e) {
+      if (e.dud) return;
+      const t = e.tgt;
+      FX.bolt(t.x + rnd(-20, 20), t.y - 420, t.x, t.y, "#ffffff", { segs: 9, jag: 22, life: 14, w: 5 });
+      FX.bolt(t.x, t.y - 420, t.x, t.y, e.owner.ch.color, { segs: 7, jag: 30, life: 12, w: 3 });
+      FX.flash(e.owner.ch.color, 0.25); FX.shake(16);
+      Snd.superHit();
+      if (!t.intangible()) Combat.land(e.owner, t, e.move, t.x, t.y);
+    },
+    draw(g, e, c) {
+      const k = e.life / e.max;
+      g.save(); g.translate(e.x, e.y - 60);
+      g.strokeStyle = c; g.lineWidth = 3; g.shadowColor = c; g.shadowBlur = 16;
+      g.beginPath(); g.arc(0, 0, 12 + 30 * k, 0, 7); g.stroke();
+      g.rotate(e.life * 0.08);
+      g.beginPath();
+      for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; g.lineTo(Math.cos(a) * 9, Math.sin(a) * 9); }
+      g.closePath(); g.stroke();
+      g.restore();
+    },
+  },
+
+  /* ---- VEX: the Siphon tether. The draining itself happens in her move;
+         this is the line everyone can see, guests included. ---- */
+  tether: {
+    update(e) {
+      const t = e.tgt, o = e.owner;
+      if (!t || o.state !== ST.ATTACK || !o.attack || o.attack.kind !== "special" || !t.alive) return true;
+      e.x = t.x; e.y = t.y;
+      return false;
+    },
+    draw(g, e, c) {
+      const o = e.owner;
+      g.save();
+      g.strokeStyle = hexA(c, 0.7); g.lineWidth = 3; g.shadowColor = c; g.shadowBlur = 14;
+      g.setLineDash([6, 6]); g.lineDashOffset = -e.life * 2;
+      g.beginPath(); g.moveTo(o.x, o.y - 8); g.lineTo(e.x, e.y); g.stroke();
+      g.setLineDash([]);
+      // drops of health running back along it
+      for (let i = 0; i < 4; i++) {
+        const t = ((e.life * 0.04 + i / 4) % 1);
+        g.fillStyle = "#ff8fb0";
+        g.beginPath(); g.arc(lerp(e.x, o.x, t), lerp(e.y, o.y - 8, t), 3.2, 0, 7); g.fill();
+      }
+      g.restore();
+    },
   },
 };
 
@@ -5661,8 +7165,16 @@ function drawFighter(f, alpha) {
   g.scale(f.facing, squash * stretch * breathe);
 
   if (f.intangible()) g.globalAlpha = 0.42;
+  /* Shade's Fade: nearly gone. Online, her own player still sees her
+     clearly enough to play; on a shared screen everyone sees the shimmer. */
+  if (f.stealthT > 0) {
+    const mine = Net.active && f.slot === Net.slot;
+    g.globalAlpha = (mine ? 0.42 : 0.1) + 0.06 * Math.sin(f.animTime * 0.3);
+  }
   ch.draw(g, A);
   g.restore();
+
+  drawStatus(f, rx, ry);
 
   /* ---- world-space overlays ---- */
   if (f.shielding()) {
@@ -5976,6 +7488,84 @@ function drawBanner() {
   g.restore();
 }
 
+/* ------------------------------------------------------------ status */
+/** What a status effect looks like on whoever has it. Every one of these is
+    readable at a glance, because each changes how that fighter can be played
+    against: chilled is slow, frozen is free damage, cursed flies further,
+    rooted can't move, and marked takes everything twice. */
+function drawStatus(f, rx, ry) {
+  const ch = f.ch, hw = ch.size.w / 2, hh = ch.size.h / 2;
+  g.save();
+  if (f.frozenT > 0) {
+    // an ice block around the whole body, with a hard shine
+    g.globalAlpha = 0.55;
+    const q = g.createLinearGradient(rx - hw, ry - hh, rx + hw, ry + hh);
+    q.addColorStop(0, "rgba(220,245,255,.85)"); q.addColorStop(1, "rgba(120,190,240,.55)");
+    g.fillStyle = q;
+    roundRect(g, rx - hw - 8, ry - hh - 8, ch.size.w + 16, ch.size.h + 14, 6); g.fill();
+    g.globalAlpha = 0.9; g.strokeStyle = "#ffffff"; g.lineWidth = 2;
+    g.stroke();
+    g.beginPath(); g.moveTo(rx - hw - 2, ry - hh + 6); g.lineTo(rx - hw + 10, ry - hh - 4); g.stroke();
+  } else if (f.slowT > 0) {
+    g.globalAlpha = 0.5;
+    g.strokeStyle = "#bfe9ff"; g.lineWidth = 2;
+    g.beginPath(); g.ellipse(rx, ry + hh - 2, hw + 6, 5, 0, 0, 7); g.stroke();
+  }
+  if (f.curseT > 0) {
+    // a turning hexagon over the head
+    g.globalAlpha = 0.85;
+    g.translate(rx, ry - hh - 20); g.rotate(f.animTime * 0.06);
+    g.strokeStyle = "#e040fb"; g.lineWidth = 2.2; g.shadowColor = "#e040fb"; g.shadowBlur = 10;
+    g.beginPath();
+    for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; g.lineTo(Math.cos(a) * 8, Math.sin(a) * 8); }
+    g.closePath(); g.stroke();
+  }
+  g.restore();
+  g.save();
+  if (f.rootT > 0) {
+    // vines up the legs
+    g.strokeStyle = "#2f9a52"; g.lineWidth = 3; g.lineCap = "round";
+    for (let i = -1; i <= 1; i += 2) {
+      g.beginPath(); g.moveTo(rx + i * 10, ry + hh);
+      g.quadraticCurveTo(rx + i * 16, ry + hh - 14, rx + i * 4, ry + hh - 22 - Math.sin(f.animTime * 0.1) * 2);
+      g.stroke();
+    }
+    g.fillStyle = "#3ddc84";
+    g.beginPath(); g.ellipse(rx + 12, ry + hh - 12, 4, 2, 0.6, 0, 7); g.fill();
+  }
+  if (f.echoT > 0) {
+    // a clock ring counting down to the echo
+    const k = f.echoT / 180;
+    g.strokeStyle = "#b9a6ff"; g.lineWidth = 2.4; g.shadowColor = "#b9a6ff"; g.shadowBlur = 10;
+    g.beginPath(); g.arc(rx, ry, ch.hurt * 1.5, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2); g.stroke();
+  }
+  g.restore();
+}
+
+/* Shade's Nightfall: the screen goes dark except for a little light around
+   each fighter (and a little more around Shade, who knows where she is). */
+let _darkCv = null;
+function drawDarkness(match, cam, alpha) {
+  const k = Math.min(1, match.darkT / 20);
+  if (!_darkCv) { _darkCv = document.createElement("canvas"); _darkCv.width = W; _darkCv.height = H; }
+  const d = _darkCv.getContext("2d");
+  d.globalCompositeOperation = "source-over";
+  d.clearRect(0, 0, W, H);
+  d.fillStyle = `rgba(2,2,10,${0.86 * k})`;
+  d.fillRect(0, 0, W, H);
+  d.globalCompositeOperation = "destination-out";
+  for (const f of match.fighters) {
+    if (!f.alive || f.state === ST.DEAD) continue;
+    const sx = (lerp(f.px, f.x, alpha) - cam.x) * cam.z + W / 2;
+    const sy = (lerp(f.py, f.y, alpha) - cam.y) * cam.z + H / 2;
+    const r = (f.ch.id === "SHADE" ? 120 : 70) * cam.z;
+    const q = d.createRadialGradient(sx, sy, r * 0.3, sx, sy, r);
+    q.addColorStop(0, "rgba(0,0,0,1)"); q.addColorStop(1, "rgba(0,0,0,0)");
+    d.fillStyle = q; d.beginPath(); d.arc(sx, sy, r, 0, 7); d.fill();
+  }
+  g.drawImage(_darkCv, 0, 0, W, H);
+}
+
 
 /* ===== src/10_match.js ===== */
 /* ==========================================================================
@@ -6002,6 +7592,7 @@ class Match {
     this.timeLeft = CFG.matchSeconds * 60;
     this.endedBy = null; this.winner = null; this.winTeam = null;
     this.frenzy = false; this.suddenDeath = false;
+    this.darkT = 0;             // Shade's Nightfall: frames of darkness left
     Snd.startMusic(stageDef);
   }
 
@@ -6116,6 +7707,7 @@ class Match {
     }
     else if (this.timeLeft === 10 * 60) FX.banner("10 SECONDS", "#ffc83d");
 
+    if (this.darkT > 0) this.darkT--;
     for (const f of this.fighters) f.update(this);
     Combat.resolve(this.fighters);
     Entities.update(this.fighters);
@@ -6144,6 +7736,7 @@ class Match {
     Light.post(g, cv, W, H);
 
     FX.drawOverlay(g);
+    if (this.darkT > 0) drawDarkness(this, cam, alpha);
     if (Net.hostStalled) {
       g.save();
       g.fillStyle = "rgba(6,5,14,.55)"; g.fillRect(0, H / 2 - 44, W, 70);
@@ -6413,7 +8006,7 @@ const Game = {
        This used to be a hard-coded 340 with fighters placed every 156 units
        from -234, which fitted a roster of four exactly -- at eight, the last
        four stood on thin air past the end of the beam. */
-    const beamHalf = 430;
+    const beamHalf = 590;
     g.save();
     g.translate(W / 2, H * 0.84); g.rotate(a);
     g.fillStyle = "#15102b";
@@ -6430,15 +8023,15 @@ const Game = {
     g.restore();
 
     // spread whatever the roster is evenly along the beam, inside its ends
-    const inset = 52, n = ROSTER.length;
+    const inset = 40, n = ROSTER.length;
     const span = (beamHalf - inset) * 2;
     const step = n > 1 ? span / (n - 1) : 0;
     ROSTER.forEach((c, i) => {
       const lx = -(beamHalf - inset) + i * step;
       const x = W / 2 + lx * Math.cos(a), y = H * 0.84 + lx * Math.sin(a);
       g.save();
-      g.translate(x, y - 28); g.rotate(a);
-      g.scale(0.78, 0.78);
+      g.translate(x, y - 22); g.rotate(a);
+      g.scale(0.62, 0.62);
       c.draw(g, { time: this.titleT + i * 40, runPhase: 0, running: false, air: false,
                   vx: 0, vy: 0, state: ST.IDLE, flash: false, atkPhase: -1 });
       g.restore();
@@ -6502,11 +8095,10 @@ const Game = {
     g.save(); g.fillStyle = "rgba(6,5,14,.68)"; g.fillRect(0, 0, W, H); g.restore();
     screenTitleBar("COOL MATT GAMES", "CHOOSE YOUR FIGHTERS");
 
-    /* Eight fighters will not fit in one row, so the roster is a 4x2 grid of
-       compact cards. The full write-up for whichever one you are pointing at
-       goes in the panel underneath, which is where there is actually room to
-       explain what a character does. */
-    const cols = 4, cw = 236, chh = 136, gapX = 18, gapY = 14;
+    /* Sixteen fighters: an 8x2 grid of compact portrait cards. Stats and the
+       full write-up for whoever you are pointing at go in the panel
+       underneath, which is where there is room to explain a character. */
+    const cols = 8, cw = 140, chh = 136, gapX = 10, gapY = 14;
     const gridW = cols * cw + (cols - 1) * gapX;
     const gx0 = (W - gridW) / 2, gy0 = 104;
     let hoverChar = null;
@@ -6523,62 +8115,50 @@ const Game = {
       g.save();
       g.translate(0, hov ? -3 : 0);
       panel(g, x, cy, cw, chh, {
-        cut: 13, fill: "#110e24", accent: c.color,
+        cut: 11, fill: "#110e24", accent: c.color,
         accentA: hov ? 1 : picked.length ? 0.7 : 0.4,
         glow: hov ? 20 : picked.length ? 10 : 0,
       });
       // colour wash + initial watermark
       g.save();
-      notchPath(g, x, cy, cw, chh, 13); g.clip();
+      notchPath(g, x, cy, cw, chh, 11); g.clip();
       const wq = g.createLinearGradient(0, cy + chh, 0, cy + 30);
-      wq.addColorStop(0, hexA(c.color, hov ? 0.22 : 0.1));
+      wq.addColorStop(0, hexA(c.color, hov ? 0.24 : 0.1));
       wq.addColorStop(1, hexA(c.color, 0));
       g.fillStyle = wq; g.fillRect(x, cy, cw, chh);
-      g.globalAlpha = 0.06;
-      g.font = `900 120px ${FONT_DISPLAY}`; g.textAlign = "center";
+      g.globalAlpha = 0.07;
+      g.font = `900 96px ${FONT_DISPLAY}`; g.textAlign = "center";
       g.fillStyle = c.color;
-      g.fillText(c.name[0], x + cw - 44, cy + 112);
+      g.fillText(c.name[0], x + cw / 2, cy + 90);
       g.restore();
 
-      /* Art on the left, text on the right. Clipped to the card: several
-         fighters are wider than their hurtbox (Kite's sail, Ballast's jib)
-         and spilled over the neighbouring card without this. */
+      /* The portrait, clipped to the card: several fighters are wider than
+         their hurtbox (Kite's sail, Hex's hat) and would spill over. */
       g.save();
-      notchPath(g, x + 2, cy + 2, cw - 4, chh - 4, 12); g.clip();
-      g.translate(x + 58, cy + chh - 30);
-      const sc2 = hov ? 1.20 : 1.12;
+      notchPath(g, x + 2, cy + 2, cw - 4, chh - 4, 10); g.clip();
+      g.translate(x + cw / 2, cy + chh - 46);
+      const sc2 = hov ? 1.22 : 1.12;
       g.scale(sc2, sc2);
-      c.draw(g, { time: performance.now() / 16, runPhase: 0, running: false,
+      c.draw(g, { time: performance.now() / 16 + i * 20, runPhase: 0, running: false,
                   air: false, vx: 0, vy: 0, state: ST.IDLE, flash: false, atkPhase: -1 });
       g.restore();
 
-      g.textAlign = "left";
-      g.font = `900 24px ${FONT_DISPLAY}`;
-      g.shadowColor = c.color; g.shadowBlur = hov ? 14 : 8;
-      outlineText(g, c.name, x + 104, cy + 40, c.color, 6);
+      g.textAlign = "center";
+      g.font = `900 17px ${FONT_DISPLAY}`;
+      g.shadowColor = c.color; g.shadowBlur = hov ? 12 : 6;
+      outlineText(g, c.name, x + cw / 2, cy + chh - 18, c.color, 5);
       g.shadowBlur = 0;
-      g.font = `700 8px ${FONT_MONO}`;
-      g.fillStyle = "#8f8cb5"; g.fillText(c.tag, x + 104, cy + 54);
-
-      const stats = [["WGT", c.weight / 1.5], ["SPD", c.speed / 6], ["JMP", (c.jump - 10.5) / 3.2]];
-      let sy = cy + 68;
-      stats.forEach(([label, v]) => {
-        g.font = `700 8px ${FONT_MONO}`;
-        g.fillStyle = "#6b6a85"; g.fillText(label, x + 104, sy + 7);
-        slot(g, x + 130, sy + 1, cw - 146, 6, 3);
-        bar(g, x + 130, sy + 1, cw - 146, 6, clamp(v, 0.08, 1), c.color, { r: 3 });
-        sy += 13;
-      });
+      g.font = `700 7px ${FONT_MONO}`;
+      g.fillStyle = "#8f8cb5"; g.fillText(c.tag, x + cw / 2, cy + chh - 7);
 
       picked.forEach((pi, k) => {
         g.save();
-        notchPath(g, x + cw - 34 - k * 32, cy + 8, 28, 17, 5);
+        notchPath(g, x + cw - 30, cy + 7 + k * 19, 24, 16, 4);
         g.fillStyle = PLAYER_TINT[pi];
         g.shadowColor = PLAYER_TINT[pi]; g.shadowBlur = 12; g.fill();
         g.restore();
-        g.fillStyle = "#07060f"; g.font = `700 10px ${FONT_MONO}`; g.textAlign = "center";
-        g.fillText("P" + (pi + 1), x + cw - 20 - k * 32, cy + 20.5);
-        g.textAlign = "left";
+        g.fillStyle = "#07060f"; g.font = `700 9px ${FONT_MONO}`; g.textAlign = "center";
+        g.fillText("P" + (pi + 1), x + cw - 18, cy + 18.5 + k * 19);
       });
       g.restore();
 
@@ -6657,6 +8237,15 @@ const Game = {
 
     g.font = `400 12px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
     g.fillText(sc.blurb, 110, dy + 48);
+    // the stat bars that used to sit on every card
+    [["WEIGHT", sc.weight / 1.5], ["SPEED", sc.speed / 6], ["JUMP", (sc.jump - 10.5) / 3.2]].forEach(([lab, v], k) => {
+      const ry = dy + 14 + k * 13;
+      g.font = `700 8px ${FONT_MONO}`; g.fillStyle = "#6b6a85"; g.textAlign = "right";
+      g.fillText(lab, W - 250, ry + 7);
+      g.textAlign = "left";
+      slot(g, W - 240, ry + 1, 130, 6, 3);
+      bar(g, W - 240, ry + 1, 130, 6, clamp(v, 0.08, 1), sc.color, { r: 3 });
+    });
     if (sc.power) {
       g.font = `700 8px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
       g.fillText("POWER", 110, dy + 66);
@@ -7275,7 +8864,7 @@ const Game = {
     if (this.lobbySeat == null || !this.canEditSeat(this.lobbySeat)) this.lobbySeat = mine;
 
     /* ---- the four seats ---- */
-    const sw = 286, sgap = 14, sh = 150, sy = 108;
+    const sw = 286, sgap = 14, sh = 128, sy = 108;
     let sx = (W - (4 * sw + 3 * sgap)) / 2;
     let hoverChar = null;
     this.slots.forEach((s, i) => {
@@ -7324,7 +8913,7 @@ const Game = {
       // team badge: the host can switch anyone, a guest only themself
       if (this.teams && !off) {
         const canTeam = host || i === mine;
-        if (btn(sx + 122, sy + 88, 74, 22, TEAM_NAME[s.team || 0],
+        if (btn(sx + 122, sy + 82, 74, 20, TEAM_NAME[s.team || 0],
                 { active: true, color: TEAM_TINT[s.team || 0], disabled: !canTeam,
                   font: `700 10px ${FONT_MONO}` }) && canTeam) {
           Net.setTeam(i, 1 - (s.team || 0)); Snd.ui();
@@ -7333,25 +8922,26 @@ const Game = {
       // the host fills or empties any seat a person is not sitting in
       if (host && !who) {
         [["OPEN", "off"], ["CPU", "cpu"]].forEach(([lab, m], k) => {
-          if (btn(sx + 122 + k * 78, sy + 118, 72, 22, lab, {
+          if (btn(sx + 122 + k * 78, sy + 104, 72, 20, lab, {
             active: s.mode === m, color: m === "cpu" ? "#ffc83d" : "#6b6a85",
             font: `700 10px ${FONT_MONO}`,
           })) { Net.setSeatMode(i, m); if (m === "cpu") this.lobbySeat = i; Snd.ui(); }
         });
       } else if (who === "guest" && i !== mine && !host) {
         g.save(); g.font = `400 9px ${FONT_MONO}`; g.fillStyle = "#6b6a85"; g.textAlign = "left";
-        g.fillText("connected", sx + 122, sy + 132); g.restore();
+        g.fillText("connected", sx + 122, sy + 116); g.restore();
       }
       if (Mouse.click && Mouse.x > sx && Mouse.x < sx + 116 && Mouse.y > sy && Mouse.y < sy + sh
           && this.canEditSeat(i)) { this.lobbySeat = i; Snd.ui(); }
       sx += sw + sgap;
     });
 
-    /* ---- the roster: click to give the selected seat that fighter ---- */
-    const n = ROSTER.length, cw = 140, cgap = 8, ch = 118, cy = 274;
-    let cx = (W - (n * cw + (n - 1) * cgap)) / 2;
+    /* ---- the roster, two rows: click to give the selected seat that fighter ---- */
+    const per = 8, cw = 140, cgap = 8, ch = 76;
+    const rowX = (W - (per * cw + (per - 1) * cgap)) / 2;
     const seatChar = this.slots[this.lobbySeat].charId;
-    ROSTER.forEach(c => {
+    ROSTER.forEach((c, i) => {
+      const cx = rowX + (i % per) * (cw + cgap), cy = 246 + ((i / per) | 0) * (ch + 8);
       const hov = Mouse.x > cx && Mouse.x < cx + cw && Mouse.y > cy && Mouse.y < cy + ch;
       if (hov) hoverChar = c;
       const on = c.id === seatChar;
@@ -7361,15 +8951,14 @@ const Game = {
         accentA: on ? 1 : hov ? 0.8 : 0.35, glow: on ? 16 : hov ? 10 : 0 });
       g.save();
       notchPath(g, cx + 2, cy + 2, cw - 4, ch - 4, 9); g.clip();
-      g.translate(cx + cw / 2, cy + ch - 34); g.scale(0.95, 0.95);
+      g.translate(cx + 34, cy + ch - 14); g.scale(0.82, 0.82);
       c.draw(g, { time: performance.now() / 16, runPhase: 0, running: false, air: false,
                   vx: 0, vy: 0, state: ST.IDLE, flash: false, atkPhase: -1 });
       g.restore();
-      g.textAlign = "center"; g.font = `900 15px ${FONT_DISPLAY}`;
-      outlineText(g, c.name, cx + cw / 2, cy + ch - 10, c.color, 4);
+      g.textAlign = "left"; g.font = `900 14px ${FONT_DISPLAY}`;
+      outlineText(g, c.name, cx + 66, cy + 42, c.color, 4);
       g.restore();
       if (hov && Mouse.click) { Net.pick(this.lobbySeat, c.id); Snd.ui(); }
-      cx += cw + cgap;
     });
 
     /* ---- write-up of whoever is pointed at, else the selected seat ---- */
@@ -7377,16 +8966,16 @@ const Game = {
     g.save();
     g.textAlign = "center";
     g.font = `700 12px ${FONT_MONO}`; g.fillStyle = sc.color;
-    g.fillText(`${sc.name} — ${sc.tag}`, W / 2, 418);
+    g.fillText(`${sc.name} — ${sc.tag}`, W / 2, 422);
     g.font = `400 12px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
-    g.fillText(sc.power || sc.blurb, W / 2, 438);
+    g.fillText(sc.power || sc.blurb, W / 2, 440);
     g.font = `400 11px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
-    g.fillText(`SPECIAL  ${sc.special.name.toUpperCase()}   ·   SUPER  ${sc.super.name.toUpperCase()}`, W / 2, 458);
+    g.fillText(`SPECIAL  ${sc.special.name.toUpperCase()}   ·   SUPER  ${sc.super.name.toUpperCase()}`, W / 2, 457);
     g.restore();
 
     /* ---- match settings: the host sets them, guests read them ---- */
-    const py = 478;
-    panel(g, 150, py, W - 300, 92, { cut: 12, fill: "#100d20", accent: "#ff2e88", accentA: 0.35 });
+    const py = 470;
+    panel(g, 150, py, W - 300, 84, { cut: 12, fill: "#100d20", accent: "#ff2e88", accentA: 0.35 });
     g.save();
     g.textAlign = "left"; g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
     g.fillText("MODE", 176, py + 24);
@@ -7418,7 +9007,7 @@ const Game = {
     g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`;
     g.fillStyle = problem ? "#ff2e88" : "#b6ff3b";
     g.fillText(host ? (problem || `${Net.guestCount()} FRIEND${Net.guestCount() === 1 ? "" : "S"} CONNECTED — READY`)
-                    : "THE HOST STARTS THE MATCH", W / 2, py + 112);
+                    : "THE HOST STARTS THE MATCH", W / 2, py + 106);
     g.restore();
 
     /* ---- the room code, big, with a one-click invite ----
@@ -8084,7 +9673,8 @@ function maskFromPad(pad) {
   return m;
 }
 
-const ENT_KINDS = ["orb", "wave", "well", "ballast", "draft"];
+const ENT_KINDS = ["orb", "wave", "well", "draft", "ice", "hex", "bomb", "payload",
+                   "disc", "rdisc", "flower", "ghost", "ring", "doom", "tether"];
 
 const Net = {
   mode: "off",            // off | hosting | joining | connected | error
@@ -8597,10 +10187,11 @@ const Net = {
       mt: [m.countdown, m.timeLeft, m.over ? 1 : 0, m.endTimer,
            m.suddenDeath ? 1 : 0, m.frenzy ? 1 : 0,
            m.winner ? m.winner.slot : -1, m.winTeam == null ? -1 : m.winTeam,
-           m.endedBy, m.frames, FX.pause],
+           m.endedBy, m.frames, FX.pause, m.darkT],
       en: Entities.list.map(e => [ENT_KINDS.indexOf(e.kind), e.owner.slot,
                                   Math.round(e.x), Math.round(e.y), r2(e.r), e.life,
-                                  e.dir || 0, e.landed ? 1 : 0, e.storm ? 1 : 0, e.max || 0]),
+                                  e.dir || 0, e.landed ? 1 : 0, e.storm ? 1 : 0, e.max || 0,
+                                  e.w || 0]),
       ev: this.events.length ? this.events.slice() : undefined,
       fs: m.fighters.map(f => ({
         s: f.slot,
@@ -8618,6 +10209,8 @@ const Net = {
         aq: (f.pad && f.pad.ack) || 0,
         aj: f.airJumps, ff: f.fastFalling ? 1 : 0, dt: f.dropThrough,
         sq: f.squatHeld ? 1 : 0, rd: f.rollDir || 0, lh: f.attack ? f.attack.lastHitFrame : 0,
+        // status effects: [chill, frozen, curse, root, stealth, echo, ambush]
+        fx: [f.slowT, f.frozenT, f.curseT, f.rootT, f.stealthT, f.echoT, f.ambushT],
         sx: [f.stats.kos, f.stats.falls, r2(f.stats.damageDealt), f.stats.supers, r2(f.stats.bestHit)],
       })),
     };
@@ -8649,6 +10242,7 @@ const Net = {
     m.winTeam = mt[7] >= 0 ? mt[7] : null;
     m.endedBy = mt[8]; m.frames = mt[9];
     this.hostPause = mt[10] || 0;
+    m.darkT = mt[11] || 0;
 
     // ---- entities: rebuilt wholesale, they are only drawn here ----
     const bySlot = s => m.fighters.find(f => f.slot === s);
@@ -8672,7 +10266,7 @@ const Net = {
     this.ease = this.ease || {};
     Entities.list = (snap.en || []).map(e => ({
       kind: ENT_KINDS[e[0]], owner: bySlot(e[1]), x: e[2], y: e[3], r: e[4],
-      life: e[5], dir: e[6], landed: !!e[7], storm: !!e[8], max: e[9], hitIds: [],
+      life: e[5], dir: e[6], landed: !!e[7], storm: !!e[8], max: e[9], w: e[10], hitIds: [],
     })).filter(e => e.owner && e.kind);
 
     // ---- banners the host raised (a predicted special already showed its own) ----
@@ -8713,6 +10307,7 @@ const Net = {
       f.respawnTimer = fd.rt; f.hitFlash = fd.hf;
       f.specialCD = fd.cd; f.runPhase = fd.rp; f.animTime = fd.at;
       f.anchorGlow = fd.ag; f.pinned = !!fd.pn; f.isCPU = !!fd.cpu;
+      this.applyStatus(f, fd);
       this.applyStats(f, fd);
       this.findGround(f);
       this.applyAttack(f, fd);
@@ -8730,6 +10325,11 @@ const Net = {
     }
   },
 
+  applyStatus(f, fd) {
+    const s = fd.fx || [];
+    f.slowT = s[0] || 0; f.frozenT = s[1] || 0; f.curseT = s[2] || 0; f.rootT = s[3] || 0;
+    f.stealthT = s[4] || 0; f.echoT = s[5] || 0; f.ambushT = s[6] || 0;
+  },
   applyStats(f, fd) {
     f.stats.kos = fd.sx[0]; f.stats.falls = fd.sx[1]; f.stats.damageDealt = fd.sx[2];
     f.stats.supers = fd.sx[3]; f.stats.bestHit = fd.sx[4];
@@ -8759,6 +10359,7 @@ const Net = {
   canPredict(fd, m) {
     if (m.countdown > 0 || m.over || !fd.al) return false;
     if (["hitstun", "grabbed", "grabbing", "dead", "respawn", "shieldbreak"].includes(fd.st)) return false;
+    if (fd.fx && fd.fx[1] > 0) return false;           // frozen: the host's to thaw
     if (fd.ak === "super") return false;
     if (fd.ak === "special" && !this.ownSpecialSafe()) return false;
     return true;
@@ -8874,6 +10475,7 @@ const Net = {
     f.specialCD = fd.cd; f.anchorGlow = fd.ag; f.pinned = !!fd.pn;
     f.airJumps = fd.aj; f.fastFalling = !!fd.ff; f.dropThrough = fd.dt || 0;
     f.squatHeld = !!fd.sq; f.rollDir = fd.rd || 0;
+    this.applyStatus(f, fd);
     this.findGround(f);
     this.applyAttack(f, fd);
   },
@@ -8896,12 +10498,13 @@ const Net = {
     pad.setMask(mask & ~this.noPredictMask());
     f.pad = pad;
     f.checkBlastZones = noop_;
-    const spawns = ["orb", "shockwave", "well", "ballast", "updraft"].map(k => [k, Entities[k]]);
-    for (const [k] of spawns) Entities[k] = noop_;
+    // whatever the move spawns lands in a scratch list and is dropped
+    const real = Entities.list;
+    Entities.list = [];
     try { f.update(Game.match); }
     finally {
       delete f.checkBlastZones;
-      for (const [k, fn] of spawns) Entities[k] = fn;
+      Entities.list = real;
     }
   },
 
@@ -8948,7 +10551,8 @@ const SUPER_MASK = 1 << BUTTONS.indexOf("super");
 const SPECIAL_MASK = 1 << BUTTONS.indexOf("special");
 /* Fighters whose special only moves themselves (spawned entities come from
    the host's snapshot), so a guest can predict it like any other move. */
-const SAFE_SPECIALS = ["BOLDER", "ZIP", "ORBIT", "BALLAST", "KITE", "HUSK", "MIRA"];
+const SAFE_SPECIALS = ["BOLDER", "ZIP", "ORBIT", "KITE", "HUSK", "MIRA",
+                       "RIME", "HEX", "SHADE", "FUSE", "RICO", "SPROUT", "TEMPO"];
 
 
 /* ===== src/12_main.js ===== */
