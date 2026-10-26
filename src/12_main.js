@@ -46,8 +46,11 @@ function frame(now) {
   Game.draw(RA);
 
   /* Menu screens hit-test inside draw(), so a click is consumed only after
-     drawing — otherwise it would never reach a button. */
-  if (steps > 0) Mouse.click = false;
+     drawing — otherwise it would never reach a button. It used to be kept on
+     frames that ran no simulation step, and on a 120Hz screen those are every
+     other frame: the click survived onto the NEXT screen and pressed whatever
+     sat under the cursor there (PICK STAGE fell straight through to BRAWL). */
+  Mouse.click = false;
   requestAnimationFrame(frame);
 }
 

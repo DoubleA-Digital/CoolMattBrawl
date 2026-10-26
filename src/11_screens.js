@@ -44,7 +44,9 @@ function btn(x, y, w, h, label, opts) {
   g.fillText(label, x + w / 2, y + h / 2 + 1);
   g.textBaseline = "alphabetic";
   g.restore();
-  return hov && Mouse.click && !dim;
+  // one click presses one button, even if the screen changes under it
+  if (hov && Mouse.click && !dim) { Mouse.click = false; return true; }
+  return false;
 }
 
 /* Screen header: a stamped banner plate rather than floating text, with the
