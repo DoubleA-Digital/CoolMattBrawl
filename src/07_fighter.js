@@ -636,8 +636,16 @@ class Fighter {
     }
 
     const prevFeet = this.feetY;
+    const fallV = this.vy;
     this.x += this.vx;
     this.y += this.vy;
+
+    /* Howling Peak's gusts. A push on position rather than velocity, so it
+       can't stack with air drag into a runaway; grounded fighters dig in and
+       take half, and Kite's footing shrugs off most of it. */
+    const wind = Stage.def.wind ? Stage.windNow().x : 0;
+    if (wind && this.state !== ST.RESPAWN && !this.pinned)
+      this.x += wind * (this.grounded ? 0.5 : 1) * (1 - (ch.footing || 0) * 0.6);
 
     /* Ground collision. A fighter already riding a segment gets a wider
        capture band so a drifting platform carries them along instead of
@@ -660,9 +668,25 @@ class Fighter {
       }
     }
 
+    /* Spore Hollow's caps: arriving from the air launches you straight back
+       up with your jumps refreshed. Dropping through still works. */
+    if (best && best.local.bounce && best !== wasSeg && fallV > 1) {
+      this.y = bestY - this.h * 0.5;
+      this.vy = -best.local.bounce;
+      this.airJumps = CFG.airJumps;
+      this.fastFalling = false;
+      if (best.fx) best.fx.squash = 14;
+      Snd.tone(180, 0.16, "sine", 0.14, 520);
+      FX.ring(this.x, this.feetY, 6, 50, Stage.pal.soft, 2);
+      best = null;
+      if (this.state === ST.LANDLAG) this.setState(ST.AIR);
+    }
+
     if (best) {
       this.y = bestY - this.h * 0.5;
       this.vy = 0;
+      // Rust Line: the belt carries whoever is standing on it
+      if (best.local.belt && best.fx) this.x += best.fx.belt;
       this.grounded = true; this.groundSeg = best;
       this.airJumps = CFG.airJumps;
       this.fastFalling = false;

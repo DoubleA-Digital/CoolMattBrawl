@@ -634,7 +634,7 @@ const Net = {
       st: [Stage.platT, Stage.flashT],
       // live platform state, only the fields that can change
       pf: Stage.pfx.map(s => [r2(s.dx), s.present ? 1 : 0, r2(s.heat),
-                              r2(s.alpha), s.stood, s.gone]),
+                              r2(s.alpha), s.stood, s.gone, s.squash]),
       mt: [m.countdown, m.timeLeft, m.over ? 1 : 0, m.endTimer,
            m.suddenDeath ? 1 : 0, m.frenzy ? 1 : 0,
            m.winner ? m.winner.slot : -1, m.winTeam == null ? -1 : m.winTeam,
@@ -680,8 +680,10 @@ const Net = {
     if (snap.pf) snap.pf.forEach((p, i) => {
       const s = Stage.pfx[i]; if (!s) return;
       s.dx = p[0]; s.present = !!p[1]; s.heat = p[2];
-      s.alpha = p[3]; s.stood = p[4]; s.gone = p[5];
+      s.alpha = p[3]; s.stood = p[4]; s.gone = p[5]; s.squash = p[6] || 0;
     });
+    // lifts, the belt and the wind all follow from platT
+    Stage.derive();
     Stage.rebuild();
 
     // ---- match ----

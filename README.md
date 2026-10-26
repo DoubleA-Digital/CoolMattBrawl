@@ -15,8 +15,10 @@ Canvas, vanilla JS, zero external assets.
   three friends join with it. Everyone picks in a shared lobby, and the host
   fills empty seats with CPUs, picks the mode and stage, and starts. If someone
   drops mid-match a CPU takes over their fighter.
-- 4 stages with live platforms: Neon Yard's ledges drift, Cinder Foundry's
-  shelves heat up, Cirrus Drift's clouds crumble, Null Vault's shelf retracts.
+- 8 stages with live platforms: Neon Yard's ledges drift, Cinder Foundry's
+  shelves heat up, Cirrus Drift's clouds crumble, Null Vault's shelf retracts,
+  Steel Spire's lifts ride up and down, Rust Line's deck is a reversing
+  conveyor, Spore Hollow's mushroom caps bounce, and Howling Peak has gusts.
 - 3 stocks, damage-percent knockback, blast-zone KOs, shields, rolls, air
   dodges, grabs and throws. Hits strong enough to take a stock land as a SMASH.
 - The last 30 seconds are a **Frenzy** (meter fills twice as fast), and a

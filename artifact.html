@@ -3674,11 +3674,12 @@ ROSTER.push(...NEWCOMERS.filter(c => c.id !== "FUSE"));
 
 /* ===== src/05_stages.js ===== */
 /* ==========================================================================
-   6. STAGES — four maps that each play and read differently
+   6. STAGES — eight maps that each play and read differently
 
    Platforms are authored in stage-local space around a fixed pivot point and
    never rotate — every deck stays flat. Side platforms still drift, heat up,
-   crumble, or retract on their own schedules, and blast zones move, so some
+   crumble, retract, ride up and down, or bounce on their own schedules; one
+   deck is a conveyor and one summit has wind. Blast zones move too, so some
    maps kill far earlier than others.
    ========================================================================== */
 
@@ -4229,6 +4230,396 @@ const STAGES = [
     g.restore();
   },
 },
+
+/* ------------------------------------------------------------------ 5 --- */
+{
+  id: "SPIRE", name: "STEEL SPIRE", tag: "NIGHT · VERTICAL", deck: "steel",
+  blurb: "A skyscraper going up at midnight. Two work lifts ride the frame, so the high ground keeps moving.",
+  pivot: { x: 800, y: 600 },
+  blast: { left: -390, right: 1990, top: -520, bottom: 1340 },
+  pal: { a: "#ffc23d", b: "#3d8bff", plat: "#20232c", platEdge: "#ffc23d",
+         soft: "#8fa3c8", ink: "#07080d" },
+  music: { bpm: 116, root: 175, scale: [0, 3, 5, 7, 10], wave: "square", hats: true,
+           seq: [0, -1, 3, -1, 0, 2, -1, 4, 0, -1, 3, -1, 5, -1, 4, 2] },
+  layout: [
+    { x1: -360, y1: 0,    x2: 360,  y2: 0,    solid: true,  main: true, thick: 28 },
+    // the two lifts run out of step: one is always near the top as the other bottoms out
+    { x1: -330, y1: -150, x2: -176, y2: -150, solid: false, thick: 13,
+      lift: { range: 95, speed: 0.016 }, phase: 0 },
+    { x1:  176, y1: -150, x2:  330, y2: -150, solid: false, thick: 13,
+      lift: { range: 95, speed: 0.016 }, phase: 196 },
+    { x1:  -92, y1: -340, x2:   92, y2: -340, solid: false, thick: 12 },
+  ],
+
+  drawBg(g, t) {
+    const grad = g.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, "#04060f"); grad.addColorStop(0.6, "#0c1430"); grad.addColorStop(1, "#1b2142");
+    g.fillStyle = grad; g.fillRect(0, 0, W, H);
+
+    // stars and a hazy moon
+    g.save();
+    for (let i = 0; i < 60; i++) {
+      g.globalAlpha = 0.25 + hash(i * 5) * 0.5 * (0.6 + Math.sin(t * 1.3 + i) * 0.4);
+      g.fillStyle = "#dfe8ff";
+      g.fillRect(hash(i) * W, hash(i * 3) * H * 0.45, 1.6, 1.6);
+    }
+    g.globalAlpha = 1;
+    const mg = g.createRadialGradient(W * 0.78, H * 0.17, 10, W * 0.78, H * 0.17, 120);
+    mg.addColorStop(0, "rgba(255,240,210,.9)"); mg.addColorStop(0.25, "rgba(255,226,170,.35)");
+    mg.addColorStop(1, "rgba(255,220,160,0)");
+    g.fillStyle = mg; g.fillRect(0, 0, W, H);
+    g.fillStyle = "#fff4dc"; g.beginPath(); g.arc(W * 0.78, H * 0.17, 30, 0, 7); g.fill();
+    g.restore();
+
+    // two layers of skyline, the far one blue, the near one with lit windows
+    const skyline = (base, seed, col, lit, scale) => {
+      g.save();
+      for (let i = 0; i < 18; i++) {
+        const bw = (50 + hash(seed + i * 3) * 60) * scale;
+        const bx = i * 78 * scale - 30 + hash(seed + i) * 20;
+        const bh = (90 + hash(seed + i * 7) * 220) * scale;
+        g.fillStyle = col; g.fillRect(bx, base - bh, bw, bh + 4);
+        if (!lit) continue;
+        for (let r = 0; r < bh / 18 - 1; r++) for (let c = 0; c < bw / 14 - 1; c++) {
+          const k = hash(seed + i * 97 + r * 13 + c * 7);
+          if (k < 0.62) continue;
+          const on = 0.5 + Math.sin(t * 0.4 + k * 40) * 0.5 > 0.12;
+          if (!on) continue;
+          g.fillStyle = k > 0.9 ? "rgba(140,190,255,.5)" : "rgba(255,206,120,.42)";
+          g.fillRect(bx + 6 + c * 14, base - bh + 8 + r * 18, 6, 8);
+        }
+      }
+      g.restore();
+    };
+    skyline(H * 0.74, 11, "#111a38", false, 0.8);
+    skyline(H * 0.86, 41, "#0a0f22", true, 1.0);
+
+    // a tower crane swinging slowly behind the site
+    g.save();
+    g.translate(W * 0.2, H * 0.12);
+    g.strokeStyle = "rgba(255,194,61,.32)"; g.lineWidth = 3;
+    for (let y = 0; y < H * 0.75; y += 34) {
+      g.beginPath(); g.moveTo(-14, y); g.lineTo(14, y + 34); g.moveTo(14, y); g.lineTo(-14, y + 34); g.stroke();
+    }
+    g.beginPath(); g.moveTo(-14, 0); g.lineTo(-14, H); g.moveTo(14, 0); g.lineTo(14, H); g.stroke();
+    g.rotate(Math.sin(t * 0.08) * 0.12);
+    g.lineWidth = 4;
+    g.beginPath(); g.moveTo(-120, 0); g.lineTo(480, 0); g.stroke();
+    g.lineWidth = 2;
+    for (let x = -120; x < 480; x += 30) {
+      g.beginPath(); g.moveTo(x, 0); g.lineTo(x + 15, -22); g.lineTo(x + 30, 0); g.stroke();
+    }
+    const hook = 260 + Math.sin(t * 0.3) * 120;
+    g.beginPath(); g.moveTo(hook, 0); g.lineTo(hook, 150); g.stroke();
+    g.fillStyle = "rgba(255,194,61,.4)"; g.fillRect(hook - 30, 150, 60, 16);
+    // the warning light on the jib tip
+    g.fillStyle = Math.floor(t * 1.4) % 2 ? "rgba(255,60,60,.9)" : "rgba(255,60,60,.2)";
+    g.beginPath(); g.arc(480, 0, 5, 0, 7); g.fill();
+    g.restore();
+
+    // the building's own steel frame rising out of the bottom of the shot
+    g.save();
+    g.strokeStyle = "rgba(143,163,200,.16)"; g.lineWidth = 10;
+    for (const x of [W * 0.5 - 520, W * 0.5 - 260, W * 0.5 + 260, W * 0.5 + 520]) {
+      g.beginPath(); g.moveTo(x, H * 0.52); g.lineTo(x, H); g.stroke();
+    }
+    g.lineWidth = 6;
+    for (let y = H * 0.6; y < H; y += 70) {
+      g.beginPath(); g.moveTo(W * 0.5 - 520, y); g.lineTo(W * 0.5 + 520, y); g.stroke();
+    }
+    g.restore();
+
+    // a searchlight sweeping the sky
+    g.save(); g.globalCompositeOperation = "lighter";
+    g.translate(W * 0.64, H);
+    g.rotate(-Math.PI / 2 + Math.sin(t * 0.25) * 0.55);
+    const sl = g.createLinearGradient(0, 0, H * 1.2, 0);
+    sl.addColorStop(0, "rgba(160,200,255,.16)"); sl.addColorStop(1, "rgba(160,200,255,0)");
+    g.fillStyle = sl;
+    poly(g, [0, -8, H * 1.2, -90, H * 1.2, 90, 0, 8]); g.fill();
+    g.restore();
+  },
+},
+
+/* ------------------------------------------------------------------ 6 --- */
+{
+  id: "LINE", name: "RUST LINE", tag: "FACTORY · SHIFTING", deck: "belt",
+  blurb: "The whole deck is a conveyor belt. It carries everyone one way, then flips — arrows flash before it does.",
+  pivot: { x: 800, y: 585 },
+  blast: { left: -420, right: 2020, top: -540, bottom: 1360 },
+  pal: { a: "#f5d90a", b: "#2fd6c2", plat: "#25221d", platEdge: "#f5d90a",
+         soft: "#8f8a6e", ink: "#0b0a07" },
+  music: { bpm: 132, root: 131, scale: [0, 2, 3, 7, 10], wave: "sawtooth", hats: true,
+           seq: [0, 0, -1, 0, 3, -1, 0, -1, 4, 4, -1, 3, 0, -1, 2, -1] },
+  layout: [
+    { x1: -370, y1: 0,    x2: 370,  y2: 0,    solid: true,  main: true, thick: 28,
+      belt: { speed: 1.25, period: 540, warn: 100 } },
+    { x1: -320, y1: -172, x2: -150, y2: -172, solid: false, thick: 12 },
+    { x1:  150, y1: -172, x2:  320, y2: -172, solid: false, thick: 12 },
+    { x1:  -86, y1: -310, x2:   86, y2: -310, solid: false, thick: 12 },
+  ],
+
+  drawBg(g, t) {
+    const grad = g.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, "#0d0f10"); grad.addColorStop(0.55, "#16191a"); grad.addColorStop(1, "#22231c");
+    g.fillStyle = grad; g.fillRect(0, 0, W, H);
+
+    // tall factory windows with the dawn coming through
+    g.save();
+    for (let i = 0; i < 5; i++) {
+      const x = 70 + i * 240, y = H * 0.08, w = 160, h = H * 0.44;
+      const wg = g.createLinearGradient(0, y, 0, y + h);
+      wg.addColorStop(0, "rgba(47,214,194,.22)"); wg.addColorStop(1, "rgba(245,217,10,.10)");
+      g.fillStyle = wg; g.fillRect(x, y, w, h);
+      g.strokeStyle = "#0b0c0c"; g.lineWidth = 5;
+      for (let k = 1; k < 4; k++) { g.beginPath(); g.moveTo(x + k * w / 4, y); g.lineTo(x + k * w / 4, y + h); g.stroke(); }
+      for (let k = 1; k < 6; k++) { g.beginPath(); g.moveTo(x, y + k * h / 6); g.lineTo(x + w, y + k * h / 6); g.stroke(); }
+      g.strokeRect(x, y, w, h);
+    }
+    // light shafts falling from the windows
+    g.globalCompositeOperation = "lighter";
+    for (let i = 0; i < 5; i++) {
+      const x = 70 + i * 240;
+      g.fillStyle = `rgba(47,214,194,${0.035 + Math.sin(t * 0.5 + i) * 0.015})`;
+      poly(g, [x, H * 0.52, x + 160, H * 0.52, x + 290, H, x + 90, H]); g.fill();
+    }
+    g.restore();
+
+    // a background line of robot arms, welding in turn
+    g.save();
+    for (let i = 0; i < 6; i++) {
+      const bx = 110 + i * 215, by = H * 0.7;
+      const a1 = -1.1 + Math.sin(t * 0.9 + i * 1.3) * 0.35;
+      const a2 = 1.3 + Math.sin(t * 1.3 + i) * 0.4;
+      g.fillStyle = "#1a1c1c"; g.fillRect(bx - 22, by, 44, 18);
+      g.strokeStyle = "#2a2d2c"; g.lineWidth = 14; g.lineCap = "round";
+      const ex = bx + Math.cos(a1) * 80, ey = by + Math.sin(a1) * 80;
+      const hx = ex + Math.cos(a1 + a2) * 64, hy = ey + Math.sin(a1 + a2) * 64;
+      g.beginPath(); g.moveTo(bx, by); g.lineTo(ex, ey); g.lineTo(hx, hy); g.stroke();
+      g.strokeStyle = "rgba(245,217,10,.35)"; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(bx, by); g.lineTo(ex, ey); g.lineTo(hx, hy); g.stroke();
+      // the weld spark, on a stagger so they never all fire at once
+      if (Math.sin(t * 3 + i * 2.1) > 0.55) {
+        g.save(); g.globalCompositeOperation = "lighter";
+        const sg = g.createRadialGradient(hx, hy, 1, hx, hy, 26);
+        sg.addColorStop(0, "rgba(255,255,220,.9)"); sg.addColorStop(1, "rgba(47,214,194,0)");
+        g.fillStyle = sg; g.beginPath(); g.arc(hx, hy, 26, 0, 7); g.fill();
+        g.restore();
+      }
+    }
+    g.restore();
+
+    // overhead rail with crates sliding along it
+    g.save();
+    g.strokeStyle = "#2a2b26"; g.lineWidth = 8;
+    g.beginPath(); g.moveTo(0, H * 0.06); g.lineTo(W, H * 0.06); g.stroke();
+    for (let i = 0; i < 4; i++) {
+      const x = ((t * 40 + i * 340) % (W + 200)) - 100;
+      g.strokeStyle = "#2a2b26"; g.lineWidth = 3;
+      g.beginPath(); g.moveTo(x, H * 0.06); g.lineTo(x, H * 0.06 + 60); g.stroke();
+      g.fillStyle = "#3a3222"; g.fillRect(x - 26, H * 0.06 + 60, 52, 40);
+      hatch(g, x - 26, H * 0.06 + 60, 52, 7, "#f5d90a", 8, 0.35);
+    }
+    g.restore();
+
+    // steam vents along the floor
+    g.save();
+    for (let i = 0; i < 7; i++) {
+      const x = 60 + i * 190;
+      for (let k = 0; k < 4; k++) {
+        const p = ((t * 0.5 + k * 0.25 + i * 0.13) % 1);
+        g.globalAlpha = 0.12 * (1 - p);
+        g.fillStyle = "#d8dcd2";
+        g.beginPath(); g.arc(x + Math.sin(p * 6 + i) * 10, H - p * 160, 14 + p * 30, 0, 7); g.fill();
+      }
+    }
+    g.restore();
+  },
+},
+
+/* ------------------------------------------------------------------ 7 --- */
+{
+  id: "HOLLOW", name: "SPORE HOLLOW", tag: "GLOW · BOUNCY", deck: "moss",
+  blurb: "A glowing forest floor. The mushroom caps past each ledge fling you sky-high — a lifeline or a launch.",
+  pivot: { x: 800, y: 590 },
+  blast: { left: -390, right: 1990, top: -540, bottom: 1330 },
+  pal: { a: "#7dffd0", b: "#c46bff", plat: "#1c1730", platEdge: "#c46bff",
+         soft: "#7dffd0", ink: "#08060f" },
+  music: { bpm: 100, root: 220, scale: [0, 2, 5, 7, 9], wave: "triangle", hats: false,
+           seq: [0, -1, 4, 2, -1, 5, -1, 4, 2, -1, 0, -1, 7, -1, 5, -1] },
+  layout: [
+    { x1: -350, y1: 0,    x2: 350,  y2: 0,    solid: true,  main: true, thick: 26 },
+    // bounce caps hang just past each ledge, a little above deck height
+    { x1: -476, y1: -96,  x2: -380, y2: -96,  solid: false, thick: 14, bounce: 17 },
+    { x1:  380, y1: -96,  x2:  476, y2: -96,  solid: false, thick: 14, bounce: 17 },
+    { x1: -230, y1: -196, x2:  -80, y2: -196, solid: false, thick: 12 },
+    { x1:   80, y1: -196, x2:  230, y2: -196, solid: false, thick: 12 },
+  ],
+
+  drawBg(g, t) {
+    const grad = g.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, "#07051a"); grad.addColorStop(0.5, "#120a2a"); grad.addColorStop(1, "#0a1a1e");
+    g.fillStyle = grad; g.fillRect(0, 0, W, H);
+
+    // huge trunks fading into the dark
+    g.save();
+    for (let i = 0; i < 7; i++) {
+      const x = i * 210 - 40 + hash(i * 9) * 60, w = 70 + hash(i * 4) * 70;
+      const tg = g.createLinearGradient(x, 0, x + w, 0);
+      tg.addColorStop(0, "#0d0820"); tg.addColorStop(0.5, "#1a1236"); tg.addColorStop(1, "#0d0820");
+      g.fillStyle = tg; g.fillRect(x, 0, w, H);
+      // glowing lichen running up the bark
+      g.fillStyle = "rgba(125,255,208,.10)";
+      for (let k = 0; k < 6; k++) {
+        const ly = hash(i * 31 + k) * H;
+        g.beginPath(); g.ellipse(x + w * hash(i + k * 7), ly, 6, 14, 0, 0, 7); g.fill();
+      }
+    }
+    g.restore();
+
+    // giant background mushrooms, gently breathing light
+    g.save();
+    for (let i = 0; i < 5; i++) {
+      const x = 120 + i * 260, base = H * (0.78 + hash(i * 3) * 0.1);
+      const s = 0.7 + hash(i * 17) * 0.6;
+      const glow = 0.5 + Math.sin(t * 0.8 + i * 1.7) * 0.5;
+      g.fillStyle = "#1d1533";
+      g.fillRect(x - 10 * s, base - 160 * s, 20 * s, 160 * s);
+      const cg = g.createRadialGradient(x, base - 160 * s, 4, x, base - 160 * s, 110 * s);
+      cg.addColorStop(0, `rgba(196,107,255,${0.35 + glow * 0.25})`);
+      cg.addColorStop(1, "rgba(196,107,255,0)");
+      g.fillStyle = cg; g.fillRect(x - 120 * s, base - 280 * s, 240 * s, 220 * s);
+      g.fillStyle = "#2a1846";
+      g.beginPath(); g.ellipse(x, base - 160 * s, 80 * s, 40 * s, 0, Math.PI, 0); g.fill();
+      g.fillStyle = `rgba(125,255,208,${0.25 + glow * 0.3})`;
+      for (let k = 0; k < 5; k++) {
+        g.beginPath();
+        g.arc(x + (k - 2) * 26 * s, base - 160 * s - (10 + (k % 2) * 14) * s, 4 * s, 0, 7); g.fill();
+      }
+    }
+    g.restore();
+
+    // spores drifting upward
+    g.save(); g.globalCompositeOperation = "lighter";
+    for (let i = 0; i < 46; i++) {
+      const sp = 14 + hash(i) * 22;
+      const p = (t * sp + i * 113) % (H + 100);
+      const x = hash(i * 7) * W + Math.sin(t * 0.7 + i) * 24;
+      g.globalAlpha = 0.5 * Math.sin((p / (H + 100)) * Math.PI);
+      g.fillStyle = i % 3 ? "#7dffd0" : "#e3b4ff";
+      g.beginPath(); g.arc(x, H + 40 - p, 1.4 + hash(i * 5) * 2, 0, 7); g.fill();
+    }
+    g.restore();
+
+    // low mist over the forest floor
+    g.save();
+    const fg = g.createLinearGradient(0, H * 0.75, 0, H);
+    fg.addColorStop(0, "rgba(125,255,208,0)"); fg.addColorStop(1, "rgba(125,255,208,.12)");
+    g.fillStyle = fg; g.fillRect(0, H * 0.75, W, H * 0.25);
+    g.restore();
+
+    // foreground ferns, out of focus at the corners
+    g.save(); g.fillStyle = "#04030a";
+    for (const [cx, dir] of [[0, 1], [W, -1]]) {
+      for (let k = 0; k < 5; k++) {
+        g.save(); g.translate(cx, H + 10);
+        g.rotate(dir * (-0.9 + k * 0.28 + Math.sin(t * 0.6 + k) * 0.03));
+        g.beginPath(); g.ellipse(0, -120, 18, 130, 0, 0, 7); g.fill();
+        g.restore();
+      }
+    }
+    g.restore();
+  },
+},
+
+/* ------------------------------------------------------------------ 8 --- */
+{
+  id: "PEAK", name: "HOWLING PEAK", tag: "BLIZZARD · GUSTY", deck: "ice",
+  blurb: "A summit in a storm. Big gusts sweep the deck, alternating sides — snow streaks warn which way.",
+  pivot: { x: 800, y: 590 },
+  blast: { left: -400, right: 2000, top: -580, bottom: 1340 },
+  pal: { a: "#bfe9ff", b: "#6fa8ff", plat: "#1d2b3c", platEdge: "#bfe9ff",
+         soft: "#7f9fc0", ink: "#060a10" },
+  music: { bpm: 88, root: 156, scale: [0, 2, 3, 7, 8], wave: "sine", hats: false,
+           seq: [0, -1, -1, 2, 3, -1, 2, -1, 0, -1, -1, 4, 3, -1, 2, -1] },
+  wind: { period: 600, on: 210, warn: 100, push: 1.5 },
+  layout: [
+    { x1: -380, y1: 0,    x2: 380,  y2: 0,    solid: true,  main: true, thick: 30 },
+    { x1: -320, y1: -160, x2: -170, y2: -160, solid: false, thick: 12 },
+    { x1:  170, y1: -160, x2:  320, y2: -160, solid: false, thick: 12 },
+    { x1:  -90, y1: -296, x2:   90, y2: -296, solid: false, thick: 12 },
+  ],
+
+  drawBg(g, t) {
+    const grad = g.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, "#0b1424"); grad.addColorStop(0.5, "#24375a"); grad.addColorStop(1, "#5b7299");
+    g.fillStyle = grad; g.fillRect(0, 0, W, H);
+
+    // aurora ribbons behind the storm
+    g.save(); g.globalCompositeOperation = "lighter";
+    for (let k = 0; k < 3; k++) {
+      g.strokeStyle = k === 1 ? "rgba(140,255,200,.10)" : "rgba(111,168,255,.10)";
+      g.lineWidth = 40 - k * 10;
+      g.beginPath();
+      for (let x = -20; x <= W + 20; x += 40)
+        g.lineTo(x, H * (0.16 + k * 0.05) + Math.sin(x * 0.006 + t * 0.3 + k) * 40);
+      g.stroke();
+    }
+    g.restore();
+
+    // ranges of jagged peaks, nearer ones darker and more blue
+    const range = (base, seed, col, snow, amp) => {
+      g.save();
+      g.fillStyle = col;
+      g.beginPath(); g.moveTo(0, H);
+      const pts = [];
+      for (let i = 0; i <= 14; i++) {
+        const x = (i / 14) * W, y = base - hash(seed + i) * amp - (i % 2) * amp * 0.3;
+        pts.push([x, y]); g.lineTo(x, y);
+      }
+      g.lineTo(W, H); g.closePath(); g.fill();
+      // snow on the ridgeline
+      g.fillStyle = snow;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const [x1, y1] = pts[i], [x2, y2] = pts[i + 1];
+        if (y1 < y2) { poly(g, [x1, y1, x1 + (x2 - x1) * 0.3, y1 + (y2 - y1) * 0.3 + 6, x1 - 14, y1 + 22]); g.fill(); }
+      }
+      g.restore();
+    };
+    range(H * 0.62, 5, "#33496e", "rgba(230,242,255,.55)", 200);
+    range(H * 0.78, 21, "#1d2c46", "rgba(220,236,255,.4)", 150);
+
+    // the storm: snow at two depths, driven sideways harder when a gust is on
+    const w = Stage.def === this ? Stage.windNow() : { x: 0, warn: 0 };
+    const drive = 30 + w.x * 160 + w.warn * 60;
+    g.save();
+    for (let i = 0; i < 90; i++) {
+      const near = i % 3 === 0;
+      const fall = (near ? 120 : 60) + hash(i) * 40;
+      const y = (t * fall + hash(i * 3) * H) % (H + 20) - 10;
+      const x = ((hash(i * 7) * W + t * drive * (near ? 1.5 : 1)) % (W + 40) + W + 40) % (W + 40) - 20;
+      g.globalAlpha = near ? 0.75 : 0.4;
+      g.fillStyle = "#f2f8ff";
+      g.beginPath(); g.arc(x, y, near ? 2.6 : 1.4, 0, 7); g.fill();
+    }
+    g.restore();
+
+    // prayer flags strung across the top, snapping in the wind
+    g.save();
+    g.strokeStyle = "rgba(20,28,40,.8)"; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(-10, H * 0.08);
+    g.quadraticCurveTo(W / 2, H * 0.17, W + 10, H * 0.08); g.stroke();
+    const flagCols = ["#ff5d5d", "#ffd23d", "#5dff9e", "#5da8ff", "#f2f2f2"];
+    for (let i = 0; i < 22; i++) {
+      const u = (i + 0.5) / 22;
+      const x = u * W, y = H * 0.08 + Math.sin(u * Math.PI) * H * 0.09;
+      const flap = Math.sin(t * (4 + Math.abs(w.x) * 6) + i) * (6 + Math.abs(w.x) * 8);
+      g.fillStyle = hexA(flagCols[i % 5], 0.6);
+      poly(g, [x - 10, y, x + 10, y, x + 10 + flap * 0.4, y + 22, x - 10 + flap, y + 22]); g.fill();
+    }
+    g.restore();
+  },
+},
 ];
 
 const STAGE_BY_ID = {};
@@ -4283,16 +4674,54 @@ const Stage = {
   resetPlatforms() {
     this.platT = 0;
     this.pfx = this.def.layout.map(() => ({
-      dx: 0, present: true, heat: 0, stood: 0, gone: 0, alpha: 1,
+      dx: 0, dy: 0, belt: 0, beltWarn: 0, squash: 0,
+      present: true, heat: 0, stood: 0, gone: 0, alpha: 1,
     }));
+    this.derive();
+  },
+
+  /* Everything here is a pure function of platT, so a guest that only
+     receives platT over the network lands on exactly the host's lifts, belt
+     and wind without any of it being sent. */
+  derive() {
+    const T = this.platT;
+    this.def.layout.forEach((p, i) => {
+      const s = this.pfx[i]; if (!s) return;
+      const ph = p.phase || 0;
+      if (p.lift) s.dy = -Math.sin((T + ph) * p.lift.speed) * p.lift.range;
+      if (p.belt) {
+        const b = p.belt, cyc = (T + ph) % b.period;
+        const dir = Math.floor((T + ph) / b.period) % 2 ? -1 : 1;
+        // spins up over the first 40 frames after each reversal
+        s.belt = dir * b.speed * Math.min(1, cyc / 40);
+        s.beltWarn = cyc > b.period - b.warn ? 1 : 0;
+      }
+    });
+  },
+
+  /** Wind on this stage right now: x is the push in px/frame, warn is 1 while
+      a gust is building (the snow streaks pick up before it hits). */
+  windNow() {
+    const w = this.def.wind;
+    if (!w) return { x: 0, warn: 0 };
+    const T = this.platT, cyc = T % w.period;
+    const dir = Math.floor(T / w.period) % 2 ? -1 : 1;
+    const calm = w.period - w.on - w.warn;
+    if (cyc < calm) return { x: 0, warn: 0, dir };
+    if (cyc < calm + w.warn) return { x: 0, warn: (cyc - calm) / w.warn, dir };
+    // ease in and out of the gust so it never yanks anyone mid-frame
+    const k = (cyc - calm - w.warn) / w.on;
+    return { x: dir * w.push * Math.min(1, Math.sin(k * Math.PI) * 2.2), warn: 0, dir };
   },
 
   platformTick(fighters) {
     this.platT++;
+    this.derive();
     const T = this.platT;
 
     this.def.layout.forEach((p, i) => {
       const s = this.pfx[i];
+      if (s.squash > 0) s.squash--;
       if (p.main) return;                       // the deck itself never changes
       const ph = p.phase || 0;
 
@@ -4364,8 +4793,8 @@ const Stage = {
     this.def.layout.forEach((p, i) => {
       const s = this.pfx[i];
       if (s && !s.present) return;              // retracted / crumbled away
-      const dx = s ? s.dx : 0;
-      const a = this.toWorld(p.x1 + dx, p.y1), b = this.toWorld(p.x2 + dx, p.y2);
+      const dx = s ? s.dx : 0, dy = s ? s.dy : 0;
+      const a = this.toWorld(p.x1 + dx, p.y1 + dy), b = this.toWorld(p.x2 + dx, p.y2 + dy);
       this.segs.push({
         ax: a.x, ay: a.y, bx: b.x, by: b.y,
         solid: !!p.solid, main: !!p.main, thick: p.thick,
@@ -5680,8 +6109,16 @@ class Fighter {
     }
 
     const prevFeet = this.feetY;
+    const fallV = this.vy;
     this.x += this.vx;
     this.y += this.vy;
+
+    /* Howling Peak's gusts. A push on position rather than velocity, so it
+       can't stack with air drag into a runaway; grounded fighters dig in and
+       take half, and Kite's footing shrugs off most of it. */
+    const wind = Stage.def.wind ? Stage.windNow().x : 0;
+    if (wind && this.state !== ST.RESPAWN && !this.pinned)
+      this.x += wind * (this.grounded ? 0.5 : 1) * (1 - (ch.footing || 0) * 0.6);
 
     /* Ground collision. A fighter already riding a segment gets a wider
        capture band so a drifting platform carries them along instead of
@@ -5704,9 +6141,25 @@ class Fighter {
       }
     }
 
+    /* Spore Hollow's caps: arriving from the air launches you straight back
+       up with your jumps refreshed. Dropping through still works. */
+    if (best && best.local.bounce && best !== wasSeg && fallV > 1) {
+      this.y = bestY - this.h * 0.5;
+      this.vy = -best.local.bounce;
+      this.airJumps = CFG.airJumps;
+      this.fastFalling = false;
+      if (best.fx) best.fx.squash = 14;
+      Snd.tone(180, 0.16, "sine", 0.14, 520);
+      FX.ring(this.x, this.feetY, 6, 50, Stage.pal.soft, 2);
+      best = null;
+      if (this.state === ST.LANDLAG) this.setState(ST.AIR);
+    }
+
     if (best) {
       this.y = bestY - this.h * 0.5;
       this.vy = 0;
+      // Rust Line: the belt carries whoever is standing on it
+      if (best.local.belt && best.fx) this.x += best.fx.belt;
       this.grounded = true; this.groundSeg = best;
       this.airJumps = CFG.airJumps;
       this.fastFalling = false;
@@ -6834,6 +7287,60 @@ function drawDeckDetail(kind, len, th, depth, pal, main, flare, t) {
     }
     for (let x = 14; x < len; x += 52) screw(g, x, th / 2 + 18, 2.4, "#1e7a56");
 
+  } else if (kind === "steel") {
+    // an I-beam: flange lines, web stiffeners, rows of rivets
+    g.fillStyle = hexA("#000000", 0.35); g.fillRect(0, th / 2 + 8, len, 4);
+    g.fillRect(0, bot - 10, len, 4);
+    g.strokeStyle = hexA(pal.soft, 0.22); g.lineWidth = 3;
+    for (let x = 20; x < len; x += 40) {
+      g.beginPath(); g.moveTo(x, th / 2 + 12); g.lineTo(x, bot - 10); g.stroke();
+    }
+    for (let x = 10; x < len; x += 20) screw(g, x, th / 2 + 4, 1.8, "#8fa3c8");
+    if (main) hatch(g, 0, bot - 8, len, 8, "#ffc23d", 12, 0.35);
+
+  } else if (kind === "belt") {
+    // the conveyor's rollers, turning with the belt
+    for (let x = 22; x < len; x += 44) {
+      g.fillStyle = "#15140f"; g.strokeStyle = hexA(pal.platEdge, 0.35); g.lineWidth = 2;
+      g.beginPath(); g.arc(x, th / 2 + 18, 14, 0, 7); g.fill(); g.stroke();
+      g.strokeStyle = hexA(pal.platEdge, 0.5);
+      g.beginPath();
+      g.moveTo(x + Math.cos(beltRoll) * 12, th / 2 + 18 + Math.sin(beltRoll) * 12);
+      g.lineTo(x - Math.cos(beltRoll) * 12, th / 2 + 18 - Math.sin(beltRoll) * 12);
+      g.stroke();
+    }
+    hatch(g, 0, bot - 9, len, 9, "#f5d90a", 12, 0.4);
+
+  } else if (kind === "moss") {
+    // living wood: glowing fungus shelves and roots trailing off the bottom
+    g.fillStyle = hexA("#2a1846", 0.8); g.fillRect(0, th / 2, len, depth);
+    for (let i = 0; i < len / 30; i++) {
+      const x = (i * 53) % len, gl = 0.4 + Math.sin(t * 1.2 + i) * 0.25;
+      g.fillStyle = hexA(i % 2 ? "#7dffd0" : "#c46bff", gl);
+      g.beginPath(); g.ellipse(x, th / 2 + 10 + (i % 3) * 9, 6, 3, 0, 0, 7); g.fill();
+    }
+    g.strokeStyle = hexA("#7dffd0", 0.25); g.lineWidth = 2;
+    for (let x = 16; x < len; x += 38) {
+      g.beginPath(); g.moveTo(x, bot - 14);
+      g.quadraticCurveTo(x + 8, bot - 4, x + 2 + Math.sin(t + x) * 3, bot + 4); g.stroke();
+    }
+
+  } else if (kind === "ice") {
+    // blue ice: frost bands and icicles hanging from the bottom edge
+    for (let i = 0; i < 3; i++) {
+      g.fillStyle = hexA("#bfe9ff", 0.12 - i * 0.03);
+      g.fillRect(0, th / 2 + 6 + i * 12, len, 6);
+    }
+    g.fillStyle = hexA("#e6f6ff", 0.5);
+    for (let x = 8; x < len; x += 22) {
+      const d = 8 + hash(x) * (main ? 22 : 8);
+      poly(g, [x - 5, bot - 12, x + 5, bot - 12, x, bot - 12 + d]); g.fill();
+    }
+    g.strokeStyle = hexA("#ffffff", 0.25); g.lineWidth = 1;
+    for (let x = 30; x < len; x += 70) {
+      g.beginPath(); g.moveTo(x, th / 2 + 2); g.lineTo(x + 10, th / 2 + 14); g.lineTo(x + 4, th / 2 + 24); g.stroke();
+    }
+
   } else {
     // "neon": a lit circuit substrate under a dark deck
     g.strokeStyle = hexA(pal.platEdge, 0.16 + flare * 0.3); g.lineWidth = 3;
@@ -6851,12 +7358,58 @@ function drawDeckDetail(kind, len, th, depth, pal, main, flare, t) {
   }
 }
 
-/* The support column under the deck. Same job on every map, four different machines. */
+let beltRoll = 0, beltScroll = 0;
+
+/* The support column under the deck. Same job on every map, eight different machines. */
 function drawPivotColumn(P, kind, pal, t) {
   g.save();
   g.translate(P.x, P.y);
 
-  if (kind === "cast") {
+  if (kind === "steel") {
+    // a lattice mast, the same kind as the crane in the background
+    g.strokeStyle = hexA(pal.soft, 0.55); g.lineWidth = 4;
+    g.beginPath(); g.moveTo(-20, 14); g.lineTo(-20, 340); g.moveTo(20, 14); g.lineTo(20, 340); g.stroke();
+    g.lineWidth = 2.5;
+    for (let y = 14; y < 330; y += 36) {
+      g.beginPath(); g.moveTo(-20, y); g.lineTo(20, y + 36); g.moveTo(20, y); g.lineTo(-20, y + 36); g.stroke();
+    }
+
+  } else if (kind === "belt") {
+    // a gearbox stack driving the conveyor (this runs once a frame, so it
+    // also turns the rollers drawn under the deck)
+    beltRoll += ((Stage.pfx[0] && Stage.pfx[0].belt) || 0) * 0.02;
+    for (let i = 0; i < 4; i++) {
+      const y = 50 + i * 76, r = 30 - i * 3;
+      g.save(); g.translate(0, y); g.rotate(beltRoll * (i % 2 ? -1 : 1));
+      g.fillStyle = "#1c1b16"; g.strokeStyle = hexA(pal.platEdge, 0.4); g.lineWidth = 3;
+      g.beginPath();
+      for (let k = 0; k < 20; k++) {
+        const a = (k / 20) * Math.PI * 2, rr = k % 2 ? r : r + 7;
+        g.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+      }
+      g.closePath(); g.fill(); g.stroke();
+      g.restore();
+    }
+
+  } else if (kind === "moss") {
+    // the deck is the cap of one enormous mushroom
+    const q = g.createLinearGradient(0, 10, 0, 340);
+    q.addColorStop(0, "#3a2560"); q.addColorStop(1, hexA("#1c1730", 0));
+    g.fillStyle = q;
+    poly(g, [-34, 10, 34, 10, 24, 340, -24, 340]); g.fill();
+    g.fillStyle = hexA("#7dffd0", 0.3 + Math.sin(t) * 0.1);
+    for (let y = 40; y < 300; y += 46) { g.beginPath(); g.arc(Math.sin(y) * 14, y, 4, 0, 7); g.fill(); }
+
+  } else if (kind === "ice") {
+    // a column of rock wrapped in ice
+    const q = g.createLinearGradient(0, 10, 0, 340);
+    q.addColorStop(0, "#2d4363"); q.addColorStop(1, hexA("#1d2b3c", 0));
+    g.fillStyle = q;
+    poly(g, [-40, 10, 40, 10, 28, 180, 18, 340, -18, 340, -30, 170]); g.fill();
+    g.strokeStyle = hexA("#bfe9ff", 0.35); g.lineWidth = 2;
+    g.beginPath(); g.moveTo(-26, 30); g.lineTo(-12, 160); g.lineTo(-16, 300); g.stroke();
+
+  } else if (kind === "cast") {
     // a chain hoist, because the Foundry's beam hangs rather than stands
     g.strokeStyle = "rgba(120,84,56,.75)"; g.lineWidth = 9;
     g.beginPath(); g.moveTo(0, 14); g.lineTo(0, 330); g.stroke();
@@ -6941,7 +7494,8 @@ function drawStage(alpha) {
     /* Live platform state: drifting offset, how hot it is, and how solid it
        currently is. A platform that has crumbled or retracted draws nothing,
        matching the fact that it is also absent from Stage.segs. */
-    const st = Stage.pfx[pi] || { dx: 0, present: true, heat: 0, alpha: 1 };
+    const st = Stage.pfx[pi] || { dx: 0, dy: 0, present: true, heat: 0, alpha: 1 };
+    const sdy = st.dy || 0;
     const hidden = !st.present && st.alpha <= 0.02;
     if (hidden && !p.retract) return;
     if (hidden) {
@@ -6960,8 +7514,51 @@ function drawStage(alpha) {
       return;
     }
 
-    const a = toW(p.x1 + st.dx, p.y1), b = toW(p.x2 + st.dx, p.y2);
+    const a = toW(p.x1 + st.dx, p.y1 + sdy), b = toW(p.x2 + st.dx, p.y2 + sdy);
     const dx = b.x - a.x, dy = b.y - a.y;
+
+    if (p.lift) {
+      // the lift's cables, running up out of the top of the shot
+      g.save();
+      g.strokeStyle = hexA(pal.soft, 0.5); g.lineWidth = 2;
+      for (const cx of [a.x + 12, b.x - 12]) {
+        g.beginPath(); g.moveTo(cx, a.y - 4); g.lineTo(cx, a.y - 900); g.stroke();
+      }
+      // the guide rail it travels along, with its range marked
+      const top = toW(p.x1, p.y1 - p.lift.range).y, low = toW(p.x1, p.y1 + p.lift.range).y;
+      g.strokeStyle = hexA(pal.platEdge, 0.18); g.lineWidth = 6;
+      g.beginPath(); g.moveTo((a.x + b.x) / 2, top - 10); g.lineTo((a.x + b.x) / 2, low + 30); g.stroke();
+      g.restore();
+    }
+
+    if (p.bounce) {
+      // a mushroom cap instead of a slab: it squashes when someone lands
+      const sq = (st.squash || 0) / 14;
+      const cx = (a.x + b.x) / 2, w2 = (b.x - a.x) / 2;
+      g.save();
+      g.globalAlpha = clamp(st.alpha, 0, 1);
+      g.fillStyle = "#2a1c40";
+      g.fillRect(cx - 9, a.y + 8, 18, 120);
+      const capH = 30 * (1 - sq * 0.45);
+      g.translate(cx, a.y);
+      g.scale(1 + sq * 0.15, 1);
+      const cg = g.createLinearGradient(0, -6, 0, capH);
+      cg.addColorStop(0, "#d48aff"); cg.addColorStop(1, "#5a2a8a");
+      g.fillStyle = cg; g.strokeStyle = pal.ink; g.lineWidth = 4;
+      g.beginPath(); g.ellipse(0, capH * 0.6, w2 + 8, capH, 0, Math.PI, 0); g.closePath();
+      g.stroke(); g.fill();
+      g.shadowColor = "#7dffd0"; g.shadowBlur = 12;
+      g.fillStyle = hexA("#7dffd0", 0.65 + Math.sin(bgT * 3) * 0.2);
+      for (const ox of [-0.5, 0, 0.5]) {
+        g.beginPath(); g.arc(ox * w2, capH * 0.6 - capH * (ox ? 0.55 : 0.8), 5, 0, 7); g.fill();
+      }
+      g.shadowBlur = 0;
+      // an up-chevron so the bounce is never a surprise
+      g.strokeStyle = hexA("#ffffff", 0.35 + 0.3 * Math.abs(Math.sin(bgT * 2.5))); g.lineWidth = 3;
+      g.beginPath(); g.moveTo(-10, -18); g.lineTo(0, -28); g.lineTo(10, -18); g.stroke();
+      g.restore();
+      return;
+    }
     const len = Math.hypot(dx, dy);
     const th = p.thick, main = !!p.main;
     let edge = main
@@ -7049,6 +7646,22 @@ function drawStage(alpha) {
       }
       g.restore();
     }
+    if (p.belt) {
+      // chevrons riding the tread, flashing amber before the belt reverses
+      beltScroll += (st.belt || 0) / Math.max(1, def.layout.filter(q => q.belt).length);
+      const dir = (st.belt || 0) >= 0 ? 1 : -1;
+      const warn = st.beltWarn && Math.floor(bgT * 8) % 2;
+      g.save();
+      g.beginPath(); g.rect(0, top - 2, len, th); g.clip();
+      g.strokeStyle = warn ? "#ff5a19" : hexA(pal.platEdge, 0.55); g.lineWidth = 3;
+      const off = ((beltScroll % 40) + 40) % 40;
+      for (let x = -40 + off; x < len + 40; x += 40) {
+        g.beginPath();
+        g.moveTo(x - 6 * dir, top + 4); g.lineTo(x + 4 * dir, top + th / 2); g.lineTo(x - 6 * dir, top + th - 4);
+        g.stroke();
+      }
+      g.restore();
+    }
     if (p.retract) {
       // guide rails the shelf slides back into
       g.save();
@@ -7061,6 +7674,47 @@ function drawStage(alpha) {
     g.restore();
   });
 
+  if (def.wind) drawWind(P);
+}
+
+/* Howling Peak: streaks blowing across the deck during a gust, and pulsing
+   arrows under the clock while one is building (drawWindWarning). */
+function drawWind(P) {
+  const w = Stage.windNow();
+  if (!w.x && !w.warn) return;
+  g.save();
+  if (w.x) {
+    const k = Math.abs(w.x) / Stage.def.wind.push, dir = Math.sign(w.x);
+    g.strokeStyle = hexA("#e6f6ff", 0.35 * k); g.lineWidth = 2; g.lineCap = "round";
+    for (let i = 0; i < 26; i++) {
+      const y = P.y - 460 + hash(i * 3) * 520;
+      const span = 1500;
+      const x = P.x - 750 + (((hash(i) * span + bgT * 900 * dir) % span) + span) % span;
+      const l = 40 + hash(i * 7) * 80;
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x - l * dir, y); g.stroke();
+    }
+  }
+  g.restore();
+}
+
+/** The gust warning lives in the HUD, under the clock, so the camera can
+    never push it behind the timer or the player cards. */
+function drawWindWarning() {
+  if (!Stage.def.wind) return;
+  const w = Stage.windNow();
+  if (!w.warn) return;
+  const dir = w.dir, pulse = 0.4 + 0.6 * Math.abs(Math.sin(bgT * 6));
+  g.save();
+  g.translate(W / 2, 142);         // the clock panel ends at 118
+  g.globalAlpha = Math.min(1, w.warn * 2) * pulse;
+  g.fillStyle = "#e6f6ff"; g.shadowColor = "#bfe9ff"; g.shadowBlur = 18;
+  for (let i = 0; i < 3; i++) {
+    const x = (i - 1) * 40 * dir;
+    poly(g, [x - 12 * dir, -15, x + 12 * dir, 0, x - 12 * dir, 15, x - 3 * dir, 0]); g.fill();
+  }
+  g.font = `900 14px ${FONT_DISPLAY}`; g.textAlign = "center";
+  g.fillText("GUST INCOMING", 0, 34);
+  g.restore();
 }
 
 /* --------------------------------------------------------------- fighter */
@@ -7312,6 +7966,7 @@ function drawClock(framesLeft) {
   const m = Match.current;
   g.save();
   chip(g, Stage.def.name, W - 16, 22, Stage.pal.platEdge, { align: "right" });
+  drawWindWarning();
   if (m && m.suddenDeath)
     chip(g, "SUDDEN DEATH", W - 16, 46, "#ff2e88", { align: "right" });
   else if (m && m.frenzy)
@@ -8297,11 +8952,13 @@ const Game = {
     g.save(); g.fillStyle = "rgba(6,5,14,.55)"; g.fillRect(0, 0, W, H); g.restore();
     screenTitleBar("COOL MATT GAMES", "PICK YOUR STAGE");
 
-    const cw = 282, gap = 18;
-    let x = (W - (STAGES.length * cw + (STAGES.length - 1) * gap)) / 2;
-    const cy = 124, chh = 320;
+    // two rows of four
+    const cw = 282, gap = 16, chh = 256, cols = 4;
+    const x0 = (W - (cols * cw + (cols - 1) * gap)) / 2;
 
     STAGES.forEach((s, i) => {
+      const x = x0 + (i % cols) * (cw + gap);
+      const cy = 92 + Math.floor(i / cols) * (chh + 12);
       const hov = Mouse.x > x && Mouse.x < x + cw && Mouse.y > cy && Mouse.y < cy + chh;
       const sel = this.stageIndex === i;
       g.save();
@@ -8316,16 +8973,16 @@ const Game = {
 
       // live thumbnail of the stage's own background + deck, in a recessed well
       g.save();
-      notchPath(g, x + 10, cy + 10, cw - 20, 150, 9); g.clip();
+      notchPath(g, x + 10, cy + 10, cw - 20, 112, 9); g.clip();
       g.save();
       g.translate(x + 10, cy + 10);
-      g.scale((cw - 20) / W, 150 / H * 2.0);
+      g.scale((cw - 20) / W, 112 / H * 2.0);
       g.translate(0, -H * 0.18);
       s.drawBg.call(s, g, performance.now() / 1000 + i * 7);
       g.restore();
       // mini deck line, drawn inside the clip so it can't escape the well
       g.save();
-      g.translate(x + cw / 2, cy + 128);
+      g.translate(x + cw / 2, cy + 96);
       const half = Math.abs(s.layout[0].x2) * 0.30;
       g.strokeStyle = s.pal.platEdge; g.lineWidth = 4;
       g.shadowColor = s.pal.platEdge; g.shadowBlur = 14;
@@ -8333,26 +8990,26 @@ const Game = {
       g.restore();
       // a scanline wash sells it as a monitor feed rather than a picture
       g.globalAlpha = 0.14; g.fillStyle = "#000";
-      for (let sy = cy + 10; sy < cy + 160; sy += 4) g.fillRect(x + 10, sy, cw - 20, 2);
+      for (let sy = cy + 10; sy < cy + 122; sy += 4) g.fillRect(x + 10, sy, cw - 20, 2);
       g.restore();
-      notchPath(g, x + 10, cy + 10, cw - 20, 150, 9);
+      notchPath(g, x + 10, cy + 10, cw - 20, 112, 9);
       g.strokeStyle = UI.ink; g.lineWidth = 3; g.stroke();
       screw(g, x + 19, cy + 19, 2.2, UI.line);
       screw(g, x + cw - 19, cy + 19, 2.2, UI.line);
 
       g.textAlign = "center";
       g.font = `900 26px ${FONT_DISPLAY}`;
-      outlineText(g, s.name, x + cw / 2, cy + 192, s.pal.platEdge, 6);
+      outlineText(g, s.name, x + cw / 2, cy + 150, s.pal.platEdge, 6);
       g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
-      g.fillText(s.tag, x + cw / 2, cy + 208);
+      g.fillText(s.tag, x + cw / 2, cy + 165);
       // a divider rule under the title, in the stage's own colour
       g.strokeStyle = hexA(s.pal.platEdge, 0.3); g.lineWidth = 1.5;
-      g.beginPath(); g.moveTo(x + 34, cy + 218); g.lineTo(x + cw - 34, cy + 218); g.stroke();
+      g.beginPath(); g.moveTo(x + 34, cy + 174); g.lineTo(x + cw - 34, cy + 174); g.stroke();
 
       // wrapped blurb
       g.font = `400 11px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
       const words = s.blurb.split(" ");
-      let line = "", ly = cy + 230;
+      let line = "", ly = cy + 190;
       for (const wd of words) {
         if (g.measureText(line + wd).width > cw - 34) { g.fillText(line, x + cw / 2, ly); line = wd + " "; ly += 15; }
         else line += wd + " ";
@@ -8367,16 +9024,10 @@ const Game = {
       g.restore();
 
       if (hov && Mouse.click) { this.stageIndex = i; Snd.ui(); }
-      x += cw + gap;
     });
 
-    g.save();
-    g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
-    g.fillText("EVERY STAGE MOVES ITS BLAST ZONES AND PLAYS DIFFERENTLY — THEY ARE NOT RESKINS", W / 2, 474);
-    g.restore();
-
-    if (btn(W / 2 - 230, 500, 200, 48, "◀ FIGHTERS", { color: "#ff2e88" })) { this.screen = "select"; Snd.ui(); }
-    if (btn(W / 2 + 30, 500, 200, 48, "BRAWL ▶", { color: "#b6ff3b", font: `700 19px ${FONT_MONO}` }))
+    if (btn(W / 2 - 230, H - 66, 200, 48, "◀ FIGHTERS", { color: "#ff2e88" })) { this.screen = "select"; Snd.ui(); }
+    if (btn(W / 2 + 30, H - 66, 200, 48, "BRAWL ▶", { color: "#b6ff3b", font: `700 19px ${FONT_MONO}` }))
       this.start();
   },
 
@@ -8602,10 +9253,14 @@ const Game = {
       ["w", "but that armour BREAKS under enough damage. A super can be contested, not just dodged."],
       ["", ""],
       ["h4", "STAGES"],
-      ["b", "Four maps, not reskins — and their platforms do things. The Yard's side ledges drift in and out."],
+      ["b", "Eight maps, not reskins — and their platforms do things. The Yard's side ledges drift in and out."],
       ["b", "The Foundry's shelves go red-hot on a cycle and burn you; they flicker before they do."],
       ["b", "The Drift's cloud islands sag and dissolve under your weight, then reform. Don't camp them."],
       ["b", "The Vault's one shelf retracts on a timer, leaving the rails empty and nowhere to land."],
+      ["b", "The Spire's two lifts ride up and down the frame, out of step, so the high ground keeps moving."],
+      ["b", "The Rust Line's whole deck is a conveyor. It carries you, then reverses — arrows flash amber first."],
+      ["b", "The Hollow's mushroom caps past each ledge bounce you sky-high and give your jumps back."],
+      ["b", "The Peak's gusts sweep the deck, alternating sides. An arrow warns which way before each one."],
     ];
     let y = 112;
     g.save();
@@ -10183,7 +10838,7 @@ const Net = {
       st: [Stage.platT, Stage.flashT],
       // live platform state, only the fields that can change
       pf: Stage.pfx.map(s => [r2(s.dx), s.present ? 1 : 0, r2(s.heat),
-                              r2(s.alpha), s.stood, s.gone]),
+                              r2(s.alpha), s.stood, s.gone, s.squash]),
       mt: [m.countdown, m.timeLeft, m.over ? 1 : 0, m.endTimer,
            m.suddenDeath ? 1 : 0, m.frenzy ? 1 : 0,
            m.winner ? m.winner.slot : -1, m.winTeam == null ? -1 : m.winTeam,
@@ -10229,8 +10884,10 @@ const Net = {
     if (snap.pf) snap.pf.forEach((p, i) => {
       const s = Stage.pfx[i]; if (!s) return;
       s.dx = p[0]; s.present = !!p[1]; s.heat = p[2];
-      s.alpha = p[3]; s.stood = p[4]; s.gone = p[5];
+      s.alpha = p[3]; s.stood = p[4]; s.gone = p[5]; s.squash = p[6] || 0;
     });
+    // lifts, the belt and the wind all follow from platT
+    Stage.derive();
     Stage.rebuild();
 
     // ---- match ----

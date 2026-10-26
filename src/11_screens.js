@@ -516,11 +516,13 @@ const Game = {
     g.save(); g.fillStyle = "rgba(6,5,14,.55)"; g.fillRect(0, 0, W, H); g.restore();
     screenTitleBar("COOL MATT GAMES", "PICK YOUR STAGE");
 
-    const cw = 282, gap = 18;
-    let x = (W - (STAGES.length * cw + (STAGES.length - 1) * gap)) / 2;
-    const cy = 124, chh = 320;
+    // two rows of four
+    const cw = 282, gap = 16, chh = 256, cols = 4;
+    const x0 = (W - (cols * cw + (cols - 1) * gap)) / 2;
 
     STAGES.forEach((s, i) => {
+      const x = x0 + (i % cols) * (cw + gap);
+      const cy = 92 + Math.floor(i / cols) * (chh + 12);
       const hov = Mouse.x > x && Mouse.x < x + cw && Mouse.y > cy && Mouse.y < cy + chh;
       const sel = this.stageIndex === i;
       g.save();
@@ -535,16 +537,16 @@ const Game = {
 
       // live thumbnail of the stage's own background + deck, in a recessed well
       g.save();
-      notchPath(g, x + 10, cy + 10, cw - 20, 150, 9); g.clip();
+      notchPath(g, x + 10, cy + 10, cw - 20, 112, 9); g.clip();
       g.save();
       g.translate(x + 10, cy + 10);
-      g.scale((cw - 20) / W, 150 / H * 2.0);
+      g.scale((cw - 20) / W, 112 / H * 2.0);
       g.translate(0, -H * 0.18);
       s.drawBg.call(s, g, performance.now() / 1000 + i * 7);
       g.restore();
       // mini deck line, drawn inside the clip so it can't escape the well
       g.save();
-      g.translate(x + cw / 2, cy + 128);
+      g.translate(x + cw / 2, cy + 96);
       const half = Math.abs(s.layout[0].x2) * 0.30;
       g.strokeStyle = s.pal.platEdge; g.lineWidth = 4;
       g.shadowColor = s.pal.platEdge; g.shadowBlur = 14;
@@ -552,26 +554,26 @@ const Game = {
       g.restore();
       // a scanline wash sells it as a monitor feed rather than a picture
       g.globalAlpha = 0.14; g.fillStyle = "#000";
-      for (let sy = cy + 10; sy < cy + 160; sy += 4) g.fillRect(x + 10, sy, cw - 20, 2);
+      for (let sy = cy + 10; sy < cy + 122; sy += 4) g.fillRect(x + 10, sy, cw - 20, 2);
       g.restore();
-      notchPath(g, x + 10, cy + 10, cw - 20, 150, 9);
+      notchPath(g, x + 10, cy + 10, cw - 20, 112, 9);
       g.strokeStyle = UI.ink; g.lineWidth = 3; g.stroke();
       screw(g, x + 19, cy + 19, 2.2, UI.line);
       screw(g, x + cw - 19, cy + 19, 2.2, UI.line);
 
       g.textAlign = "center";
       g.font = `900 26px ${FONT_DISPLAY}`;
-      outlineText(g, s.name, x + cw / 2, cy + 192, s.pal.platEdge, 6);
+      outlineText(g, s.name, x + cw / 2, cy + 150, s.pal.platEdge, 6);
       g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
-      g.fillText(s.tag, x + cw / 2, cy + 208);
+      g.fillText(s.tag, x + cw / 2, cy + 165);
       // a divider rule under the title, in the stage's own colour
       g.strokeStyle = hexA(s.pal.platEdge, 0.3); g.lineWidth = 1.5;
-      g.beginPath(); g.moveTo(x + 34, cy + 218); g.lineTo(x + cw - 34, cy + 218); g.stroke();
+      g.beginPath(); g.moveTo(x + 34, cy + 174); g.lineTo(x + cw - 34, cy + 174); g.stroke();
 
       // wrapped blurb
       g.font = `400 11px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
       const words = s.blurb.split(" ");
-      let line = "", ly = cy + 230;
+      let line = "", ly = cy + 190;
       for (const wd of words) {
         if (g.measureText(line + wd).width > cw - 34) { g.fillText(line, x + cw / 2, ly); line = wd + " "; ly += 15; }
         else line += wd + " ";
@@ -586,16 +588,10 @@ const Game = {
       g.restore();
 
       if (hov && Mouse.click) { this.stageIndex = i; Snd.ui(); }
-      x += cw + gap;
     });
 
-    g.save();
-    g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
-    g.fillText("EVERY STAGE MOVES ITS BLAST ZONES AND PLAYS DIFFERENTLY — THEY ARE NOT RESKINS", W / 2, 474);
-    g.restore();
-
-    if (btn(W / 2 - 230, 500, 200, 48, "◀ FIGHTERS", { color: "#ff2e88" })) { this.screen = "select"; Snd.ui(); }
-    if (btn(W / 2 + 30, 500, 200, 48, "BRAWL ▶", { color: "#b6ff3b", font: `700 19px ${FONT_MONO}` }))
+    if (btn(W / 2 - 230, H - 66, 200, 48, "◀ FIGHTERS", { color: "#ff2e88" })) { this.screen = "select"; Snd.ui(); }
+    if (btn(W / 2 + 30, H - 66, 200, 48, "BRAWL ▶", { color: "#b6ff3b", font: `700 19px ${FONT_MONO}` }))
       this.start();
   },
 
@@ -821,10 +817,14 @@ const Game = {
       ["w", "but that armour BREAKS under enough damage. A super can be contested, not just dodged."],
       ["", ""],
       ["h4", "STAGES"],
-      ["b", "Four maps, not reskins — and their platforms do things. The Yard's side ledges drift in and out."],
+      ["b", "Eight maps, not reskins — and their platforms do things. The Yard's side ledges drift in and out."],
       ["b", "The Foundry's shelves go red-hot on a cycle and burn you; they flicker before they do."],
       ["b", "The Drift's cloud islands sag and dissolve under your weight, then reform. Don't camp them."],
       ["b", "The Vault's one shelf retracts on a timer, leaving the rails empty and nowhere to land."],
+      ["b", "The Spire's two lifts ride up and down the frame, out of step, so the high ground keeps moving."],
+      ["b", "The Rust Line's whole deck is a conveyor. It carries you, then reverses — arrows flash amber first."],
+      ["b", "The Hollow's mushroom caps past each ledge bounce you sky-high and give your jumps back."],
+      ["b", "The Peak's gusts sweep the deck, alternating sides. An arrow warns which way before each one."],
     ];
     let y = 112;
     g.save();
