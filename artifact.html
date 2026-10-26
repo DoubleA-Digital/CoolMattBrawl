@@ -52,6 +52,7 @@ const CFG = {
   slideStrength:  0.70,
   slopeFrictionLoss: 0.85,
   landLag:        3,
+  inputBuffer:    8,     // frames an early attack/special/super/grab press is kept
 
   // ---- jumps ----
   jumpSquat:   3,
@@ -587,6 +588,8 @@ const ACTIONS = [
   { id: "grab",    name: "Grab",           desc: "Beats shields. Then press a direction to throw, or Light to pummel." },
 ];
 const BUTTONS = ACTIONS.map(a => a.id);
+// the buttons a fighter remembers if pressed a moment too early (Fighter.buffered)
+const BUFFERED = ["light", "heavy", "special", "super", "grab"];
 
 /* Factory defaults. P1/P2 on the keyboard halves, P3 on the numpad,
    P4 on the number row. All of it is rebindable in the Controls screen. */
@@ -2088,10 +2091,17 @@ const ROSTER = [
 
   special: { name: "Dead Weight", startup: 6, active: 150, recovery: 20,
     dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
-    desc: "Plants itself. Cannot be knocked back at all while this is active — stand your ground and tank it.",
+    desc: "Slams down and plants itself: the landing jolts anyone close, nothing can knock it back while planted, and whoever hits it takes half the damage back. Hold to stay planted.",
+    /* It used to be pure defence -- if nobody happened to swing at him, the
+       button seemed to do nothing. The plant now hits, and it bites back. */
+    quake: { dmg: 5, base: 4.2, scale: 0.55, angle: 82 },
     tick(f, a) {
       const m = a.data;
       if (a.t === m.startup) {
+        for (const o of Combat.foes(f)) {
+          if (o.intangible() || Math.abs(o.x - f.x) > 140 || Math.abs(o.y - f.y) > 70) continue;
+          Combat.land(f, o, m.quake, o.x, o.y);
+        }
         FX.banner("DEAD WEIGHT", f.ch.color);
         FX.ring(f.x, f.feetY, 16, 180, f.ch.color, 4);
         if (f.grounded) FX.crack(f.x, f.feetY - 2, 1, 40, f.ch.color, 3);
@@ -2100,6 +2110,7 @@ const ROSTER = [
       }
       if (a.t >= m.startup && a.t < m.startup + m.active) {
         f.pinned = true;                 // nothing shifts it — knockback, pushes, anything
+        f.thornsT = 2;                   // re-armed every frame; see applyKnockback
         f.weightMul = 2.4;
         f.vx = 0;
         if (!f.grounded) f.vy = Math.min(f.vy + 1.4, 20);   // it still falls
@@ -2323,7 +2334,9 @@ const ROSTER = [
 
   special: { name: "Riposte", startup: 4, active: 26, recovery: 26,
     dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
-    desc: "A stance. Anything that hits her during it is cancelled and answered on the spot.",
+    desc: "A stance. Anything that hits her during it is cancelled and answered on the spot. If nobody swings, she ends it with a quick lunging thrust.",
+    // the same idea as her super's closer: the stance is never spent on nothing
+    closer: { name: "Thrust", dmg: 6, base: 3.6, scale: 0.75, angle: 34 },
     onStart(f) { Snd.tone(600, 0.14, "sine", 0.1, 1100); },
     tick(f, a) {
       const m = a.data;
@@ -2333,6 +2346,20 @@ const ROSTER = [
         if (a.t % 6 === 0) {
           FX.ring(f.x, f.y, 4, 34, f.ch.accent, 2);
           FX.spark(f.x + rnd(-16, 16), f.y + rnd(-18, 18), f.ch.color);
+        }
+        if (f.counterFlash > 20) a.answered = true;
+      }
+      if (a.t === m.startup + m.active && !a.answered) {
+        a.answered = true;
+        f.counter = 0;
+        f.vx = f.facing * 7.5;
+        FX.blade(f.x + f.facing * 8, f.y - 6, faceAng(f), 30, 90, 0.25, f.ch.accent, { w: 18, life: 12 });
+        FX.streak(f.x, f.y - 6, f.x + f.facing * 130, f.y - 6, f.ch.accent);
+        Snd.tone(900, 0.08, "sawtooth", 0.1, 260);
+        for (const o of Combat.foes(f)) {
+          const ahead = (o.x - f.x) * f.facing;
+          if (ahead < -10 || ahead > 130 || Math.abs(o.y - f.y) > 46 || o.intangible()) continue;
+          Combat.land(f, o, m.closer, o.x, o.y);
         }
       }
     } },
@@ -2389,11 +2416,12 @@ const ROSTER = [
         a.answered = true;
         f.vx = f.facing * 9;
         FX.blade(f.x + f.facing * 8, f.y - 6, faceAng(f), 36, 110, 0.3, f.ch.color, { w: 26, life: 14 });
-        FX.streak(f.x, f.y - 6, f.x + f.facing * 120, f.y - 6, f.ch.accent);
+        FX.streak(f.x, f.y - 6, f.x + f.facing * 160, f.y - 6, f.ch.accent);
         Snd.tone(900, 0.1, "sawtooth", 0.12, 240);
         for (const o of Combat.foes(f)) {
           const ahead = (o.x - f.x) * f.facing;
-          if (ahead < -10 || ahead > 120 || Math.abs(o.y - f.y) > 50 || o.intangible()) continue;
+          // she lunges 9px/frame, so the cut covers the ground she is about to take
+          if (ahead < -10 || ahead > 160 || Math.abs(o.y - f.y) > 50 || o.intangible()) continue;
           Combat.land(f, o, m.closer, o.x, o.y);
         }
       }
@@ -5645,7 +5673,7 @@ class Fighter {
     if (!this.alive) return;
 
     this.pad.poll();
-    const inp = this.isCPU ? CPU.think(this, match) : this.pad;
+    const inp = this.buffered(this.isCPU ? CPU.think(this, match) : this.pad);
 
     if (this.invuln > 0) this.invuln--;
     if (this.hitFlash > 0) this.hitFlash--;
@@ -5654,6 +5682,8 @@ class Fighter {
     if (this.hotTick > 0) this.hotTick--;
     if (this.counter > 0) this.counter--;
     if (this.counterFlash > 0) this.counterFlash--;
+    if (this.notReadyT > 0) this.notReadyT--;
+    if (this.thornsT > 0) this.thornsT--;
     if (this.anchorGlow > 0) this.anchorGlow--;
     if (this.flipGlow > 0) this.flipGlow--;
     if (this.launchFx > 0) {
@@ -5826,6 +5856,7 @@ class Fighter {
   /* ------------------------------------------------------------ attacks */
   startAttack(kind) {
     this.breakStealth();
+    this.clearBuffer();
     const m = this.ch[kind];
     this.attack = {
       kind, data: m, t: 0,
@@ -5838,8 +5869,35 @@ class Fighter {
     Snd.whoosh();
   }
 
+  /* Input buffer. A button pressed a few frames before the fighter can act
+     on it (landing lag, the tail of an attack, a jump's squat) is remembered
+     and fires on the first frame it can, instead of being silently dropped —
+     which read as "my special did nothing". */
+  buffered(raw) {
+    const b = this.buf || (this.buf = {});
+    for (const k of BUFFERED) {
+      if (raw.hit(k)) b[k] = CFG.inputBuffer;
+      else if (b[k] > 0) b[k]--;
+    }
+    return {
+      ax: raw.ax, ay: raw.ay,
+      held: k => raw.held(k),
+      hit: k => raw.hit(k) || (b[k] > 0 && BUFFERED.includes(k)),
+    };
+  }
+  clearBuffer() { this.buf = null; }
+
   startSpecial() {
-    if (this.specialCD > 0) return;    // the HUD diamond shows readiness
+    if (this.specialCD > 0) {
+      // say so, rather than doing nothing (once per press, not every buffered frame)
+      if (!this.notReadyT) {
+        this.notReadyT = 30;
+        FX.damageText(this.x, this.y - this.h * 0.7, "NOT READY", "#8f8cb5");
+        Snd.tone(150, 0.06, "square", 0.06, 110);
+      }
+      return;
+    }
+    this.clearBuffer();
     this.specialCD = this.ch.specialCooldown;
     const m = this.ch.special;
     this.attack = {
@@ -5854,6 +5912,7 @@ class Fighter {
 
   startSuper() {
     this.breakStealth();
+    this.clearBuffer();
     const m = this.ch.super;
     this.meter = 0;
     this.armorDamage = 0;
@@ -5921,6 +5980,7 @@ class Fighter {
   /* -------------------------------------------------------------- grabs */
   startGrab() {
     this.breakStealth();
+    this.clearBuffer();
     this.attack = {
       kind: "grab",
       data: { startup: CFG.grabStartup, active: CFG.grabActive,
@@ -6054,6 +6114,15 @@ class Fighter {
       FX.burst(this.x, this.y, 22, "#ffffff", 8);
       FX.shake(14);
       Snd.shieldBreak();
+    }
+    // Husk planted with Dead Weight: whoever hits it takes half back
+    if (this.thornsT > 0 && from && from !== this && from.alive && !allies(this, from)) {
+      from.percent = Math.min(999, from.percent + dmg * 0.5);
+      from.hitFlash = 6;
+      this.stats.damageDealt += dmg * 0.5;
+      FX.damageText(from.x, from.y - 30, Math.round(dmg * 5) / 10, this.ch.accent);
+      FX.burst(from.x, from.y, 10, this.ch.accent, 4);
+      Snd.tone(220, 0.08, "square", 0.1, 90);
     }
     if (this.pinned) { this.percent += dmg * 0.4; this.hitFlash = 4; return; }
 
@@ -11134,6 +11203,8 @@ const Net = {
     f.specialCD = fd.cd; f.anchorGlow = fd.ag; f.pinned = !!fd.pn;
     f.airJumps = fd.aj; f.fastFalling = !!fd.ff; f.dropThrough = fd.dt || 0;
     f.squatHeld = !!fd.sq; f.rollDir = fd.rd || 0;
+    // the replay below re-presses anything still in the window
+    f.clearBuffer();
     this.applyStatus(f, fd);
     this.findGround(f);
     this.applyAttack(f, fd);

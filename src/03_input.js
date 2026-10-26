@@ -16,6 +16,8 @@ const ACTIONS = [
   { id: "grab",    name: "Grab",           desc: "Beats shields. Then press a direction to throw, or Light to pummel." },
 ];
 const BUTTONS = ACTIONS.map(a => a.id);
+// the buttons a fighter remembers if pressed a moment too early (Fighter.buffered)
+const BUFFERED = ["light", "heavy", "special", "super", "grab"];
 
 /* Factory defaults. P1/P2 on the keyboard halves, P3 on the numpad,
    P4 on the number row. All of it is rebindable in the Controls screen. */

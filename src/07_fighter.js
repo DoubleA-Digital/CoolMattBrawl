@@ -172,7 +172,7 @@ class Fighter {
     if (!this.alive) return;
 
     this.pad.poll();
-    const inp = this.isCPU ? CPU.think(this, match) : this.pad;
+    const inp = this.buffered(this.isCPU ? CPU.think(this, match) : this.pad);
 
     if (this.invuln > 0) this.invuln--;
     if (this.hitFlash > 0) this.hitFlash--;
@@ -181,6 +181,8 @@ class Fighter {
     if (this.hotTick > 0) this.hotTick--;
     if (this.counter > 0) this.counter--;
     if (this.counterFlash > 0) this.counterFlash--;
+    if (this.notReadyT > 0) this.notReadyT--;
+    if (this.thornsT > 0) this.thornsT--;
     if (this.anchorGlow > 0) this.anchorGlow--;
     if (this.flipGlow > 0) this.flipGlow--;
     if (this.launchFx > 0) {
@@ -353,6 +355,7 @@ class Fighter {
   /* ------------------------------------------------------------ attacks */
   startAttack(kind) {
     this.breakStealth();
+    this.clearBuffer();
     const m = this.ch[kind];
     this.attack = {
       kind, data: m, t: 0,
@@ -365,8 +368,35 @@ class Fighter {
     Snd.whoosh();
   }
 
+  /* Input buffer. A button pressed a few frames before the fighter can act
+     on it (landing lag, the tail of an attack, a jump's squat) is remembered
+     and fires on the first frame it can, instead of being silently dropped —
+     which read as "my special did nothing". */
+  buffered(raw) {
+    const b = this.buf || (this.buf = {});
+    for (const k of BUFFERED) {
+      if (raw.hit(k)) b[k] = CFG.inputBuffer;
+      else if (b[k] > 0) b[k]--;
+    }
+    return {
+      ax: raw.ax, ay: raw.ay,
+      held: k => raw.held(k),
+      hit: k => raw.hit(k) || (b[k] > 0 && BUFFERED.includes(k)),
+    };
+  }
+  clearBuffer() { this.buf = null; }
+
   startSpecial() {
-    if (this.specialCD > 0) return;    // the HUD diamond shows readiness
+    if (this.specialCD > 0) {
+      // say so, rather than doing nothing (once per press, not every buffered frame)
+      if (!this.notReadyT) {
+        this.notReadyT = 30;
+        FX.damageText(this.x, this.y - this.h * 0.7, "NOT READY", "#8f8cb5");
+        Snd.tone(150, 0.06, "square", 0.06, 110);
+      }
+      return;
+    }
+    this.clearBuffer();
     this.specialCD = this.ch.specialCooldown;
     const m = this.ch.special;
     this.attack = {
@@ -381,6 +411,7 @@ class Fighter {
 
   startSuper() {
     this.breakStealth();
+    this.clearBuffer();
     const m = this.ch.super;
     this.meter = 0;
     this.armorDamage = 0;
@@ -448,6 +479,7 @@ class Fighter {
   /* -------------------------------------------------------------- grabs */
   startGrab() {
     this.breakStealth();
+    this.clearBuffer();
     this.attack = {
       kind: "grab",
       data: { startup: CFG.grabStartup, active: CFG.grabActive,
@@ -581,6 +613,15 @@ class Fighter {
       FX.burst(this.x, this.y, 22, "#ffffff", 8);
       FX.shake(14);
       Snd.shieldBreak();
+    }
+    // Husk planted with Dead Weight: whoever hits it takes half back
+    if (this.thornsT > 0 && from && from !== this && from.alive && !allies(this, from)) {
+      from.percent = Math.min(999, from.percent + dmg * 0.5);
+      from.hitFlash = 6;
+      this.stats.damageDealt += dmg * 0.5;
+      FX.damageText(from.x, from.y - 30, Math.round(dmg * 5) / 10, this.ch.accent);
+      FX.burst(from.x, from.y, 10, this.ch.accent, 4);
+      Snd.tone(220, 0.08, "square", 0.1, 90);
     }
     if (this.pinned) { this.percent += dmg * 0.4; this.hitFlash = 4; return; }
 

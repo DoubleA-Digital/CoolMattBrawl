@@ -928,6 +928,8 @@ const Net = {
     f.specialCD = fd.cd; f.anchorGlow = fd.ag; f.pinned = !!fd.pn;
     f.airJumps = fd.aj; f.fastFalling = !!fd.ff; f.dropThrough = fd.dt || 0;
     f.squatHeld = !!fd.sq; f.rollDir = fd.rd || 0;
+    // the replay below re-presses anything still in the window
+    f.clearBuffer();
     this.applyStatus(f, fd);
     this.findGround(f);
     this.applyAttack(f, fd);

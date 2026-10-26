@@ -22,6 +22,7 @@ const CFG = {
   slideStrength:  0.70,
   slopeFrictionLoss: 0.85,
   landLag:        3,
+  inputBuffer:    8,     // frames an early attack/special/super/grab press is kept
 
   // ---- jumps ----
   jumpSquat:   3,

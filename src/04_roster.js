@@ -1342,10 +1342,17 @@ const ROSTER = [
 
   special: { name: "Dead Weight", startup: 6, active: 150, recovery: 20,
     dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
-    desc: "Plants itself. Cannot be knocked back at all while this is active — stand your ground and tank it.",
+    desc: "Slams down and plants itself: the landing jolts anyone close, nothing can knock it back while planted, and whoever hits it takes half the damage back. Hold to stay planted.",
+    /* It used to be pure defence -- if nobody happened to swing at him, the
+       button seemed to do nothing. The plant now hits, and it bites back. */
+    quake: { dmg: 5, base: 4.2, scale: 0.55, angle: 82 },
     tick(f, a) {
       const m = a.data;
       if (a.t === m.startup) {
+        for (const o of Combat.foes(f)) {
+          if (o.intangible() || Math.abs(o.x - f.x) > 140 || Math.abs(o.y - f.y) > 70) continue;
+          Combat.land(f, o, m.quake, o.x, o.y);
+        }
         FX.banner("DEAD WEIGHT", f.ch.color);
         FX.ring(f.x, f.feetY, 16, 180, f.ch.color, 4);
         if (f.grounded) FX.crack(f.x, f.feetY - 2, 1, 40, f.ch.color, 3);
@@ -1354,6 +1361,7 @@ const ROSTER = [
       }
       if (a.t >= m.startup && a.t < m.startup + m.active) {
         f.pinned = true;                 // nothing shifts it — knockback, pushes, anything
+        f.thornsT = 2;                   // re-armed every frame; see applyKnockback
         f.weightMul = 2.4;
         f.vx = 0;
         if (!f.grounded) f.vy = Math.min(f.vy + 1.4, 20);   // it still falls
@@ -1577,7 +1585,9 @@ const ROSTER = [
 
   special: { name: "Riposte", startup: 4, active: 26, recovery: 26,
     dmg: 0, base: 0, scale: 0, angle: 0, ox: 0, oy: 0, r: 0,
-    desc: "A stance. Anything that hits her during it is cancelled and answered on the spot.",
+    desc: "A stance. Anything that hits her during it is cancelled and answered on the spot. If nobody swings, she ends it with a quick lunging thrust.",
+    // the same idea as her super's closer: the stance is never spent on nothing
+    closer: { name: "Thrust", dmg: 6, base: 3.6, scale: 0.75, angle: 34 },
     onStart(f) { Snd.tone(600, 0.14, "sine", 0.1, 1100); },
     tick(f, a) {
       const m = a.data;
@@ -1587,6 +1597,20 @@ const ROSTER = [
         if (a.t % 6 === 0) {
           FX.ring(f.x, f.y, 4, 34, f.ch.accent, 2);
           FX.spark(f.x + rnd(-16, 16), f.y + rnd(-18, 18), f.ch.color);
+        }
+        if (f.counterFlash > 20) a.answered = true;
+      }
+      if (a.t === m.startup + m.active && !a.answered) {
+        a.answered = true;
+        f.counter = 0;
+        f.vx = f.facing * 7.5;
+        FX.blade(f.x + f.facing * 8, f.y - 6, faceAng(f), 30, 90, 0.25, f.ch.accent, { w: 18, life: 12 });
+        FX.streak(f.x, f.y - 6, f.x + f.facing * 130, f.y - 6, f.ch.accent);
+        Snd.tone(900, 0.08, "sawtooth", 0.1, 260);
+        for (const o of Combat.foes(f)) {
+          const ahead = (o.x - f.x) * f.facing;
+          if (ahead < -10 || ahead > 130 || Math.abs(o.y - f.y) > 46 || o.intangible()) continue;
+          Combat.land(f, o, m.closer, o.x, o.y);
         }
       }
     } },
@@ -1643,11 +1667,12 @@ const ROSTER = [
         a.answered = true;
         f.vx = f.facing * 9;
         FX.blade(f.x + f.facing * 8, f.y - 6, faceAng(f), 36, 110, 0.3, f.ch.color, { w: 26, life: 14 });
-        FX.streak(f.x, f.y - 6, f.x + f.facing * 120, f.y - 6, f.ch.accent);
+        FX.streak(f.x, f.y - 6, f.x + f.facing * 160, f.y - 6, f.ch.accent);
         Snd.tone(900, 0.1, "sawtooth", 0.12, 240);
         for (const o of Combat.foes(f)) {
           const ahead = (o.x - f.x) * f.facing;
-          if (ahead < -10 || ahead > 120 || Math.abs(o.y - f.y) > 50 || o.intangible()) continue;
+          // she lunges 9px/frame, so the cut covers the ground she is about to take
+          if (ahead < -10 || ahead > 160 || Math.abs(o.y - f.y) > 50 || o.intangible()) continue;
           Combat.land(f, o, m.closer, o.x, o.y);
         }
       }
