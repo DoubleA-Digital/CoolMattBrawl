@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Cool Matt Brawl</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Chakra+Petch:wght@500;600;700&display=swap">
 <style>
   :root{ color-scheme: dark; }
   *{ box-sizing: border-box; }
@@ -276,7 +276,10 @@ function glow(ctx, color, blur, fn) {
 }
 
 const FONT_DISPLAY = '"Archivo Black", Impact, "Arial Narrow Bold", sans-serif';
-const FONT_MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+/* The UI face. It was the system monospace, which read as a terminal and was
+   hard to scan at small sizes; Chakra Petch has the same cut corners as the
+   panels. The name stays FONT_MONO so the many call sites need not change. */
+const FONT_MONO = '"Chakra Petch", "Segoe UI", system-ui, sans-serif';
 
 
 /* ===== src/02_audio.js ===== */
@@ -7519,8 +7522,8 @@ const UI = {
   panel2:"#0c0a1c",
   line:  "#2c2745",
   text:  "#f2f0ff",
-  dim:   "#8f8cb5",
-  dimmer:"#6b6a85",
+  dim:   "#aeabd4",
+  dimmer:"#8e8bb2",
 };
 
 /* --------------------------------------------------------------- shapes */
@@ -12739,7 +12742,7 @@ function drawPlayerHUD(fighters) {
     g.font = `700 13px ${FONT_MONO}`; g.textAlign = "left";
     g.fillStyle = "rgba(0,0,0,.45)"; g.fillText(f.ch.name, x + 44.5, y + 17.5);
     g.fillStyle = "#ffffff"; g.fillText(f.ch.name, x + 44, y + 17);
-    g.font = `700 9px ${FONT_MONO}`; g.textAlign = "right";
+    g.font = `700 10px ${FONT_MONO}`; g.textAlign = "right";
     g.fillStyle = "rgba(255,255,255,.75)";
     g.fillText(f.name && !f.isCPU ? f.name : `P${f.slot + 1}${f.isCPU ? "·CPU" : ""}`, x + cardW - 10, y + 17);
     if (f.team != null) {
@@ -12823,7 +12826,7 @@ function drawPlayerHUD(fighters) {
       bar(g, mx + 1, my + 1, mw - 2, 12, mk, col, { glow: 8, r: 3 });
     }
     ticks(g, mx, my + 1, mw, 12, 8, "#000000", 0.45);
-    g.font = `700 8px ${FONT_MONO}`; g.textAlign = "center";
+    g.font = `700 9px ${FONT_MONO}`; g.textAlign = "center";
     if (f.meterFull) {
       g.fillStyle = "#07060f";
       g.fillText("SUPER READY", mx + mw / 2, my + 10);
@@ -13122,7 +13125,7 @@ class Match {
       g.fillStyle = "rgba(6,5,14,.55)"; g.fillRect(0, H / 2 - 44, W, 70);
       g.textAlign = "center"; g.font = `900 26px ${FONT_DISPLAY}`;
       outlineText(g, "WAITING FOR THE HOST", W / 2, H / 2 - 6, "#ffc83d", 6);
-      g.font = `400 12px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
+      g.font = `500 12px ${FONT_MONO}`; g.fillStyle = "#d6d3ee";
       g.fillText("The match pauses while the host's game tab is in the background.", W / 2, H / 2 + 16);
       g.restore();
     }
@@ -13198,11 +13201,17 @@ function btn(x, y, w, h, label, opts) {
     g.fillStyle = q; g.fillRect(x, y, w, h);
     g.restore();
   }
-  g.fillStyle = dim ? "#55536e" : live ? "#ffffff" : "#b7b4d4";
   g.font = opts.font || `700 15px ${FONT_MONO}`;
   g.textAlign = "center"; g.textBaseline = "middle";
-  if (live) { g.shadowColor = col; g.shadowBlur = 10; }
-  g.fillText(label, x + w / 2, y + h / 2 + 1);
+  if ("letterSpacing" in g) g.letterSpacing = "0.06em";
+  const ty = y + h / 2 + 1;
+  // a hard drop copy keeps the label sharp on any panel colour
+  g.fillStyle = "rgba(4,3,10,.85)";
+  g.fillText(label, x + w / 2, ty + 2);
+  g.fillStyle = dim ? "#6e6b8c" : live ? "#ffffff" : mixColor("#f4f2ff", col, 0.22);
+  if (live) { g.shadowColor = hexA(col, 0.7); g.shadowBlur = 6; }
+  g.fillText(label, x + w / 2, ty);
+  if ("letterSpacing" in g) g.letterSpacing = "0px";
   g.textBaseline = "alphabetic";
   g.restore();
   // one click presses one button, even if the screen changes under it
@@ -13386,7 +13395,8 @@ const Game = {
 
   draw(alpha) {
     switch (this.screen) {
-      case "title":    this.drawTitle(); Light.post(g, cv, W, H); break;
+      // the bloom is for the logo and the stage; menu text after it stays sharp
+      case "title":    this.drawTitle(); Light.post(g, cv, W, H); this.drawTitleMenu(); break;
       case "select":   this.drawSelect(); break;
       case "stage":    this.drawStageSelect(); break;
       case "controls": this.drawControls(); break;
@@ -13479,7 +13489,9 @@ const Game = {
     g.shadowBlur = 0;
 
     g.restore();
+  },
 
+  drawTitleMenu() {
     /* Two real decisions (START BRAWL, PLAY ONLINE), then the reference
        screens as one tidy row underneath instead of a five-deep stack —
        the menu reads as "the two things you came here to do" at a glance,
@@ -13515,8 +13527,8 @@ const Game = {
       const ww = g.measureText(who).width + 24;
       const cwid = coinChip(g, Profile.d.coins, W - 24, 18, "right");
       const nx = W - 24 - cwid - 8 - ww;
-      panel(g, nx, 18, ww, 32, { cut: 8, fill: "#17122a", accent: Profile.signedIn ? "#b6ff3b" : "#6b6a85", accentA: 0.8 });
-      g.fillStyle = Profile.signedIn ? "#ffffff" : "#8f8cb5"; g.textAlign = "left"; g.textBaseline = "middle";
+      panel(g, nx, 18, ww, 32, { cut: 8, fill: "#17122a", accent: Profile.signedIn ? "#b6ff3b" : "#8e8bb2", accentA: 0.8 });
+      g.fillStyle = Profile.signedIn ? "#ffffff" : "#aeabd4"; g.textAlign = "left"; g.textBaseline = "middle";
       g.fillText(who, nx + 12, 35);
       g.restore();
       if (Mouse.click && Mouse.y > 18 && Mouse.y < 50 && Mouse.x > nx && Mouse.x < W - 24)
@@ -13525,7 +13537,7 @@ const Game = {
 
     g.save();
     g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`;
-    g.fillStyle = "#6b6a85";
+    g.fillStyle = "#8e8bb2";
     g.fillText("2-4 PLAYERS LOCAL OR ONLINE  ·  FREE-FOR-ALL OR 2v2  ·  GAMEPADS SUPPORTED", W / 2, 243);
     g.restore();
   },
@@ -13601,7 +13613,7 @@ const Game = {
         g.fillStyle = PLAYER_TINT[pi];
         g.shadowColor = PLAYER_TINT[pi]; g.shadowBlur = 12; g.fill();
         g.restore();
-        g.fillStyle = "#07060f"; g.font = `700 9px ${FONT_MONO}`; g.textAlign = "center";
+        g.fillStyle = "#07060f"; g.font = `700 10px ${FONT_MONO}`; g.textAlign = "center";
         g.fillText("P" + (pi + 1), x + cw - 16, cy + 18.5 + k * 19);
       });
       g.restore();
@@ -13662,7 +13674,7 @@ const Game = {
           s.team = 1 - (s.team || 0); this.selIndex = i; Snd.ui();
         }
       }
-      g.font = `400 8px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
+      g.font = `500 9px ${FONT_MONO}`; g.fillStyle = "#8e8bb2";
       const b = Settings.binds[i];
       g.fillText(`${keyLabel(b.left)}${keyLabel(b.right)} move · ${keyLabel(b.light)} ${keyLabel(b.heavy)} ${keyLabel(b.special)} · ${keyLabel(b.super)} super`,
                  sx + 14, sy2 + 55);
@@ -13671,7 +13683,7 @@ const Game = {
       [["OFF", "off"], ["HUMAN", "human"], ["CPU", "cpu"]].forEach(([lab, m], k) => {
         if (btn(sx + 12 + k * 80, sy2 + 62, 74, 22, lab, {
           active: s.mode === m,
-          color: m === "cpu" ? "#ffc83d" : m === "human" ? "#b6ff3b" : "#6b6a85",
+          color: m === "cpu" ? "#ffc83d" : m === "human" ? "#b6ff3b" : "#8e8bb2",
           font: `700 10px ${FONT_MONO}`,
         })) { s.mode = m; this.selIndex = i; Snd.ui(); }
       });
@@ -13692,39 +13704,39 @@ const Game = {
     g.font = `900 20px ${FONT_DISPLAY}`; g.fillStyle = sc.color;
     g.fillText(sc.name, 110, dy + 27);
     const nameW = g.measureText(sc.name).width;      // measured in THIS font
-    g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
+    g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#aeabd4";
     g.fillText(sc.tag, 110 + nameW + 14, dy + 26);
 
-    g.font = `400 12px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
+    g.font = `500 12px ${FONT_MONO}`; g.fillStyle = "#d6d3ee";
     g.fillText(sc.blurb, 110, dy + 48);
     // the stat bars that used to sit on every card
     [["WEIGHT", sc.weight / 1.5], ["SPEED", sc.speed / 6], ["JUMP", (sc.jump - 10.5) / 3.2]].forEach(([lab, v], k) => {
       const ry = dy + 14 + k * 13;
-      g.font = `700 8px ${FONT_MONO}`; g.fillStyle = "#6b6a85"; g.textAlign = "right";
+      g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#8e8bb2"; g.textAlign = "right";
       g.fillText(lab, W - 250, ry + 7);
       g.textAlign = "left";
       slot(g, W - 240, ry + 1, 130, 6, 3);
       bar(g, W - 240, ry + 1, 130, 6, clamp(v, 0.08, 1), sc.color, { r: 3 });
     });
     if (sc.power) {
-      g.font = `700 8px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
+      g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#8e8bb2";
       g.fillText("POWER", 110, dy + 66);
-      g.font = `400 12px ${FONT_MONO}`; g.fillStyle = sc.accent;
+      g.font = `500 12px ${FONT_MONO}`; g.fillStyle = sc.accent;
       // the third wave's powers run long: two tighter lines instead of one
       let pl = wrapLines(g, sc.power, W - 110 - 158);
-      if (pl.length > 1) { g.font = `400 11px ${FONT_MONO}`; pl = wrapLines(g, sc.power, W - 110 - 158); }
+      if (pl.length > 1) { g.font = `500 11px ${FONT_MONO}`; pl = wrapLines(g, sc.power, W - 110 - 158); }
       pl.slice(0, 2).forEach((ln, k) => g.fillText(ln, 158, dy + (pl.length > 1 ? 61 : 66) + k * 13));
     }
 
     const moves = [
-      ["LIGHT", sc.light.name, "#b7b4d4"],
-      ["HEAVY", sc.heavy.name, "#b7b4d4"],
+      ["LIGHT", sc.light.name, "#d6d3ee"],
+      ["HEAVY", sc.heavy.name, "#d6d3ee"],
       ["SPECIAL", sc.special.name, sc.accent],
       ["SUPER", sc.super.name, "#ffffff"],
     ];
     let mx = 110;
     moves.forEach(([lab, nm, col]) => {
-      g.font = `700 8px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
+      g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#8e8bb2";
       g.fillText(lab, mx, dy + 88);
       g.font = `700 12px ${FONT_MONO}`; g.fillStyle = col;
       g.fillText(nm.toUpperCase(), mx, dy + 103);
@@ -13808,14 +13820,14 @@ const Game = {
       g.textAlign = "center";
       g.font = `900 26px ${FONT_DISPLAY}`;
       outlineText(g, s.name, x + cw / 2, cy + 150, s.pal.platEdge, 6);
-      g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
+      g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#aeabd4";
       g.fillText(s.tag, x + cw / 2, cy + 165);
       // a divider rule under the title, in the stage's own colour
       g.strokeStyle = hexA(s.pal.platEdge, 0.3); g.lineWidth = 1.5;
       g.beginPath(); g.moveTo(x + 34, cy + 174); g.lineTo(x + cw - 34, cy + 174); g.stroke();
 
       // wrapped blurb
-      g.font = `400 11px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
+      g.font = `500 11px ${FONT_MONO}`; g.fillStyle = "#d6d3ee";
       const words = s.blurb.split(" ");
       let line = "", ly = cy + 190;
       for (const wd of words) {
@@ -13853,7 +13865,7 @@ const Game = {
     // header
     g.save();
     g.textAlign = "left";
-    g.font = `700 11px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
+    g.font = `700 11px ${FONT_MONO}`; g.fillStyle = "#8e8bb2";
     g.fillText("ACTION", 108, top - 14);
     g.textAlign = "center";
     for (let p = 0; p < 4; p++) {
@@ -13946,12 +13958,12 @@ const Game = {
     // description of whatever row the mouse is on
     g.save();
     g.textAlign = "center";
-    g.font = `400 12px ${FONT_MONO}`;
-    g.fillStyle = "#8f8cb5";
+    g.font = `500 12px ${FONT_MONO}`;
+    g.fillStyle = "#aeabd4";
     const d = this.hoverAction ? this.hoverAction.desc
       : "Hover a row for what it does. Click any key cell to rebind it — a key can only drive one action.";
     g.fillText(d, W / 2, top + ACTIONS.length * rowH + 22);
-    g.font = `400 11px ${FONT_MONO}`; g.fillStyle = "#5d5b78";
+    g.font = `500 11px ${FONT_MONO}`; g.fillStyle = "#7f7ca3";
     g.fillText("Gamepads work too and need no setup: A jump · X light · Y heavy · B special · R3 super · LB grab · RB shield.",
                W / 2, top + ACTIONS.length * rowH + 44);
     g.restore();
@@ -14024,7 +14036,7 @@ const Game = {
 
     g.save();
     g.textAlign = "center";
-    g.font = `400 12px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
+    g.font = `500 12px ${FONT_MONO}`; g.fillStyle = "#aeabd4";
     g.fillText(note || "Settings save to this browser automatically.", W / 2, y + 16);
     g.restore();
 
@@ -14075,7 +14087,7 @@ const Game = {
     g.textAlign = "left";
     for (const [k, t] of lines) {
       if (!t) { y += 8; continue; }
-      if (k === "b") { g.font = `400 13px ${FONT_MONO}`; g.fillStyle = "#b7b4d4"; }
+      if (k === "b") { g.font = `500 13px ${FONT_MONO}`; g.fillStyle = "#d6d3ee"; }
       else if (k === "w") { g.font = `700 13px ${FONT_MONO}`; g.fillStyle = "#ff2e88"; }
       else {
         g.font = `700 16px ${FONT_MONO}`;
@@ -14166,7 +14178,7 @@ const Game = {
     g.textAlign = "left";
     for (const [k, t] of lines) {
       if (!t) { y += 8; continue; }
-      if (k === "b") { g.font = `400 13px ${FONT_MONO}`; g.fillStyle = "#b7b4d4"; }
+      if (k === "b") { g.font = `500 13px ${FONT_MONO}`; g.fillStyle = "#d6d3ee"; }
       else if (k === "w") { g.font = `700 13px ${FONT_MONO}`; g.fillStyle = "#ff2e88"; }
       else {
         g.font = `700 16px ${FONT_MONO}`;
@@ -14179,7 +14191,7 @@ const Game = {
 
     // page dots
     g.save();
-    g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
+    g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`; g.fillStyle = "#8e8bb2";
     g.fillText(page === 0 ? "MECHANICS" : `${page} / ${ROSTER.length}  ·  ◀ / ▶ TO PAGE`, W / 2, H - 94);
     g.restore();
 
@@ -14219,7 +14231,7 @@ const Game = {
     g.textAlign = "center";
 
     if (Net.mode === "off") {
-      g.font = `400 14px ${FONT_MONO}`; g.fillStyle = UI.dim;
+      g.font = `500 14px ${FONT_MONO}`; g.fillStyle = UI.dim;
       g.fillText("One of you hosts and reads out the code. Up to three friends join with it.",
                  cx, 152);
       g.fillText("Free-for-all or 2v2 teams — the host can fill empty seats with CPUs.", cx, 174);
@@ -14249,14 +14261,14 @@ const Game = {
           { this.joinEntry = null; Snd.ui(); }
       }
       g.save(); g.textAlign = "center";
-      g.font = `400 12px ${FONT_MONO}`; g.fillStyle = UI.dimmer;
+      g.font = `500 12px ${FONT_MONO}`; g.fillStyle = UI.dimmer;
       g.fillText("Runs peer-to-peer in the browser. No account, nothing to install.", cx, H - 150);
       g.restore();
 
     } else if (Net.mode === "error") {
       g.font = `900 26px ${FONT_DISPLAY}`; g.fillStyle = "#ff2e88";
       g.fillText("COULDN'T CONNECT", cx, 210);
-      g.font = `400 14px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
+      g.font = `500 14px ${FONT_MONO}`; g.fillStyle = "#d6d3ee";
       g.fillText(Net.error, cx, 244);
       g.restore();
       if (btn(cx - 110, 290, 220, 48, "TRY AGAIN", { color: "#00e5ff" }))
@@ -14282,14 +14294,14 @@ const Game = {
       }
 
       const dots = ".".repeat(1 + (Math.floor(performance.now() / 400) % 3));
-      g.font = `400 15px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
+      g.font = `500 15px ${FONT_MONO}`; g.fillStyle = "#d6d3ee";
       g.fillText(Net.status + (Net.mode === "connected" ? "" : dots), cx, 310);
 
       if (Net.mode === "connected") {
         g.font = `700 13px ${FONT_MONO}`; g.fillStyle = "#b6ff3b";
         g.fillText(Net.ping ? `CONNECTED  ·  ${Net.ping} ms round trip` : "CONNECTED", cx, 338);
         if (Net.isGuest) {
-          g.font = `400 13px ${FONT_MONO}`; g.fillStyle = UI.dim;
+          g.font = `500 13px ${FONT_MONO}`; g.fillStyle = UI.dim;
           g.fillText("If this takes more than a few seconds, ask the host to switch back to the game tab.", cx, 366);
         }
       }
@@ -14299,7 +14311,7 @@ const Game = {
         { Net.reset(); Snd.ui(); }
     }
 
-    if (btn(24, H - 76, 170, 44, "BACK", { color: "#8f8cb5" }))
+    if (btn(24, H - 76, 170, 44, "BACK", { color: "#aeabd4" }))
       { Net.reset(); this.screen = "title"; Snd.ui(); }
   },
 
@@ -14361,8 +14373,8 @@ const Game = {
       g.fillText(`P${i + 1} · ${role}`, sx + 14, sy + 22);
       const ping = Net.pingOf(i), relay = Net.relayOf(i);
       if (ping || relay) {
-        g.font = `400 9px ${FONT_MONO}`; g.textAlign = "right";
-        g.fillStyle = relay ? "#ffc83d" : "#6b6a85";
+        g.font = `500 10px ${FONT_MONO}`; g.textAlign = "right";
+        g.fillStyle = relay ? "#ffc83d" : "#8e8bb2";
         g.fillText(`${relay ? "RELAY · " : ""}${ping ? ping + " ms" : ""}`, sx + sw - 12, sy + 20);
         g.textAlign = "left";
       }
@@ -14370,7 +14382,7 @@ const Game = {
       g.fillStyle = off ? "#4a4866" : c.color;
       g.fillText(off ? "— EMPTY —" : c.name, sx + 122, sy + 62);
       if (!off) {
-        g.font = `700 8px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
+        g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#aeabd4";
         g.fillText(c.tag, sx + 122, sy + 76);
       }
       g.restore();
@@ -14388,12 +14400,12 @@ const Game = {
       if (host && !who) {
         [["OPEN", "off"], ["CPU", "cpu"]].forEach(([lab, m], k) => {
           if (btn(sx + 122 + k * 78, sy + 104, 72, 20, lab, {
-            active: s.mode === m, color: m === "cpu" ? "#ffc83d" : "#6b6a85",
+            active: s.mode === m, color: m === "cpu" ? "#ffc83d" : "#8e8bb2",
             font: `700 10px ${FONT_MONO}`,
           })) { Net.setSeatMode(i, m); if (m === "cpu") this.lobbySeat = i; Snd.ui(); }
         });
       } else if (who === "guest" && i !== mine && !host) {
-        g.save(); g.font = `400 9px ${FONT_MONO}`; g.fillStyle = "#6b6a85"; g.textAlign = "left";
+        g.save(); g.font = `500 10px ${FONT_MONO}`; g.fillStyle = "#8e8bb2"; g.textAlign = "left";
         g.fillText("connected", sx + 122, sy + 116); g.restore();
       }
       if (Mouse.click && Mouse.x > sx && Mouse.x < sx + 116 && Mouse.y > sy && Mouse.y < sy + sh
@@ -14436,11 +14448,11 @@ const Game = {
     g.textAlign = "center";
     g.font = `700 12px ${FONT_MONO}`; g.fillStyle = sc.color;
     g.fillText(`${sc.name} — ${sc.tag}`, W / 2, 422);
-    g.font = `400 12px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
+    g.font = `500 12px ${FONT_MONO}`; g.fillStyle = "#d6d3ee";
     let pl = wrapLines(g, sc.power || sc.blurb, W - 120);
-    if (pl.length > 1) { g.font = `400 10px ${FONT_MONO}`; pl = wrapLines(g, sc.power || sc.blurb, W - 120); }
+    if (pl.length > 1) { g.font = `500 10px ${FONT_MONO}`; pl = wrapLines(g, sc.power || sc.blurb, W - 120); }
     pl.slice(0, 2).forEach((ln, k) => g.fillText(ln, W / 2, (pl.length > 1 ? 436 : 440) + k * 12));
-    g.font = `400 11px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
+    g.font = `500 11px ${FONT_MONO}`; g.fillStyle = "#aeabd4";
     g.fillText(`SPECIAL  ${sc.special.name.toUpperCase()}   ·   SUPER  ${sc.super.name.toUpperCase()}`, W / 2, pl.length > 1 ? 463 : 457);
     g.restore();
 
@@ -14448,7 +14460,7 @@ const Game = {
     const py = 470;
     panel(g, 150, py, W - 300, 84, { cut: 12, fill: "#100d20", accent: "#ff2e88", accentA: 0.35 });
     g.save();
-    g.textAlign = "left"; g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
+    g.textAlign = "left"; g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#8e8bb2";
     g.fillText("MODE", 176, py + 24);
     g.fillText("STAGE", 640, py + 24);
     g.restore();
@@ -14487,7 +14499,7 @@ const Game = {
     const code = Net.code || "";
     const bx0 = 352, by0 = H - 92;
     g.save();
-    g.textAlign = "left"; g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#b6ff3b";
+    g.textAlign = "left"; g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#b6ff3b";
     g.fillText("ROOM CODE — FRIENDS TYPE THIS UNDER JOIN", bx0, by0 - 6);
     g.restore();
     for (let i = 0; i < 4; i++) {
@@ -14564,7 +14576,7 @@ const Game = {
 
     g.save();
     g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`;
-    g.fillStyle = "#6b6a85"; g.fillText("ESC TO RESUME", W / 2, 546);
+    g.fillStyle = "#8e8bb2"; g.fillText("ESC TO RESUME", W / 2, 546);
     g.restore();
   },
 
@@ -14586,7 +14598,7 @@ const Game = {
     g.shadowColor = winCol; g.shadowBlur = 34;
     outlineText(g, title, W / 2, 112, winCol, 11);
     g.shadowBlur = 0;
-    g.font = `700 12px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
+    g.font = `700 12px ${FONT_MONO}`; g.fillStyle = "#aeabd4";
     const how = r.suddenDeath ? "SUDDEN DEATH" : r.endedBy === "time" ? "TIME LIMIT"
               : r.teams ? "LAST TEAM STANDING" : "LAST FIGHTER STANDING";
     g.fillText(`${how}  ·  ${r.teams ? "2v2  ·  " : ""}${r.stage.name}`
@@ -14596,7 +14608,7 @@ const Game = {
     // x positions kept inside the row plate, which ends at W-110
     const cols = [["KOs", 556], ["FALLS", 664], ["DAMAGE", 788], ["SUPERS", 902], ["BEST HIT", 1024], ["STOCKS", 1134]];
     g.save();
-    g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
+    g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#8e8bb2";
     g.textAlign = "left"; g.fillText("FIGHTER", 140, 182);
     g.textAlign = "center";
     cols.forEach(([t, cx]) => g.fillText(t, cx, 182));
@@ -14673,7 +14685,7 @@ const Game = {
           { Net.reset(); this.screen = "title"; Snd.ui(); }
       }
       g.save();
-      g.textAlign = "center"; g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
+      g.textAlign = "center"; g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#8e8bb2";
       g.fillText(Net.isHost ? "ENTER = REMATCH  ·  ESC = LOBBY"
                             : "WAITING FOR THE HOST — REMATCH OR BACK TO THE LOBBY", W / 2, H - 16);
       g.restore();
@@ -14688,7 +14700,7 @@ const Game = {
       } else if (btn(W / 2 - 130, H - 82, 260, 46, "CONTINUE ▶", { color: "#b6ff3b", font: `700 17px ${FONT_MONO}` }))
         { this.screen = "tourney"; Snd.uiBig(); }
       g.save();
-      g.textAlign = "center"; g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
+      g.textAlign = "center"; g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#8e8bb2";
       g.fillText(tr.draw ? "A TOURNAMENT MATCH NEEDS A WINNER — PLAY IT AGAIN"
                          : `${Tourney.ROUND_NAMES[tr.round]} DONE  ·  ENTER TO RETURN TO THE BRACKET`, W / 2, H - 16);
       g.restore();
@@ -14699,7 +14711,7 @@ const Game = {
     if (btn(W / 2 - 100, H - 82, 200, 46, "CHANGE STAGE", { color: "#00e5ff" })) { this.screen = "stage"; Snd.ui(); }
     if (btn(W / 2 + 130, H - 82, 200, 46, "FIGHTERS", { color: "#ffc83d" })) { this.screen = "select"; Snd.ui(); }
     g.save();
-    g.textAlign = "center"; g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
+    g.textAlign = "center"; g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#8e8bb2";
     g.fillText("ENTER = REMATCH  ·  ESC = FIGHTER SELECT", W / 2, H - 16);
     g.restore();
   },
@@ -14718,9 +14730,9 @@ const Game = {
     if (this.rewardFor !== rw) { this.rewardFor = rw; this.rewardAt = performance.now(); Snd.blip(980); }
     const k = clamp((performance.now() - this.rewardAt) / 900, 0, 1);
     g.fillText(`+${Math.round(rw.total * k)}`, x + 46, y + h / 2 + 1);
-    g.font = `700 11px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
+    g.font = `700 11px ${FONT_MONO}`; g.fillStyle = "#d6d3ee";
     g.fillText(rw.lines.map(([l, n]) => `${l} +${n}`).join("   ·   "), x + 120, y + h / 2 + 1);
-    g.textAlign = "right"; g.fillStyle = "#8f8cb5";
+    g.textAlign = "right"; g.fillStyle = "#aeabd4";
     g.fillText(`BALANCE ${Profile.d.coins.toLocaleString()}`, x + w - 16, y + h / 2 + 1);
     g.restore();
   },
@@ -16304,13 +16316,13 @@ Object.assign(Game, {
     const ts = this.tsetup;
 
     g.save();
-    g.textAlign = "center"; g.font = `400 13px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
+    g.textAlign = "center"; g.font = `500 13px ${FONT_MONO}`; g.fillStyle = "#d6d3ee";
     g.fillText("Single elimination: three wins takes the trophy. CPUs fill the rest of the bracket.", W / 2, 128);
     g.fillText("Win matches for coins, plus a payout for how far you get — 150 for the champion.", W / 2, 148);
     g.restore();
 
     // how many people on this keyboard
-    g.save(); g.textAlign = "right"; g.font = `700 11px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
+    g.save(); g.textAlign = "right"; g.font = `700 11px ${FONT_MONO}`; g.fillStyle = "#8e8bb2";
     g.fillText("LOCAL PLAYERS", W / 2 - 150, 194); g.restore();
     for (let n = 1; n <= 4; n++) {
       if (btn(W / 2 - 136 + (n - 1) * 72, 172, 64, 34, String(n),
@@ -16339,7 +16351,7 @@ Object.assign(Game, {
       g.fillText(i === 0 && Profile.name ? `P1 · ${Profile.name}` : `PLAYER ${i + 1}`, x + cw / 2, y + 26);
       g.font = `900 26px ${FONT_DISPLAY}`;
       outlineText(g, c.name, x + cw / 2, y + 238, c.color, 6);
-      g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
+      g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#aeabd4";
       g.fillText(c.tag, x + cw / 2, y + 254);
       g.restore();
       const step = d => {
@@ -16457,11 +16469,11 @@ Object.assign(Game, {
           g.textAlign = "left";
           g.font = `900 16px ${FONT_DISPLAY}`; g.fillStyle = c.color;
           g.fillText(c.name, x + 54, y + 26);
-          g.font = `700 9px ${FONT_MONO}`; g.textAlign = "right";
+          g.font = `700 10px ${FONT_MONO}`; g.textAlign = "right";
           if (ent.human != null) {
             g.fillStyle = PLAYER_TINT[ent.human];
             g.fillText(ent.human === 0 && Profile.name ? Profile.name : `P${ent.human + 1}`, x + boxW - 12, y + 17);
-          } else { g.fillStyle = "#6b6a85"; g.fillText("CPU", x + boxW - 12, y + 17); }
+          } else { g.fillStyle = "#8e8bb2"; g.fillText("CPU", x + boxW - 12, y + 17); }
           const sk = (r - 1) + "-" + (i);   // stocks shown on the winner's box
           if (r > 0 && t.stocks[sk] != null) {
             g.fillStyle = "#b6ff3b";
@@ -16513,7 +16525,7 @@ Object.assign(Game, {
     g.restore();
 
     if (btn(70, H - 72, 180, 48, "◀ TITLE", { color: "#ff2e88" })) { this.screen = "title"; Snd.ui(); }
-    if (!done && btn(270, H - 72, 200, 48, "QUIT BRACKET", { color: "#6b6a85" }))
+    if (!done && btn(270, H - 72, 200, 48, "QUIT BRACKET", { color: "#8e8bb2" }))
       { this.tourney = null; this.screen = "title"; Snd.ui(); }
     if (!done && !Tourney.isHuman(t, nm) &&
         btn(W - 520, H - 72, 220, 48, alive >= 0 ? "SKIP TO MY MATCH" : "SIM TO THE END", { color: "#00e5ff" }))
@@ -16577,12 +16589,12 @@ Object.assign(Game, {
       g.textAlign = "left";
       g.font = `900 15px ${FONT_DISPLAY}`; g.fillStyle = "#f2f0ff";
       g.fillText(it.name, x + 110, y + 30);
-      g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
+      g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#aeabd4";
       g.fillText(it.kind === "skin" ? (it.prism ? "SHIFTS THROUGH EVERY COLOUR" : "PALETTE · ANY FIGHTER")
                : it.kind === "hat" ? "WORN ON EVERY FIGHTER" : "FOLLOWS YOU AROUND", x + 110, y + 46);
       if (!own) {
         coinIcon(g, x + 118, y + 64, 6);
-        g.font = `700 13px ${FONT_MONO}`; g.fillStyle = afford ? "#ffe9a8" : "#6b6a85";
+        g.font = `700 13px ${FONT_MONO}`; g.fillStyle = afford ? "#ffe9a8" : "#8e8bb2";
         g.fillText(String(it.price), x + 130, y + 69);
       }
       g.restore();
@@ -16632,7 +16644,7 @@ Object.assign(Game, {
     g.textAlign = "center";
     g.font = `900 28px ${FONT_DISPLAY}`;
     outlineText(g, c.name, px + pw / 2, py + 384, c.color, 6);
-    g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
+    g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#aeabd4";
     g.fillText("◀ ▶ TRY IT ON ANOTHER FIGHTER", px + pw / 2, py + 404);
     g.restore();
     const step = d => {
@@ -16647,9 +16659,9 @@ Object.assign(Game, {
 
     /* ---- footer ---- */
     g.save();
-    g.textAlign = "center"; g.font = `400 12px ${FONT_MONO}`;
+    g.textAlign = "center"; g.font = `500 12px ${FONT_MONO}`;
     const m = this.shopMsg && performance.now() - this.shopMsg.at < 2200 ? this.shopMsg.text : null;
-    g.fillStyle = m ? "#b6ff3b" : "#8f8cb5";
+    g.fillStyle = m ? "#b6ff3b" : "#aeabd4";
     g.fillText(m || (this.shopTab === "skin"
       ? "Skins are equipped per fighter — pick a fighter on the left, then EQUIP."
       : "Earn coins by playing: wins, KOs, damage dealt, supers and tournament runs all pay."),
@@ -16715,14 +16727,14 @@ Object.assign(Game, {
     g.save();
     g.textAlign = "center";
     g.font = `900 34px ${FONT_DISPLAY}`;
-    outlineText(g, Profile.name || "GUEST", ix + iw / 2, iy + 250, Profile.signedIn ? "#ffffff" : "#8f8cb5", 7);
+    outlineText(g, Profile.name || "GUEST", ix + iw / 2, iy + 250, Profile.signedIn ? "#ffffff" : "#aeabd4", 7);
     g.font = `700 10px ${FONT_MONO}`; g.fillStyle = Profile.signedIn ? "#b6ff3b" : "#ffc83d";
     g.fillText(Profile.signedIn ? "● SAVED TO YOUR ACCOUNT" : "SAVED ON THIS BROWSER ONLY", ix + iw / 2, iy + 268);
     g.restore();
     coinChip(g, d.coins, ix + iw / 2, iy + 280, "center");
 
     g.save();
-    g.textAlign = "center"; g.font = `400 11px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
+    g.textAlign = "center"; g.font = `500 11px ${FONT_MONO}`; g.fillStyle = "#aeabd4";
     if (Profile.status) { g.fillStyle = "#ffc83d"; g.fillText(Profile.status, ix + iw / 2, iy + 336); }
     else if (!Profile.signedIn) {
       g.fillText("Make an account to keep your coins, stats", ix + iw / 2, iy + 330);
@@ -16756,7 +16768,7 @@ Object.assign(Game, {
     rows.forEach(([k, v], i) => {
       const y = sy + 62 + i * 33;
       if (i % 2 === 0) { g.fillStyle = "rgba(255,255,255,.03)"; g.fillRect(sx + 14, y - 20, sw - 28, 30); }
-      g.font = `700 12px ${FONT_MONO}`; g.fillStyle = "#8f8cb5"; g.textAlign = "left";
+      g.font = `700 12px ${FONT_MONO}`; g.fillStyle = "#aeabd4"; g.textAlign = "left";
       g.fillText(k, sx + 24, y);
       g.font = `900 20px ${FONT_DISPLAY}`; g.fillStyle = "#f2f0ff"; g.textAlign = "right";
       g.fillText(String(v), sx + sw - 24, y + 2);
@@ -16769,11 +16781,11 @@ Object.assign(Game, {
     g.save();
     g.textAlign = "left"; g.font = `700 12px ${FONT_MONO}`; g.fillStyle = "#ff2e88";
     g.fillText("YOUR FIGHTERS", fx + 20, fy + 28);
-    g.font = `700 9px ${FONT_MONO}`; g.fillStyle = "#6b6a85"; g.textAlign = "right";
+    g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#8e8bb2"; g.textAlign = "right";
     g.fillText("PLAYED  WINS  KOs", fx + fw - 20, fy + 28);
     const mine = Object.entries(d.chars).sort((a, b) => b[1].p - a[1].p).slice(0, 5);
     if (!mine.length) {
-      g.textAlign = "left"; g.font = `400 12px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
+      g.textAlign = "left"; g.font = `500 12px ${FONT_MONO}`; g.fillStyle = "#8e8bb2";
       g.fillText("Play a match to start your record.", fx + 20, fy + 64);
     }
     mine.forEach(([id, r], i) => {
@@ -16793,9 +16805,9 @@ Object.assign(Game, {
     g.textAlign = "left"; g.font = `700 12px ${FONT_MONO}`; g.fillStyle = "#ffc83d";
     g.fillText("LEADERBOARD · MOST WINS", fx + 20, ly + 28);
     const board = Profile.board;
-    if (!board) { g.font = `400 12px ${FONT_MONO}`; g.fillStyle = "#6b6a85"; g.fillText("Loading…", fx + 20, ly + 60); }
+    if (!board) { g.font = `500 12px ${FONT_MONO}`; g.fillStyle = "#8e8bb2"; g.fillText("Loading…", fx + 20, ly + 60); }
     else if (!board.length) {
-      g.font = `400 12px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
+      g.font = `500 12px ${FONT_MONO}`; g.fillStyle = "#8e8bb2";
       g.fillText("No accounts yet — be the first.", fx + 20, ly + 60);
     }
     (board || []).slice(0, 8).forEach((row, i) => {
@@ -16804,7 +16816,7 @@ Object.assign(Game, {
       g.textAlign = "left"; g.font = `700 12px ${FONT_MONO}`;
       g.fillStyle = me ? "#b6ff3b" : i === 0 ? "#ffc83d" : "#d6d3ec";
       g.fillText(`${i + 1}. ${row.username}`, fx + 20, y);
-      g.textAlign = "right"; g.fillStyle = "#8f8cb5";
+      g.textAlign = "right"; g.fillStyle = "#aeabd4";
       g.fillText(`${row.wins} W`, fx + fw - 20, y);
     });
     g.restore();
@@ -16868,7 +16880,7 @@ Object.assign(Game, {
     const field = (key, label, y) => {
       const f = a[key], on = a.focus === key;
       g.save();
-      g.textAlign = "left"; g.font = `700 11px ${FONT_MONO}`; g.fillStyle = on ? col : "#8f8cb5";
+      g.textAlign = "left"; g.font = `700 11px ${FONT_MONO}`; g.fillStyle = on ? col : "#aeabd4";
       g.fillText(label, fx, y - 10);
       g.restore();
       panel(g, fx, y, fw, 52, { cut: 10, fill: on ? "#17132e" : "#100d20", accent: on ? col : UI.line,
@@ -16890,7 +16902,7 @@ Object.assign(Game, {
     field("pass", "PASSWORD", 300);
 
     g.save();
-    g.textAlign = "center"; g.font = `400 12px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
+    g.textAlign = "center"; g.font = `500 12px ${FONT_MONO}`; g.fillStyle = "#aeabd4";
     g.fillText("3-14 letters, numbers or _   ·   password at least 4 characters", cx, 378);
     g.fillText(signup ? "Your guest coins, stats and cosmetics move into the new account."
                       : "Logging in loads that account. Your guest progress stays on this browser.", cx, 398);
@@ -16904,7 +16916,7 @@ Object.assign(Game, {
     if (btn(fx, 516, fw, 40, "CANCEL", { color: "#ff2e88" })) { this.closeAccount("profile"); Snd.ui(); }
 
     g.save();
-    g.textAlign = "center"; g.font = `400 11px ${FONT_MONO}`; g.fillStyle = "#5d5b78";
+    g.textAlign = "center"; g.font = `500 11px ${FONT_MONO}`; g.fillStyle = "#7f7ca3";
     g.fillText("Don't reuse a password from another site. Passwords are stored hashed, never as text.", cx, H - 40);
     g.restore();
   },
@@ -16969,6 +16981,9 @@ function frame(now) {
 }
 
 Settings.load();
+/* Canvas text never asks for a web font by itself, so fetch the UI weights up
+   front; until they land the fallback face is drawn. */
+try { for (const w of [500, 600, 700]) document.fonts.load(`${w} 16px "Chakra Petch"`); } catch (e) {}
 Profile.boot();
 Profile.applyFavourite();
 Stage.select(STAGES[0]);

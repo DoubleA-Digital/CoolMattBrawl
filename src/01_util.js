@@ -76,4 +76,7 @@ function glow(ctx, color, blur, fn) {
 }
 
 const FONT_DISPLAY = '"Archivo Black", Impact, "Arial Narrow Bold", sans-serif';
-const FONT_MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+/* The UI face. It was the system monospace, which read as a terminal and was
+   hard to scan at small sizes; Chakra Petch has the same cut corners as the
+   panels. The name stays FONT_MONO so the many call sites need not change. */
+const FONT_MONO = '"Chakra Petch", "Segoe UI", system-ui, sans-serif';

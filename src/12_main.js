@@ -55,6 +55,9 @@ function frame(now) {
 }
 
 Settings.load();
+/* Canvas text never asks for a web font by itself, so fetch the UI weights up
+   front; until they land the fallback face is drawn. */
+try { for (const w of [500, 600, 700]) document.fonts.load(`${w} 16px "Chakra Petch"`); } catch (e) {}
 Profile.boot();
 Profile.applyFavourite();
 Stage.select(STAGES[0]);

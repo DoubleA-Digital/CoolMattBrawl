@@ -820,7 +820,7 @@ function drawPlayerHUD(fighters) {
     g.font = `700 13px ${FONT_MONO}`; g.textAlign = "left";
     g.fillStyle = "rgba(0,0,0,.45)"; g.fillText(f.ch.name, x + 44.5, y + 17.5);
     g.fillStyle = "#ffffff"; g.fillText(f.ch.name, x + 44, y + 17);
-    g.font = `700 9px ${FONT_MONO}`; g.textAlign = "right";
+    g.font = `700 10px ${FONT_MONO}`; g.textAlign = "right";
     g.fillStyle = "rgba(255,255,255,.75)";
     g.fillText(f.name && !f.isCPU ? f.name : `P${f.slot + 1}${f.isCPU ? "·CPU" : ""}`, x + cardW - 10, y + 17);
     if (f.team != null) {
@@ -904,7 +904,7 @@ function drawPlayerHUD(fighters) {
       bar(g, mx + 1, my + 1, mw - 2, 12, mk, col, { glow: 8, r: 3 });
     }
     ticks(g, mx, my + 1, mw, 12, 8, "#000000", 0.45);
-    g.font = `700 8px ${FONT_MONO}`; g.textAlign = "center";
+    g.font = `700 9px ${FONT_MONO}`; g.textAlign = "center";
     if (f.meterFull) {
       g.fillStyle = "#07060f";
       g.fillText("SUPER READY", mx + mw / 2, my + 10);

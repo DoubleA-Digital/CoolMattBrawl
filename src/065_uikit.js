@@ -17,8 +17,8 @@ const UI = {
   panel2:"#0c0a1c",
   line:  "#2c2745",
   text:  "#f2f0ff",
-  dim:   "#8f8cb5",
-  dimmer:"#6b6a85",
+  dim:   "#aeabd4",
+  dimmer:"#8e8bb2",
 };
 
 /* --------------------------------------------------------------- shapes */

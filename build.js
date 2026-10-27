@@ -44,7 +44,7 @@ const STYLE = `
 
 const FONTLINK =
   `<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n` +
-  `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&display=swap">`;
+  `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Chakra+Petch:wght@500;600;700&display=swap">`;
 
 const BODY =
   `<div id="wrap"><canvas id="cv"></canvas></div>\n` +
