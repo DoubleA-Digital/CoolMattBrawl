@@ -12,7 +12,7 @@ class Match {
     slots.forEach((s, i) => {
       if (s.mode === "off") return;
       this.fighters.push(new Fighter(i, s.charId, s.mode === "cpu",
-                                     this.teams ? (s.team || 0) : null));
+                                     this.teams ? (s.team || 0) : null, s));
     });
     Entities.reset();
     FX.reset();

@@ -130,16 +130,24 @@ const Game = {
   },
 
   start() {
+    if (!Net.active && this.tourney && this.tourney.cur) { this.startTourneyMatch(); return; }
     if (this.startProblem(this.slots, this.teams)) return;
     if (Net.active && Net.isHost) { Net.startMatch(); Snd.uiBig(); return; }
     if (Net.active && Net.isGuest) return;          // only the host may start
-    this.match = new Match(this.slots, STAGES[this.stageIndex], { teams: this.teams });
+    // P1 is whoever owns this browser's profile, so they wear its cosmetics
+    const slots = this.slots.map((s, i) => i === 0 && s.mode === "human"
+      ? Object.assign({}, s, { cos: Profile.cosFor(s.charId), name: Profile.name }) : s);
+    this.match = new Match(slots, STAGES[this.stageIndex], { teams: this.teams });
     this.screen = "match";
     Snd.uiBig();
   },
 
   toResults(match) {
+    const t = !Net.active && this.tourney;
+    const tr = t && t.cur && t.cur.match === match ? Tourney.onResults(t, match) : null;
+    const reward = Profile.recordMatch(match, tr && tr.p1Won ? [["TOURNAMENT WIN", 15]] : null);
     this.results = {
+      reward, tourney: tr,
       fighters: match.fighters.slice(),
       winner: match.winner,
       winTeam: match.winTeam,
@@ -178,6 +186,11 @@ const Game = {
         break;
       case "online":   this.updateOnline(); break;
       case "lobby":    this.updateLobby(); break;
+      case "tsetup":   this.updateTsetup(); break;
+      case "tourney":  this.updateTourney(); break;
+      case "shop":     this.updateShop(); break;
+      case "profile":  this.updateProfile(); break;
+      case "account":  this.updateAccount(); break;
       case "match":
         /* Online play pauses nobody: the other player is still fighting, so
            Escape leaves the match instead of freezing a fight they can see. */
@@ -199,6 +212,11 @@ const Game = {
           }
           break;
         }
+        if (this.results.tourney) {
+          if (Keys.pressed["Enter"]) { if (this.results.tourney.draw) this.start(); else { this.screen = "tourney"; Snd.ui(); } }
+          else if (Keys.pressed["Escape"]) { this.screen = "tourney"; Snd.ui(); }
+          break;
+        }
         if (Keys.pressed["Enter"]) this.start();
         if (Keys.pressed["Escape"]) { this.screen = "select"; Snd.ui(); }
         break;
@@ -216,6 +234,11 @@ const Game = {
       case "guide":    this.drawGuide(); break;
       case "online":   this.drawOnline(); break;
       case "lobby":    this.drawLobby(); break;
+      case "tsetup":   this.drawTsetup(); break;
+      case "tourney":  this.drawTourney(); break;
+      case "shop":     this.drawShop(); break;
+      case "profile":  this.drawProfile(); break;
+      case "account":  this.drawAccount(); break;
       case "match":    this.match.draw(alpha); break;
       case "pause":    this.match.draw(alpha); this.drawPause(); break;
       case "results":  this.drawResults(); break;
@@ -306,13 +329,38 @@ const Game = {
     if (btn(bx, 328, bw, 46, "PLAY ONLINE", { color: "#ff2e88", font: `700 17px ${FONT_MONO}` }))
       { Net.reset(); this.joinEntry = null; this.screen = "online"; Snd.uiBig(); }
 
-    const sw = 96, sgap = 6, sy = 384;
-    if (btn(bx, sy, sw, 38, "CONTROLS", { color: "#00e5ff", font: `700 12px ${FONT_MONO}` }))
+    if (btn(bx, 382, bw, 46, this.tourney ? "RESUME TOURNAMENT" : "TOURNAMENT",
+            { color: "#ffc83d", font: `700 17px ${FONT_MONO}` }))
+      { this.openTourney(); Snd.uiBig(); }
+    const hw = (bw - 6) / 2;
+    if (btn(bx, 436, hw, 40, "SHOP", { color: "#ffc83d", font: `700 14px ${FONT_MONO}` }))
+      { this.shopBack = "title"; this.openShop(); Snd.ui(); }
+    if (btn(bx + hw + 6, 436, hw, 40, "PROFILE", { color: "#00e5ff", font: `700 14px ${FONT_MONO}` }))
+      this.openProfile();
+
+    const sw = 96, sgap = 6, sy = 484;
+    if (btn(bx, sy, sw, 34, "CONTROLS", { color: "#00e5ff", font: `700 12px ${FONT_MONO}` }))
       { this.returnTo = "title"; this.screen = "controls"; Snd.ui(); }
-    if (btn(bx + sw + sgap, sy, sw, 38, "SETTINGS", { color: "#ffc83d", font: `700 12px ${FONT_MONO}` }))
+    if (btn(bx + sw + sgap, sy, sw, 34, "SETTINGS", { color: "#ffc83d", font: `700 12px ${FONT_MONO}` }))
       { this.returnTo = "title"; this.screen = "settings"; Snd.ui(); }
-    if (btn(bx + (sw + sgap) * 2, sy, sw, 38, "HOW TO PLAY", { color: "#8a7fff", font: `700 12px ${FONT_MONO}` }))
+    if (btn(bx + (sw + sgap) * 2, sy, sw, 34, "HOW TO PLAY", { color: "#8a7fff", font: `700 12px ${FONT_MONO}` }))
       { this.screen = "howto"; Snd.ui(); }
+
+    // who is playing, and their balance: click through to the profile
+    {
+      g.save();
+      g.font = `700 13px ${FONT_MONO}`;
+      const who = Profile.name || "GUEST";
+      const ww = g.measureText(who).width + 24;
+      const cwid = coinChip(g, Profile.d.coins, W - 24, 18, "right");
+      const nx = W - 24 - cwid - 8 - ww;
+      panel(g, nx, 18, ww, 32, { cut: 8, fill: "#17122a", accent: Profile.signedIn ? "#b6ff3b" : "#6b6a85", accentA: 0.8 });
+      g.fillStyle = Profile.signedIn ? "#ffffff" : "#8f8cb5"; g.textAlign = "left"; g.textBaseline = "middle";
+      g.fillText(who, nx + 12, 35);
+      g.restore();
+      if (Mouse.click && Mouse.y > 18 && Mouse.y < 50 && Mouse.x > nx && Mouse.x < W - 24)
+        { Mouse.click = false; this.openProfile(); }
+    }
 
     g.save();
     g.textAlign = "center"; g.font = `700 11px ${FONT_MONO}`;
@@ -396,6 +444,22 @@ const Game = {
         g.fillText("P" + (pi + 1), x + cw - 16, cy + 18.5 + k * 19);
       });
       g.restore();
+
+      // favourite star, top-left of the card
+      {
+        const fav = Profile.isFav(c.id);
+        const sx0 = x + 6, sy0 = cy + 5;
+        const sh = Mouse.x > sx0 && Mouse.x < sx0 + 24 && Mouse.y > sy0 && Mouse.y < sy0 + 22;
+        if (fav || hov) {
+          g.save();
+          g.textAlign = "center"; g.font = `700 17px ${FONT_MONO}`;
+          g.fillStyle = fav ? "#ffc83d" : sh ? "#ffe9a8" : "rgba(255,255,255,.35)";
+          if (fav) { g.shadowColor = "#ffc83d"; g.shadowBlur = 10; }
+          g.fillText(fav ? "★" : "☆", sx0 + 12, sy0 + 17);
+          g.restore();
+        }
+        if (sh && Mouse.click) { Mouse.click = false; Profile.toggleFav(c.id); Snd.ui(); }
+      }
 
       if (hov && Mouse.click) {
         const sl = this.slots[this.selIndex];
@@ -1122,15 +1186,17 @@ const Game = {
       g.fillStyle = hexA(tint, off ? 0.25 : 0.75); g.fillRect(sx, sy, 4, sh);
       if (!off) {
         g.translate(sx + 62, sy + sh - 22); g.scale(1.05, 1.05);
-        c.draw(g, { time: performance.now() / 16 + i * 30, runPhase: 0, running: false, air: false,
-                    vx: 0, vy: 0, state: ST.IDLE, flash: false, atkPhase: -1 });
+        Cosmetics.portrait(g, c, i === mine ? Profile.cosFor(c.id) : s.cos,
+          { time: performance.now() / 16 + i * 30, runPhase: 0, running: false, air: false,
+            vx: 0, vy: 0, state: ST.IDLE, flash: false, atkPhase: -1 });
       }
       g.restore();
 
       g.textAlign = "left";
       g.font = `700 12px ${FONT_MONO}`; g.fillStyle = tint;
-      const role = i === mine ? "YOU" : who === "host" ? "HOST" : who === "guest" ? "PLAYER"
-                 : s.mode === "cpu" ? "CPU" : "OPEN";
+      const nm = i === mine ? Profile.name : s.name;
+      const role = (i === mine ? "YOU" : who === "host" ? "HOST" : who === "guest" ? "PLAYER"
+                 : s.mode === "cpu" ? "CPU" : "OPEN") + (who && nm ? " · " + nm : "");
       g.fillText(`P${i + 1} · ${role}`, sx + 14, sy + 22);
       const ping = Net.pingOf(i), relay = Net.relayOf(i);
       if (ping || relay) {
@@ -1327,7 +1393,11 @@ const Game = {
       { this.returnTo = "pause"; this.screen = "controls"; Snd.ui(); }
     if (btn(bx, 378, 260, 42, "SETTINGS", { color: "#ffc83d" }))
       { this.returnTo = "pause"; this.screen = "settings"; Snd.ui(); }
-    if (btn(bx, 428, 260, 42, "CHANGE STAGE", { color: "#00e5ff" })) { this.screen = "stage"; Snd.ui(); }
+    const inTourney = !!(this.tourney && this.tourney.cur && this.tourney.cur.match === this.match);
+    if (inTourney) {
+      if (btn(bx, 428, 260, 42, "BACK TO BRACKET", { color: "#ffc83d" }))
+        { Snd.stopMusic(); this.screen = "tourney"; Snd.ui(); }
+    } else if (btn(bx, 428, 260, 42, "CHANGE STAGE", { color: "#00e5ff" })) { this.screen = "stage"; Snd.ui(); }
     if (btn(bx, 478, 260, 42, "QUIT TO TITLE", { color: "#ff2e88" }))
       { Snd.stopMusic(); this.screen = "title"; Snd.ui(); }
 
@@ -1405,13 +1475,14 @@ const Game = {
       g.translate(168, y + 14); g.scale(0.56, 0.56);
       f.ch.draw(g, { time: performance.now() / 16, runPhase: 0, running: false, air: false,
                      vx: 0, vy: 0, state: ST.IDLE, flash: false, atkPhase: -1 });
+      if (f.cos && f.cos.h) Cosmetics.drawHat(g, f.ch, f.cos.h, performance.now() / 16);
       g.restore();
 
       g.textAlign = "left";
       g.font = `900 26px ${FONT_DISPLAY}`; g.fillStyle = f.ch.color;
       g.fillText(f.ch.name, 196, y + 2);
       g.font = `700 10px ${FONT_MONO}`; g.fillStyle = f.tint;
-      g.fillText(`P${f.slot + 1}${f.isCPU ? " · CPU" : ""}`
+      g.fillText(`P${f.slot + 1}${f.isCPU ? " · CPU" : f.name ? " · " + f.name : ""}`
         + (f.team != null ? ` · ${TEAM_NAME[f.team]}` : ""), 196, y + 16);
       if (win) {
         g.font = `700 11px ${FONT_MONO}`; g.fillStyle = "#b6ff3b";
@@ -1426,6 +1497,8 @@ const Game = {
       g.restore();
       y += 64;
     });
+
+    this.drawReward(r.reward, y - 20);
 
     if (Net.active) {
       // online: only the host drives what happens next
@@ -1445,6 +1518,21 @@ const Game = {
       g.restore();
       return;
     }
+    if (r.tourney) {
+      const tr = r.tourney;
+      if (tr.draw) {
+        if (btn(W / 2 - 230, H - 82, 200, 46, "REPLAY MATCH", { color: "#b6ff3b", font: `700 16px ${FONT_MONO}` }))
+          this.start();
+        if (btn(W / 2 + 30, H - 82, 200, 46, "BRACKET", { color: "#ffc83d" })) { this.screen = "tourney"; Snd.ui(); }
+      } else if (btn(W / 2 - 130, H - 82, 260, 46, "CONTINUE ▶", { color: "#b6ff3b", font: `700 17px ${FONT_MONO}` }))
+        { this.screen = "tourney"; Snd.uiBig(); }
+      g.save();
+      g.textAlign = "center"; g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
+      g.fillText(tr.draw ? "A TOURNAMENT MATCH NEEDS A WINNER — PLAY IT AGAIN"
+                         : `${Tourney.ROUND_NAMES[tr.round]} DONE  ·  ENTER TO RETURN TO THE BRACKET`, W / 2, H - 16);
+      g.restore();
+      return;
+    }
     if (btn(W / 2 - 330, H - 82, 200, 46, "REMATCH", { color: "#b6ff3b", font: `700 17px ${FONT_MONO}` }))
       this.start();
     if (btn(W / 2 - 100, H - 82, 200, 46, "CHANGE STAGE", { color: "#00e5ff" })) { this.screen = "stage"; Snd.ui(); }
@@ -1452,6 +1540,27 @@ const Game = {
     g.save();
     g.textAlign = "center"; g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
     g.fillText("ENTER = REMATCH  ·  ESC = FIGHTER SELECT", W / 2, H - 16);
+    g.restore();
+  },
+
+  /** The coins this match paid, itemised, under the scoreboard. */
+  drawReward(rw, y) {
+    if (!rw) return;
+    y = Math.max(y, 300);
+    const x = 130, w = W - 240, h = 46;
+    panel(g, x, y, w, h, { cut: 10, fill: "#16112a", accent: "#ffc83d", accentA: 0.8, glow: 10 });
+    coinIcon(g, x + 26, y + h / 2, 10);
+    g.save();
+    g.textAlign = "left"; g.textBaseline = "middle";
+    g.font = `900 22px ${FONT_DISPLAY}`; g.fillStyle = "#ffe9a8";
+    // the total counts up over the first second on screen
+    if (this.rewardFor !== rw) { this.rewardFor = rw; this.rewardAt = performance.now(); Snd.blip(980); }
+    const k = clamp((performance.now() - this.rewardAt) / 900, 0, 1);
+    g.fillText(`+${Math.round(rw.total * k)}`, x + 46, y + h / 2 + 1);
+    g.font = `700 11px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
+    g.fillText(rw.lines.map(([l, n]) => `${l} +${n}`).join("   ·   "), x + 120, y + h / 2 + 1);
+    g.textAlign = "right"; g.fillStyle = "#8f8cb5";
+    g.fillText(`BALANCE ${Profile.d.coins.toLocaleString()}`, x + w - 16, y + h / 2 + 1);
     g.restore();
   },
 };

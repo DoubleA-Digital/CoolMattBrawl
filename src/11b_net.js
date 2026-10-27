@@ -279,6 +279,8 @@ const Net = {
     if (!gu) return;
     this.guests.splice(this.guests.indexOf(gu), 1);
     Game.slots[gu.slot].mode = "off";
+    // a CPU later put in this seat should not wear the leaver's cosmetics
+    delete Game.slots[gu.slot].cos; delete Game.slots[gu.slot].name;
     this.dirty = true;
     /* Mid-match, their fighter does not vanish — that would hand the match
        to whoever they were fighting. A CPU takes it over. */
@@ -324,6 +326,13 @@ const Net = {
         if ((d.team === 0 || d.team === 1) && Game.slots[gu.slot].team !== d.team) {
           Game.slots[gu.slot].team = d.team; this.dirty = true;
         }
+        if ("cos" in d) {
+          const sl = Game.slots[gu.slot];
+          const cos = Cosmetics.clean(d.cos), name = cleanName(d.name);
+          if (JSON.stringify(cos) !== JSON.stringify(sl.cos || null) || name !== (sl.name || "")) {
+            sl.cos = cos; sl.name = name; this.dirty = true;
+          }
+        }
         if (this.dirty && document.hidden) { this.dirty = false; this.broadcastRoom(); }
         break;
       case "in": {
@@ -344,7 +353,7 @@ const Net = {
     if (this.isGuest) {
       if (i !== this.slot) return;
       Game.slots[i].charId = charId;                  // optimistic; the room confirms
-      this.want = Object.assign({}, this.want, { charId });
+      this.want = Object.assign({}, this.want, { charId }, this.look(charId));
       this.sendPick();
       return;
     }
@@ -370,10 +379,21 @@ const Net = {
   setStage(i) { if (this.isHost) { Game.stageIndex = i; this.dirty = true; } },
   setPhase(p) { if (this.isHost) { this.phase = p; this.dirty = true; } },
 
+  /** What this player wears on a fighter, as it goes over the wire. */
+  look(charId) { return { cos: Profile.cosFor(charId), name: Profile.name }; },
+  /** The host's own seat wears the host's profile; the rest wear what their
+      players sent. */
+  seatLook(s, i) {
+    return i === 0 ? this.look(s.charId) : { cos: s.cos || null, name: s.name || "" };
+  },
+
   roomFor(gu) {
     return {
       t: "room", you: gu.slot, phase: this.phase, mid: this.mid,
-      slots: Game.slots.map(s => [s.charId, s.mode, s.team || 0]),
+      slots: Game.slots.map((s, i) => {
+        const lk = this.seatLook(s, i);
+        return [s.charId, s.mode, s.team || 0, lk.cos, lk.name];
+      }),
       seats: [0, 1, 2, 3].map(i => this.seatOf(i)),
       teams: Game.teams, stage: Game.stageIndex,
       setup: this.phase === "lobby" ? null : this.setup,
@@ -393,7 +413,8 @@ const Net = {
     this.mid++;
     this.setup = {
       mid: this.mid,
-      slots: Game.slots.map(s => ({ charId: s.charId, mode: s.mode, team: s.team || 0 })),
+      slots: Game.slots.map((s, i) => Object.assign({ charId: s.charId, mode: s.mode, team: s.team || 0 },
+                                                    this.seatLook(s, i))),
       stage: Game.stageIndex,
       teams: Game.teams,
     };
@@ -410,7 +431,7 @@ const Net = {
     this.role = "guest"; this.mode = "joining";
     this.code = (code || "").toUpperCase();
     this.status = "looking for room " + this.code;
-    this.want = { charId: Game.slots[0].charId };
+    this.want = Object.assign({ charId: Game.slots[0].charId }, this.look(Game.slots[0].charId));
     this.loadLib().then(() => {
       this.peer = this.makePeer();
       this.peer.on("error", e => {
@@ -449,7 +470,9 @@ const Net = {
   },
   sendPick() {
     if (!this.want) return;
-    this.send({ t: "pick", charId: this.want.charId, team: this.want.team });
+    const id = this.want.charId || Game.slots[this.slot].charId;
+    this.send({ t: "pick", charId: this.want.charId, team: this.want.team,
+                cos: this.want.cos !== undefined ? this.want.cos : Profile.cosFor(id), name: Profile.name });
   },
 
   onHostData(d) {
@@ -477,17 +500,21 @@ const Net = {
     this.seated = true;
     Game.teams = !!r.teams;
     Game.stageIndex = r.stage;
-    Game.slots = r.slots.map(([charId, mode, team], i) => {
+    Game.slots = r.slots.map(([charId, mode, team, cos, name], i) => {
+      cos = Cosmetics.clean(cos); name = cleanName(name);
       // keep our own optimistic pick until the host has caught up with it
       if (i === this.slot && this.want) {
         return { charId: this.want.charId || charId, mode,
-                 team: this.want.team == null ? team : this.want.team };
+                 team: this.want.team == null ? team : this.want.team,
+                 cos: this.want.cos !== undefined ? this.want.cos : cos, name };
       }
-      return { charId, mode, team };
+      return { charId, mode, team, cos, name };
     });
     const mine = r.slots[this.slot];
     if (this.want && (!this.want.charId || this.want.charId === mine[0]) &&
-        (this.want.team == null || this.want.team === mine[2])) this.want = null;
+        (this.want.team == null || this.want.team === mine[2]) &&
+        (this.want.cos === undefined ||
+         JSON.stringify(Cosmetics.clean(mine[3])) === JSON.stringify(this.want.cos))) this.want = null;
 
     if (r.phase === "match" && r.setup && (this.mid !== r.setup.mid || !Game.match)) {
       if (Game.screen !== "match" || this.mid !== r.setup.mid) this.beginLocal(r.setup);
@@ -505,7 +532,8 @@ const Net = {
   beginLocal(setup) {
     this.mid = setup.mid;
     this.setup = setup;
-    Game.slots = setup.slots.map(s => ({ charId: s.charId, mode: s.mode, team: s.team }));
+    Game.slots = setup.slots.map(s => ({ charId: s.charId, mode: s.mode, team: s.team,
+                                         cos: Cosmetics.clean(s.cos), name: cleanName(s.name) }));
     Game.stageIndex = setup.stage;
     Game.teams = !!setup.teams;
     Game.match = new Match(Game.slots, STAGES[setup.stage], { teams: setup.teams });

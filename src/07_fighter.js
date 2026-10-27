@@ -16,10 +16,13 @@ let HITID = 1;
 const ANCHOR_FRAMES = 180;
 
 class Fighter {
-  /** team is 0 or 1 in a 2v2, and null in free-for-all. */
-  constructor(slot, charId, isCPU, team) {
+  /** team is 0 or 1 in a 2v2, and null in free-for-all. look is the
+      player's cosmetics ({ cos, name }); it changes nothing but the paint. */
+  constructor(slot, charId, isCPU, team, look) {
     this.slot = slot;
-    this.ch = CHAR_BY_ID[charId];
+    this.cos = Cosmetics.clean(look && look.cos);
+    this.name = cleanName(look && look.name);
+    this.ch = Cosmetics.skinned(CHAR_BY_ID[charId], this.cos && this.cos.s);
     this.isCPU = isCPU;
     this.team = team == null ? null : team;
     this.pad = new Pad(slot);

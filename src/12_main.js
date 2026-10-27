@@ -55,6 +55,8 @@ function frame(now) {
 }
 
 Settings.load();
+Profile.boot();
+Profile.applyFavourite();
 Stage.select(STAGES[0]);
 
 /* Pasting into the join box takes a bare code or a whole invite link. */

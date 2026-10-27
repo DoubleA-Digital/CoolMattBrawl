@@ -565,6 +565,8 @@ function drawFighter(f, alpha) {
     g.restore();
   }
 
+  if (f.cos && f.cos.t) Cosmetics.drawTrail(g, f, rx, ry, f.cos.t);
+
   // afterimage trail
   if (f.trail.length) {
     g.save(); g.globalCompositeOperation = "lighter";
@@ -628,6 +630,7 @@ function drawFighter(f, alpha) {
     g.globalAlpha = (mine ? 0.42 : 0.1) + 0.06 * Math.sin(f.animTime * 0.3);
   }
   ch.draw(g, A);
+  if (f.cos && f.cos.h) Cosmetics.drawHat(g, ch, f.cos.h, f.animTime);
   g.restore();
 
   drawStatus(f, rx, ry);
@@ -819,7 +822,7 @@ function drawPlayerHUD(fighters) {
     g.fillStyle = "#ffffff"; g.fillText(f.ch.name, x + 44, y + 17);
     g.font = `700 9px ${FONT_MONO}`; g.textAlign = "right";
     g.fillStyle = "rgba(255,255,255,.75)";
-    g.fillText(`P${f.slot + 1}${f.isCPU ? "·CPU" : ""}`, x + cardW - 10, y + 17);
+    g.fillText(f.name && !f.isCPU ? f.name : `P${f.slot + 1}${f.isCPU ? "·CPU" : ""}`, x + cardW - 10, y + 17);
     if (f.team != null) {
       // a team-coloured lip along the card's top edge
       g.save();
@@ -837,6 +840,7 @@ function drawPlayerHUD(fighters) {
     g.translate(px0 + 16, py0 + 30); g.scale(0.52, 0.52);
     f.ch.draw(g, { time: f.animTime, runPhase: 0, running: false, air: false,
                    vx: 0, vy: 0, state: ST.IDLE, flash: false, atkPhase: -1 });
+    if (f.cos && f.cos.h) Cosmetics.drawHat(g, f.ch, f.cos.h, f.animTime);
     g.restore();
     notchPath(g, px0, py0, 32, 32, 7);
     g.strokeStyle = UI.ink; g.lineWidth = 2.5; g.stroke();

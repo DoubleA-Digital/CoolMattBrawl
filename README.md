@@ -24,6 +24,14 @@ Canvas, vanilla JS, zero external assets.
 - The last 30 seconds are a **Frenzy** (meter fills twice as fast), and a
   time-out with the stocks level goes to **Sudden Death** at 150%.
 - Rebindable controls for all four players, gamepads, and CPU opponents.
+- **Tournament mode**: an 8-fighter single-elimination bracket for 1-4 local
+  players, with CPUs filling the rest and a payout for how far you get.
+- **Profile and coins**: lifetime stats, per-fighter records and favourite
+  fighters (your top favourite is P1's default). Every match pays coins for
+  playing, winning, KOs, damage and supers. Play as a guest, or sign up so your
+  progress follows you to any device.
+- **Cosmetics shop**: 9 skins (including an animated Prism), 8 hats and 5
+  trails, bought with coins. Your look and username show to everyone online.
 
 Play it: open `index.html`, or https://doublea-digital.github.io/CoolMattBrawl/
 
