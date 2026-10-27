@@ -473,7 +473,7 @@ const CPU = {
        only touch whoever is close. A CPU that fires them blind wastes them. */
     const superRange = { ZIP: 900, KITE: 900, HUSK: 460, PIVOT: 260, ORBIT: 300, MIRA: 120,
                          BOLDER: 200, RIME: 220, HEX: 1200, SHADE: 1200, VEX: 150, FUSE: 150,
-                         RICO: 600, SPROUT: 1200, ECHO: 400, TEMPO: 190 }[f.ch.id] || 320;
+                         RICO: 600, SPROUT: 1200, ECHO: 400, TEMPO: 190 }[f.ch.id] || f.ch.cpuSuperRange || 320;
     // Overgrowth only catches foes who are standing on something
     const superOk = f.ch.id === "SPROUT" ? foes.some(o => o.grounded)
                   : f.ch.id === "BOLDER" ? f.grounded : true;
@@ -520,6 +520,8 @@ const CPU = {
         // rewind out of trouble: high damage, or off the stage
         case "ECHO":    if (f.percent > 60 || !onStage && f.y > Stage.pivot.y) press("special"); break;
         case "TEMPO":   if (adx < 150 || (target.shielding() && adx < 170)) press("special"); break;
+        // the third wave carries its own hint
+        default:        if (f.ch.cpuSpecial && f.ch.cpuSpecial(f, target, bd)) press("special");
       }
     }
     if (f.state === ST.GRABBED && ai.t % 3 === 0) press("light");

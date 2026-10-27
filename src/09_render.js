@@ -599,6 +599,8 @@ function drawFighter(f, alpha) {
     atkActive: atk ? atk.data.active : 0,
     atkTotal: atk ? atk.total : 0,
     move: atk ? atk.data : null,
+    v: f.v || {},                // the fighter's own scratch state (third-wave roster)
+    percent: f.percent,
   };
 
   g.save();

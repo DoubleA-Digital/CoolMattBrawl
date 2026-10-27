@@ -88,6 +88,17 @@ function screenTitleBar(sub, title, accent) {
   g.restore();
 }
 
+/** Break text into lines no wider than maxW in the current font. */
+function wrapLines(g, text, maxW) {
+  const out = []; let line = "";
+  for (const w of text.split(" ")) {
+    const t = line ? line + " " + w : w;
+    if (line && g.measureText(t).width > maxW) { out.push(line); line = w; } else line = t;
+  }
+  if (line) out.push(line);
+  return out;
+}
+
 const Game = {
   screen: "title",
   match: null,
@@ -252,7 +263,8 @@ const Game = {
       const x = W / 2 + lx * Math.cos(a), y = H * 0.84 + lx * Math.sin(a);
       g.save();
       g.translate(x, y - 22); g.rotate(a);
-      g.scale(0.62, 0.62);
+      const ls = 0.62 * Math.min(1, Math.sqrt(16 / n));   // 32 fighters share the beam
+      g.scale(ls, ls);
       c.draw(g, { time: this.titleT + i * 40, runPhase: 0, running: false, air: false,
                   vx: 0, vy: 0, state: ST.IDLE, flash: false, atkPhase: -1 });
       g.restore();
@@ -316,10 +328,10 @@ const Game = {
     g.save(); g.fillStyle = "rgba(6,5,14,.68)"; g.fillRect(0, 0, W, H); g.restore();
     screenTitleBar("COOL MATT GAMES", "CHOOSE YOUR FIGHTERS");
 
-    /* Sixteen fighters: an 8x2 grid of compact portrait cards. Stats and the
-       full write-up for whoever you are pointing at go in the panel
-       underneath, which is where there is room to explain a character. */
-    const cols = 8, cw = 140, chh = 136, gapX = 10, gapY = 14;
+    /* Thirty-two fighters: a 16x2 grid of narrow portrait cards. The tag,
+       stats and full write-up for whoever you are pointing at go in the
+       panel underneath, which is where there is room to explain a character. */
+    const cols = 16, cw = 72, chh = 136, gapX = 5, gapY = 14;
     const gridW = cols * cw + (cols - 1) * gapX;
     const gx0 = (W - gridW) / 2, gy0 = 104;
     let hoverChar = null;
@@ -348,9 +360,9 @@ const Game = {
       wq.addColorStop(1, hexA(c.color, 0));
       g.fillStyle = wq; g.fillRect(x, cy, cw, chh);
       g.globalAlpha = 0.07;
-      g.font = `900 96px ${FONT_DISPLAY}`; g.textAlign = "center";
+      g.font = `900 72px ${FONT_DISPLAY}`; g.textAlign = "center";
       g.fillStyle = c.color;
-      g.fillText(c.name[0], x + cw / 2, cy + 90);
+      g.fillText(c.name[0], x + cw / 2, cy + 84);
       g.restore();
 
       /* The portrait, clipped to the card: several fighters are wider than
@@ -358,28 +370,30 @@ const Game = {
       g.save();
       notchPath(g, x + 2, cy + 2, cw - 4, chh - 4, 10); g.clip();
       g.translate(x + cw / 2, cy + chh - 46);
-      const sc2 = hov ? 1.22 : 1.12;
+      const sc2 = hov ? 1.0 : 0.92;
       g.scale(sc2, sc2);
       c.draw(g, { time: performance.now() / 16 + i * 20, runPhase: 0, running: false,
                   air: false, vx: 0, vy: 0, state: ST.IDLE, flash: false, atkPhase: -1 });
       g.restore();
 
       g.textAlign = "center";
-      g.font = `900 17px ${FONT_DISPLAY}`;
+      // the longest names (BULWARK, SPROUT) shrink to fit the narrow card
+      let np = 13;
+      g.font = `900 ${np}px ${FONT_DISPLAY}`;
+      const nw = g.measureText(c.name).width;
+      if (nw > cw - 10) { np = Math.floor(np * (cw - 10) / nw); g.font = `900 ${np}px ${FONT_DISPLAY}`; }
       g.shadowColor = c.color; g.shadowBlur = hov ? 12 : 6;
-      outlineText(g, c.name, x + cw / 2, cy + chh - 18, c.color, 5);
+      outlineText(g, c.name, x + cw / 2, cy + chh - 10, c.color, 4);
       g.shadowBlur = 0;
-      g.font = `700 7px ${FONT_MONO}`;
-      g.fillStyle = "#8f8cb5"; g.fillText(c.tag, x + cw / 2, cy + chh - 7);
 
       picked.forEach((pi, k) => {
         g.save();
-        notchPath(g, x + cw - 30, cy + 7 + k * 19, 24, 16, 4);
+        notchPath(g, x + cw - 28, cy + 7 + k * 19, 24, 16, 4);
         g.fillStyle = PLAYER_TINT[pi];
         g.shadowColor = PLAYER_TINT[pi]; g.shadowBlur = 12; g.fill();
         g.restore();
         g.fillStyle = "#07060f"; g.font = `700 9px ${FONT_MONO}`; g.textAlign = "center";
-        g.fillText("P" + (pi + 1), x + cw - 18, cy + 18.5 + k * 19);
+        g.fillText("P" + (pi + 1), x + cw - 16, cy + 18.5 + k * 19);
       });
       g.restore();
 
@@ -471,7 +485,10 @@ const Game = {
       g.font = `700 8px ${FONT_MONO}`; g.fillStyle = "#6b6a85";
       g.fillText("POWER", 110, dy + 66);
       g.font = `400 12px ${FONT_MONO}`; g.fillStyle = sc.accent;
-      g.fillText(sc.power, 158, dy + 66);
+      // the third wave's powers run long: two tighter lines instead of one
+      let pl = wrapLines(g, sc.power, W - 110 - 158);
+      if (pl.length > 1) { g.font = `400 11px ${FONT_MONO}`; pl = wrapLines(g, sc.power, W - 110 - 158); }
+      pl.slice(0, 2).forEach((ln, k) => g.fillText(ln, 158, dy + (pl.length > 1 ? 61 : 66) + k * 13));
     }
 
     const moves = [
@@ -1157,8 +1174,8 @@ const Game = {
       sx += sw + sgap;
     });
 
-    /* ---- the roster, two rows: click to give the selected seat that fighter ---- */
-    const per = 8, cw = 140, cgap = 8, ch = 76;
+    /* ---- the roster, two rows of 16: click to give the selected seat that fighter ---- */
+    const per = 16, cw = 72, cgap = 5, ch = 76;
     const rowX = (W - (per * cw + (per - 1) * cgap)) / 2;
     const seatChar = this.slots[this.lobbySeat].charId;
     ROSTER.forEach((c, i) => {
@@ -1172,12 +1189,16 @@ const Game = {
         accentA: on ? 1 : hov ? 0.8 : 0.35, glow: on ? 16 : hov ? 10 : 0 });
       g.save();
       notchPath(g, cx + 2, cy + 2, cw - 4, ch - 4, 9); g.clip();
-      g.translate(cx + 34, cy + ch - 14); g.scale(0.82, 0.82);
+      g.translate(cx + cw / 2, cy + 36); g.scale(0.66, 0.66);
       c.draw(g, { time: performance.now() / 16, runPhase: 0, running: false, air: false,
                   vx: 0, vy: 0, state: ST.IDLE, flash: false, atkPhase: -1 });
       g.restore();
-      g.textAlign = "left"; g.font = `900 14px ${FONT_DISPLAY}`;
-      outlineText(g, c.name, cx + 66, cy + 42, c.color, 4);
+      g.textAlign = "center";
+      let np = 11;
+      g.font = `900 ${np}px ${FONT_DISPLAY}`;
+      const nw = g.measureText(c.name).width;
+      if (nw > cw - 8) { np = Math.floor(np * (cw - 8) / nw); g.font = `900 ${np}px ${FONT_DISPLAY}`; }
+      outlineText(g, c.name, cx + cw / 2, cy + ch - 7, c.color, 3);
       g.restore();
       if (hov && Mouse.click) { Net.pick(this.lobbySeat, c.id); Snd.ui(); }
     });
@@ -1189,9 +1210,11 @@ const Game = {
     g.font = `700 12px ${FONT_MONO}`; g.fillStyle = sc.color;
     g.fillText(`${sc.name} — ${sc.tag}`, W / 2, 422);
     g.font = `400 12px ${FONT_MONO}`; g.fillStyle = "#b7b4d4";
-    g.fillText(sc.power || sc.blurb, W / 2, 440);
+    let pl = wrapLines(g, sc.power || sc.blurb, W - 120);
+    if (pl.length > 1) { g.font = `400 10px ${FONT_MONO}`; pl = wrapLines(g, sc.power || sc.blurb, W - 120); }
+    pl.slice(0, 2).forEach((ln, k) => g.fillText(ln, W / 2, (pl.length > 1 ? 436 : 440) + k * 12));
     g.font = `400 11px ${FONT_MONO}`; g.fillStyle = "#8f8cb5";
-    g.fillText(`SPECIAL  ${sc.special.name.toUpperCase()}   ·   SUPER  ${sc.super.name.toUpperCase()}`, W / 2, 457);
+    g.fillText(`SPECIAL  ${sc.special.name.toUpperCase()}   ·   SUPER  ${sc.super.name.toUpperCase()}`, W / 2, pl.length > 1 ? 463 : 457);
     g.restore();
 
     /* ---- match settings: the host sets them, guests read them ---- */

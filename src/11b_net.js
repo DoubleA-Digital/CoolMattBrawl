@@ -126,6 +126,8 @@ function maskFromPad(pad) {
 
 const ENT_KINDS = ["orb", "wave", "well", "draft", "ice", "hex", "bomb", "payload",
                    "disc", "rdisc", "flower", "ghost", "ring", "doom", "tether"];
+// every kind added since (08b+) joins on the end, in the same order everywhere
+for (const k of Object.keys(KINDS)) if (!ENT_KINDS.includes(k)) ENT_KINDS.push(k);
 
 const Net = {
   mode: "off",            // off | hosting | joining | connected | error
@@ -661,7 +663,9 @@ const Net = {
         aj: f.airJumps, ff: f.fastFalling ? 1 : 0, dt: f.dropThrough,
         sq: f.squatHeld ? 1 : 0, rd: f.rollDir || 0, lh: f.attack ? f.attack.lastHitFrame : 0,
         // status effects: [chill, frozen, curse, root, stealth, echo, ambush]
-        fx: [f.slowT, f.frozenT, f.curseT, f.rootT, f.stealthT, f.echoT, f.ambushT],
+        fx: [f.slowT, f.frozenT, f.curseT, f.rootT, f.stealthT, f.echoT, f.ambushT,
+             f.burnT, f.markT, f.markBy ? f.markBy.slot : -1],
+        cv: f.v,
         sx: [f.stats.kos, f.stats.falls, r2(f.stats.damageDealt), f.stats.supers, r2(f.stats.bestHit)],
       })),
     };
@@ -782,6 +786,9 @@ const Net = {
     const s = fd.fx || [];
     f.slowT = s[0] || 0; f.frozenT = s[1] || 0; f.curseT = s[2] || 0; f.rootT = s[3] || 0;
     f.stealthT = s[4] || 0; f.echoT = s[5] || 0; f.ambushT = s[6] || 0;
+    f.burnT = s[7] || 0; f.markT = s[8] || 0;
+    f.markBy = s[9] >= 0 && Game.match ? Game.match.fighters.find(o => o.slot === s[9]) || null : null;
+    if (fd.cv) f.v = fd.cv;
   },
   applyStats(f, fd) {
     f.stats.kos = fd.sx[0]; f.stats.falls = fd.sx[1]; f.stats.damageDealt = fd.sx[2];

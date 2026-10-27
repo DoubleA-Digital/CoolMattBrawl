@@ -3,7 +3,7 @@
 A 2-4 player platform fighter for Cool Matt Games, local or online. HTML5
 Canvas, vanilla JS, zero external assets.
 
-- 16 fighters, each with their own moveset, special and super. The originals
+- 32 fighters, each with their own moveset, special and super. The originals
   (BOLDER, ZIP, ORBIT, PIVOT, KITE, HUSK, MIRA) plus nine built on mechanics
   nobody else has: RIME (freezing), HEX (curses), SHADE (stealth), VEX
   (lifesteal), FUSE (sticky bombs and a countdown Payload — replaces Ballast),

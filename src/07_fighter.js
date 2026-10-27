@@ -57,6 +57,11 @@ class Fighter {
     this.ambushT = 0;         // Shade: the next hit out of stealth is stronger
     this.echoT = 0;           // Echo's Deja Vu: damage taken now comes back later
     this.echoDmg = 0; this.echoBy = null;
+    this.burnT = 0; this.burnBy = null;   // Magma: on fire, takes damage over time
+    this.markT = 0; this.markBy = null;   // a generic "marked" status a fighter can own
+    /* Scratch state the third wave of fighters keeps on themselves (charge,
+       combo count, polarity...). Small and flat: it ships in every snapshot. */
+    if (full || !this.v) this.v = {};
     this.posHist = [];        // Echo: where she has been, for Recall
     this.specialCD = 0;
     this.pinned = false;
@@ -96,6 +101,16 @@ class Fighter {
     if (this.rootT > 0 && (--this.rootT === 0 || !this.grounded)) this.rootT = 0;
     if (this.stealthT > 0) this.stealthT--;
     if (this.ambushT > 0) this.ambushT--;
+    if (this.burnT > 0) {
+      this.burnT--;
+      if (this.burnT % 6 === 0) FX.spark(this.x + rnd(-12, 12), this.y + rnd(-22, 14), pick(["#ff7a1a", "#ffd23d"]));
+      if (this.burnT % 20 === 0 && this.alive && this.state !== ST.DEAD) {
+        this.percent += 1; this.hitFlash = 2;
+        if (this.burnBy) this.burnBy.stats.damageDealt += 1;
+      }
+      if (this.burnT === 0) this.burnBy = null;
+    }
+    if (this.markT > 0 && --this.markT === 0) this.markBy = null;
     if (this.echoT > 0 && --this.echoT === 0) this.echoBack();
     if (this.ch.recall) {
       this.posHist.push({ x: this.x, y: this.y, p: this.percent });
@@ -773,6 +788,7 @@ class Fighter {
     this.moveLog = []; this.armorDamage = 0; this.launchFx = 0;
     this.slowT = this.frozenT = this.curseT = this.rootT = 0;
     this.stealthT = this.ambushT = this.echoT = 0; this.echoDmg = 0; this.posHist.length = 0;
+    this.burnT = this.markT = 0; this.burnBy = this.markBy = null;
     if (this.grabTarget) this.releaseGrab();
     if (this.grabbedBy) this.grabbedBy.releaseGrab();
     match.onKO(this);
