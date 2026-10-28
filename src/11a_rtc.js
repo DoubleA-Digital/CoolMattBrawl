@@ -14,9 +14,14 @@
    opened within p2pTimeout, that one player is moved onto a RELAY: a private
    Supabase channel between them and the host. Supabase bills every relayed
    message twice (once sent, once received) against a 100/second quota, so the
-   relay runs lean — about 8 snapshots a second (the guest smooths between
-   them), inputs only when they change, lobby updates at most twice a second.
-   Direct players are untouched and still get every frame.
+   relay runs on a budget: the whole room spends about relayBudget billed
+   messages a second, split between however many players are relayed. A lone
+   relayed guest (the usual case: two friends on two computers) gets around
+   20 snapshots a second; three share it. Inside that budget the relay spends
+   messages where they matter: an input goes the moment a button changes, a
+   snapshot goes the moment someone is hit, and idle traffic waits.
+   Direct players still get every frame, unless their link is backing up, in
+   which case snapshots are skipped rather than queued (a queue is lag).
 
    RtcPeer / RtcConn deliberately mirror the slice of the PeerJS API that Net
    uses — on("open" | "connection" | "error"), connect(), send(), close(),
@@ -40,11 +45,19 @@ const RTC = {
   p2pTimeout: 6000,       // host answered but no direct link yet: use the relay
   relayTimeout: 12000,    // even the relay never came up
   serverTimeout: 10000,   // the matchmaking channel itself never came up
-  // relay pacing (ms between messages of each kind, per player)
-  relaySnapEvery: 125,
-  relayRoomEvery: 500,
-  relayInEvery: 70,
-  relayIdleEvery: 110,    // unchanged input is re-sent this often (within the 10-frame history)
+  /* Relay budget. Supabase's free plan allows 100 realtime messages a
+     second across the whole project, and bills a broadcast twice (sent and
+     received), so a room keeps itself to relayBudget billed messages a second
+     and leaves headroom for other rooms and games. */
+  relayBudget: 76,
+  relaySnapShare: 0.62,   // of a lone relayed player's share, how much goes to snapshots
+  relaySnapShareMany: 0.42, // ...and when several share it: late inputs hurt more than sparse snapshots
+  relayBurst: 3,          // messages that can be saved up for a flurry
+  relayMinGap: 30,        // ms: even a burst is spaced at least this far
+  relayRoomEvery: 500,    // lobby updates (every 2 seconds during a match)
+  relayIdleEvery: 300,    // an unchanged input is still re-sent this often
+  relayHistory: 30,       // inputs carried in each relayed input message
+  directBacklog: 48000,   // bytes queued on a direct link before snapshots are skipped
   forceRelay: false,      // testing: skip the direct attempt entirely
 };
 
@@ -155,30 +168,72 @@ class RtcConn extends Emitter {
     if (!this.relayCh || this.done) return;
     this.relayCh.send({ type: "broadcast", event: "m", payload: Object.assign({ from: this.peer.id }, payload) });
   }
-  /** Relay sends are paced so a match stays inside Supabase's message quota. */
+  /** How many messages a second this link may send of one kind. The host
+      knows how many of its guests are relayed; a guest is told in the room. */
+  relayRate(kind) {
+    const n = Math.max(1, this.peer.isHost
+      ? [...this.peer.conns.values()].filter(c => c.relay && c.open).length
+      : (this.relayPeers || 1));
+    const each = RTC.relayBudget / 2 / n;                // a broadcast is billed twice
+    const share = n === 1 ? RTC.relaySnapShare : RTC.relaySnapShareMany;
+    return kind === "s" ? each * share : each * (1 - share);
+  }
+  /** A token bucket per kind: refills at rate/s, holds up to relayBurst. */
+  relayTake(kind, now) {
+    const b = this.pace[kind] || (this.pace[kind] = { tokens: RTC.relayBurst, at: now, last: 0 });
+    b.tokens = Math.min(RTC.relayBurst, b.tokens + (now - b.at) / 1000 * this.relayRate(kind));
+    b.at = now;
+    return b;
+  }
+  /** Relay sends are budgeted so a match stays inside Supabase's message
+      quota, and spent on what the players would notice first. */
   relaySend(obj) {
-    const now = performance.now(), p = this.pace;
+    const now = performance.now();
     if (obj.t === "s") {
-      if (now - (p.s || 0) < RTC.relaySnapEvery) return;
-      p.s = now;
+      // on a schedule, or right away when a hit landed (obj.u)
+      const b = this.relayTake("s", now), gap = now - b.last;
+      if (obj.u) b.urgent = true;          // held until a snapshot actually goes
+      const due = gap >= 1000 / this.relayRate("s") || (b.urgent && gap >= RTC.relayMinGap);
+      if (!due || b.tokens < 1) return;
+      b.tokens--; b.last = now; b.urgent = false;
     } else if (obj.t === "room") {
-      if (now - (p.room || 0) < RTC.relayRoomEvery) return;
-      p.room = now;
-    } else if (obj.t === "in") {
-      /* Every input message repeats the last several frames, so the paced
-         sends below never leave a gap: no press is lost, and the host still
-         applies every frame in order. Idle resends stay within that window. */
-      const k = obj.h ? obj.h[obj.h.length - 1] : obj.k;
-      const changed = k !== p.lastK;
-      if (now - (p.in || 0) < (changed ? RTC.relayInEvery : RTC.relayIdleEvery)) return;
-      p.lastK = k; p.in = now;
+      const every = Game.screen === "match" ? 2000 : RTC.relayRoomEvery;
+      if (now - (this.pace.room || 0) < every) return;
+      this.pace.room = now;
+    } else if (obj.t === "in" && obj.h) {
+      /* Every input message carries the last relayHistory frames, so no press
+         is lost however the sends below are spaced. A change goes at once;
+         an unchanged input is only re-sent now and then, so the host's ack
+         keeps moving. If the budget runs dry the window still forces a send
+         before any frame could fall out of it. */
+      const b = this.relayTake("in", now), p = this.pace;
+      const fresh = obj.s - (p.inSeq || 0);
+      const recent = fresh > 0 ? obj.h.slice(-Math.min(fresh, obj.h.length)) : [];
+      const dirty = recent.some(k => k !== p.inK);
+      const gap = now - b.last;
+      const must = fresh >= obj.h.length - 4;
+      const go = must || (b.tokens >= 1 && (dirty ? gap >= RTC.relayMinGap : gap >= RTC.relayIdleEvery));
+      if (!go) return;
+      b.tokens = Math.max(-1, b.tokens - 1); b.last = now;
+      p.inSeq = obj.s; p.inK = obj.h[obj.h.length - 1];
+    } else if (obj.t === "ping" || obj.t === "pong") {
+      // pings are a luxury on the relay: one every few seconds is plenty
+      if (obj.t === "ping") {
+        if (now - (this.pace.ping || 0) < 3000) return;
+        this.pace.ping = now;
+      }
     }
     this.relayRaw({ d: obj });
   }
 
   send(obj) {
     if (this.relay) { if (this.open) this.relaySend(obj); return; }
-    if (this.dc && this.dc.readyState === "open") this.dc.send(JSON.stringify(obj));
+    if (!this.dc || this.dc.readyState !== "open") return;
+    /* A slow link fills the send buffer, and everything queued behind it
+       arrives later and later. Snapshots are replaced by the next one every
+       frame anyway, so while the link is backed up they are simply dropped. */
+    if (obj.t === "s" && this.dc.bufferedAmount > RTC.directBacklog) return;
+    this.dc.send(JSON.stringify(obj));
   }
   close() {
     try { if (this.dc) this.dc.close(); } catch (e) {}

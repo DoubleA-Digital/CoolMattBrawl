@@ -55,8 +55,10 @@ const NET = {
   Peer: null,             // transport override for the headless tests; RtcPeer otherwise
   netDelay: 0,            // frames the host delays its own input by (none)
   projectMax: 8,          // frames other fighters may be projected ahead
+  projectMaxRelay: 14,    // ...and over the relay, where snapshots are further apart
   inHistory: 10,          // inputs repeated in every message, so a lost one is never missed
   queueMax: 3,            // host: inputs a guest may be buffered behind before it catches up
+  queueHard: 6,           // ...unless those inputs are all presses and releases, kept up to this many
   replayMax: 90,          // guest: never replay more frames than this; just adopt the host state
   maxGuests: 3,           // four fighters in all
   roomEvery: 15,          // frames between room-state rebroadcasts
@@ -93,7 +95,16 @@ class NetPad {
     this.lastSeq = this.lastSeq || 0;
     for (let i = 0; i < hist.length; i++) {
       const s = seq - (hist.length - 1 - i);
-      if (s > this.lastSeq) { this.queue.push([s, hist[i] | 0]); this.lastSeq = s; }
+      if (s <= this.lastSeq) continue;
+      this.lastSeq = s;
+      const m = hist[i] | 0;
+      /* While no input was waiting, the fighter carried on with the last one
+         (see `rep` in poll). Inputs that turn out to match those frames were
+         already played: count them as done instead of playing them twice.
+         The first that differs ends it, and plays as normal. */
+      if (this.rep > 0 && !this.queue.length && m === this.mask) { this.rep--; this.ack = s; continue; }
+      this.rep = 0;
+      this.queue.push([s, m]);
     }
     // a fighter that is out polls nothing; don't let its queue grow forever
     if (this.queue.length > 60) this.queue.splice(0, this.queue.length - 60);
@@ -101,9 +112,29 @@ class NetPad {
   poll() {
     const q = this.queue;
     if (q && q.length) {
-      while (q.length > NET.queueMax) { const [s, m] = q.shift(); this.latch |= m; this.ack = s; }
+      /* Too far behind: catch up by dropping frames that repeat the one
+         before them — that loses no press or release. When every queued frame
+         is a change (someone mashing through a burst of late inputs), they are
+         kept a little longer rather than merged, because a merged tap is a
+         lost press; only past queueHard are the oldest folded into the latch. */
+      while (q.length > NET.queueMax) {
+        let i = 0, prev = this.mask;
+        while (i < q.length - 1 && q[i][1] !== prev) prev = q[i++][1];
+        if (q[i][1] === prev && i < q.length - 1) {
+          if (i === 0) this.ack = q[0][0];
+          q.splice(i, 1);
+          continue;
+        }
+        if (q.length <= NET.queueHard) break;
+        const [s, m] = q.shift(); this.latch |= m; this.ack = s;
+      }
       const [s, m] = q.shift();
       this.mask = m; this.ack = s;
+    } else {
+      /* Nothing new has arrived: repeat the last input, and count how many
+         frames ahead of the guest's inputs that puts us. Snapshots report it,
+         so the guest's prediction does not play those frames a second time. */
+      this.rep = (this.rep || 0) + 1;
     }
     this.prev = Object.assign({}, this.cur);
     const eff = this.mask | this.latch;
@@ -128,6 +159,30 @@ const ENT_KINDS = ["orb", "wave", "well", "draft", "ice", "hex", "bomb", "payloa
                    "disc", "rdisc", "flower", "ghost", "ring", "doom", "tether"];
 // every kind added since (08b+) joins on the end, in the same order everywhere
 for (const k of Object.keys(KINDS)) if (!ENT_KINDS.includes(k)) ENT_KINDS.push(k);
+
+/* ---- snapshot packing ----
+   A snapshot per frame per guest is most of the traffic, and a message that
+   fits one network packet is far less likely to be lost than one split over
+   two. Most fighter fields are zero most of the time, so zeros, nulls and
+   untouched status arrays are left out and filled back in on arrival. */
+const FD_ZERO = ["x", "y", "vx", "vy", "tt", "sp", "sk", "sh", "mr", "hs", "iv", "gr", "al", "rt", "hf",
+                 "cd", "rp", "at", "ag", "pn", "cpu", "att", "ato", "aq", "rq", "aj", "ff", "dt", "sq", "rd", "lh"];
+const FX_REST = [0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0];
+function packFd(o) {
+  for (const k of FD_ZERO) if (!o[k]) delete o[k];
+  if (o.ak == null) delete o.ak;
+  if (o.fx && o.fx.every((v, i) => v === FX_REST[i])) delete o.fx;
+  if (o.cv && !Object.keys(o.cv).length) delete o.cv;
+  if (o.sx === undefined) delete o.sx;
+  return o;
+}
+function unpackFd(o) {
+  for (const k of FD_ZERO) if (o[k] === undefined) o[k] = 0;
+  if (o.ak === undefined) o.ak = null;
+  if (!o.fx) o.fx = FX_REST.slice();
+  if (!o.cv) o.cv = {};
+  return o;
+}
 
 const Net = {
   mode: "off",            // off | hosting | joining | connected | error
@@ -396,6 +451,8 @@ const Net = {
       }),
       seats: [0, 1, 2, 3].map(i => this.seatOf(i)),
       teams: Game.teams, stage: Game.stageIndex, items: Game.items,
+      // how many guests share the relay budget, so each can pace its inputs
+      rn: this.guests.filter(x => x.conn.relay && x.conn.open).length,
       setup: this.phase === "lobby" ? null : this.setup,
     };
   },
@@ -502,6 +559,7 @@ const Net = {
     Game.teams = !!r.teams;
     Game.stageIndex = r.stage;
     this.roomItems = r.items !== false;
+    if (this.conn && r.rn) this.conn.relayPeers = r.rn;
     Game.slots = r.slots.map(([charId, mode, team, cos, name], i) => {
       cos = Cosmetics.clean(cos); name = cleanName(name);
       // keep our own optimistic pick until the host has caught up with it
@@ -637,7 +695,8 @@ const Net = {
     this.hist.push([this.seq, mask]);
     if (this.hist.length > 120) this.hist.shift();
     this.send({ t: "in", m: this.mid, s: this.seq,
-                h: this.hist.slice(-NET.inHistory).map(e => e[1]) });
+                h: this.hist.slice(-(this.conn && this.conn.relay ? RTC.relayHistory : NET.inHistory))
+                             .map(e => e[1]) });
     this.liveMask = mask;
     this.applySnapshot();
     FX.update(Game.match.fighters);
@@ -661,8 +720,17 @@ const Net = {
   snapshot() {
     const m = Game.match;
     const r2 = v => Math.round(v * 100) / 100;
+    /* Urgent: someone was hit or KO'd, something spawned or went off, or a
+       banner went up. The relay sends these at once instead of on schedule. */
+    const sig = m.fighters.map(f => `${Math.round(f.percent)},${f.stocks},${f.state === ST.HITSTUN ? 1 : 0}`).join("|")
+              + `|${Entities.list.length}|${Items.list.length}|${m.over ? 1 : 0}`;
+    const urgent = sig !== this.lastSig || this.events.length > 0;
+    this.lastSig = sig;
+    /* Match stats only matter on the results screen: each fighter's go out
+       every 20th frame, staggered so no one snapshot carries all four. */
+    const stats = f => (this.frame + f.slot * 5) % 20 === 0 || m.over;
     return {
-      t: "s", m: this.mid, f: this.frame,
+      t: "s", m: this.mid, f: this.frame, u: urgent ? 1 : undefined,
       st: [Stage.platT, Stage.flashT],
       // live platform state, only the fields that can change
       pf: Stage.pfx.map(s => [r2(s.dx), s.present ? 1 : 0, r2(s.heat),
@@ -678,20 +746,20 @@ const Net = {
       ev: this.events.length ? this.events.slice() : undefined,
       it: Items.list.map(i => [i.id, ITEM_IDS.indexOf(i.kind), Math.round(i.x), Math.round(i.y),
                                i.landed ? 1 : 0, i.life, i.t]),
-      fs: m.fighters.map(f => ({
+      fs: m.fighters.map(f => packFd({
         s: f.slot,
         x: r2(f.x), y: r2(f.y), vx: r2(f.vx), vy: r2(f.vy),
         fa: f.facing, st: f.state, tt: f.stateTimer, sp: r2(f.percent), sk: f.stocks,
         sh: r2(f.shield), mr: r2(f.meter), hs: f.hitstun, iv: f.invuln,
         gr: f.grounded ? 1 : 0, al: f.alive ? 1 : 0, rt: f.respawnTimer,
-        hf: f.hitFlash, cd: f.specialCD, rp: r2(f.runPhase), at: f.animTime,
+        hf: f.hitFlash, cd: f.specialCD, rp: r2(f.runPhase), at: Math.round(f.animTime),
         ag: f.anchorGlow, pn: f.pinned ? 1 : 0, cpu: f.isCPU ? 1 : 0,
         ak: f.attack ? f.attack.kind : null,
         att: f.attack ? f.attack.t : 0,
         ato: f.attack ? f.attack.total : 0,
         // for the owning guest's prediction: the last input applied, and the
         // movement state that is not otherwise visible
-        aq: (f.pad && f.pad.ack) || 0,
+        aq: (f.pad && f.pad.ack) || 0, rq: (f.pad && f.pad.rep) || 0,
         aj: f.airJumps, ff: f.fastFalling ? 1 : 0, dt: f.dropThrough,
         sq: f.squatHeld ? 1 : 0, rd: f.rollDir || 0, lh: f.attack ? f.attack.lastHitFrame : 0,
         // status effects: [chill, frozen, curse, root, stealth, echo, ambush]
@@ -699,8 +767,8 @@ const Net = {
              f.burnT, f.markT, f.markBy ? f.markBy.slot : -1,
              BUFF_IDS.indexOf(f.buff), f.buffT],
         cv: f.v,
-        sx: [f.stats.kos, f.stats.falls, r2(f.stats.damageDealt), f.stats.supers, r2(f.stats.bestHit),
-             f.stats.smashes, f.stats.bestCombo, f.stats.items],
+        sx: stats(f) ? [f.stats.kos, f.stats.falls, r2(f.stats.damageDealt), f.stats.supers, r2(f.stats.bestHit),
+                     f.stats.smashes, f.stats.bestCombo, f.stats.items] : undefined,
       })),
     };
   },
@@ -710,6 +778,7 @@ const Net = {
   applySnapshot() {
     const snap = this.snapCur;
     if (!snap || !Game.match) return;
+    if (!snap._unpacked) { snap.fs = snap.fs.map(unpackFd); snap._unpacked = true; }
     const m = Game.match;
     const fresh = !this.lastSeen || this.lastSeen.f !== snap.f;
 
@@ -746,14 +815,18 @@ const Net = {
     /* How stale the snapshot is. The best live measure is our own input
        stream: inputs sent minus inputs the host reports applied is the round
        trip in frames, refreshed every snapshot (the ping only updates once a
-       second). Half of it is how far behind the snapshot already is. */
+       second). Half of it is how far behind the snapshot already is.
+       Over the relay an unchanged input is only re-sent now and then, so the
+       ack lags on purpose there; the measured ping is the honest figure. */
     const mine = snap.fs.find(x => x.s === this.slot);
-    if (fresh && mine && mine.aq) {
+    const relayed = !!(this.conn && this.conn.relay);
+    if (fresh && mine && mine.aq && !relayed) {
       const rtt = clamp(this.seq - mine.aq, 0, 40);
       this.lagFrames = this.lagFrames == null ? rtt : lerp(this.lagFrames, rtt, 0.1);
     }
-    const halfTrip = this.lagFrames != null ? this.lagFrames / 2 : (this.ping || 0) / 33.3;
-    const age = clamp(halfTrip + (performance.now() - (this.snapAt || 0)) / 16.67, 0, NET.projectMax);
+    const halfTrip = this.lagFrames != null && !relayed ? this.lagFrames / 2 : (this.ping || 0) / 33.3;
+    const age = clamp(halfTrip + (performance.now() - (this.snapAt || 0)) / 16.67, 0,
+                      relayed ? NET.projectMaxRelay : NET.projectMax);
     this.ease = this.ease || {};
     Entities.list = (snap.en || []).map(e => ({
       kind: ENT_KINDS[e[0]], owner: bySlot(e[1]), x: e[2], y: e[3], r: e[4],
@@ -839,6 +912,7 @@ const Net = {
     if (fd.cv) f.v = fd.cv;
   },
   applyStats(f, fd) {
+    if (!fd.sx) return;                     // only every 20th snapshot carries a fighter's
     f.stats.kos = fd.sx[0]; f.stats.falls = fd.sx[1]; f.stats.damageDealt = fd.sx[2];
     f.stats.supers = fd.sx[3]; f.stats.bestHit = fd.sx[4];
     f.stats.smashes = fd.sx[5] || 0; f.stats.bestCombo = fd.sx[6] || 0; f.stats.items = fd.sx[7] || 0;
@@ -927,7 +1001,8 @@ const Net = {
 
     if (fresh || !this.predicting) {
       const ack = fd.aq || 0;
-      const pending = this.hist.filter(e => e[0] > ack && e[0] < this.seq);
+      // the host already ran rq frames past ack on our last input: skip those
+      const pending = this.hist.filter(e => e[0] > ack + (fd.rq || 0) && e[0] < this.seq);
       if (pending.length > NET.replayMax) return false;
       // rewind to what the host has, then catch up on what it has not seen
       this.loadOwn(f, fd);
