@@ -16619,8 +16619,29 @@ const Net = {
     const age = clamp(halfTrip + (performance.now() - (this.snapAt || 0)) / 16.67, 0,
                       relayed ? NET.projectMaxRelay : NET.projectMax);
     this.ease = this.ease || {};
-    Entities.list = (snap.en || []).map(e => ({
-      kind: ENT_KINDS[e[0]], owner: bySlot(e[1]), x: e[2], y: e[3], r: e[4],
+    /* Projectiles are carried forward like fighters. A snapshot only says
+       where each one is, so its speed comes from where the same kind, from
+       the same owner, sat in the previous snapshot. Without this, every shot
+       stepped along at the snapshot rate — a stutter over the relay. */
+    if (fresh && !snap._ev) {
+      const prev = this.entPrev, df = prev ? Math.max(1, snap.f - prev.f) : 1;
+      snap._ev = (snap.en || []).map(e => {
+        let best = null, bd = 90 * df;
+        if (prev) for (const q of prev.en) {
+          if (q[0] !== e[0] || q[1] !== e[1]) continue;
+          const d = Math.hypot(e[2] - q[2], e[3] - q[3]);
+          if (d < bd) { bd = d; best = q; }
+        }
+        if (!best) return [0, 0];
+        const vx = (e[2] - best[2]) / df, vy = (e[3] - best[3]) / df;
+        return Math.hypot(vx, vy) > 40 ? [0, 0] : [vx, vy];
+      });
+      this.entPrev = { f: snap.f, en: snap.en || [] };
+    }
+    const ev = snap._ev || [];
+    Entities.list = (snap.en || []).map((e, i) => ({
+      kind: ENT_KINDS[e[0]], owner: bySlot(e[1]),
+      x: e[2] + (ev[i] ? ev[i][0] * age : 0), y: e[3] + (ev[i] ? ev[i][1] * age : 0), r: e[4],
       life: e[5], dir: e[6], landed: !!e[7], storm: !!e[8], max: e[9], w: e[10], hitIds: [],
     })).filter(e => e.owner && e.kind);
 
@@ -16635,7 +16656,10 @@ const Net = {
         FX.burst(i.x, i.y - 18, 18, ITEMS[i.kind].color, 6);
         Snd.tone(660, 0.07, "square", 0.12, 1320);
       }
-    } else for (const i of Items.list) { i.t++; if (i.life > 0) i.life--; }
+    } else for (const i of Items.list) {
+      i.t++; if (i.life > 0) i.life--;
+      if (!i.landed) i.y += ITEM_CFG.fall;           // keep a falling capsule falling
+    }
 
     // ---- banners the host raised (a predicted special already showed its own) ----
     if (fresh && snap.ev) for (const [text, color] of snap.ev)
@@ -16679,6 +16703,28 @@ const Net = {
       this.applyStats(f, fd);
       this.findGround(f);
       this.applyAttack(f, fd);
+      /* The pose catches up too. Between snapshots (a twentieth of a second
+         apart over the relay) the run cycle and an attack's swing used to hold
+         still while the fighter slid along, then jump: the choppiness guests
+         saw. They advance by the same frames the position was projected. */
+      /* Snapshots never arrive perfectly evenly, so the clocks are not set
+         straight from them (that stuttered on a direct link too): each one
+         ticks a frame at a time like the host's, and is nudged toward where
+         the snapshot says it should be. */
+      const k = Math.round(age);
+      if (fd.al) {
+        const spin = fd.gr && Math.abs(fd.vx) > 0.5 ? Math.abs(fd.vx) * 0.09 : 0;
+        const wantT = fd.at + age, wantR = fd.rp + spin * age;
+        const nt = e.t == null ? wantT : e.t + 1, nr = e.r == null ? wantR : spin ? e.r + spin : e.r * 0.85;
+        e.t = Math.abs(wantT - nt) > 20 ? wantT : nt + (wantT - nt) * 0.25;
+        e.r = Math.abs(wantR - nr) > 6 ? wantR : nr + (wantR - nr) * 0.25;
+        f.animTime = e.t; f.runPhase = e.r;
+        if (k > 0) {
+          if (fd.hs > 0) f.hitstun = Math.max(1, fd.hs - k);
+          if (fd.hf > 0) f.hitFlash = Math.max(0, fd.hf - k);
+          if (f.attack && fd.ato) f.attack.t = Math.min(fd.att + k, Math.max(fd.att, fd.ato - 1));
+        }
+      } else e.t = e.r = null;
       this.deltaFx(f, fd, before, fresh);
       if (f.hitstun > 0 || fd.ak === "super")
         f.trail.push({ x: f.x, y: f.y, facing: f.facing, life: 10 });
