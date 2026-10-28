@@ -16,6 +16,8 @@ const FX = {
   flashCol: null, flashAmt: 0,
   chroma: 0,                 // red/blue separation, decays every frame
   bannerText: "", bannerTimer: 0, bannerColor: "#fff",
+  slow: 0,                   // sim steps of slow motion left (a match-ending SMASH)
+  kickAmt: 0, kickX: 0, kickY: 0,   // a quick camera lunge toward a big hit
 
   cam: {
     x: 800, y: 440, zoom: 0.9,
@@ -30,6 +32,7 @@ const FX = {
     this.cracks.length = 0; this.glyphs.length = 0;
     this.shakeMag = 0; this.pause = 0; this.bannerTimer = 0;
     this.flashAmt = 0; this.chroma = 0;
+    this.slow = 0; this.kickAmt = 0;
     const c = this.cam;
     c.x = c.px = Stage.pivot.x;
     c.y = c.py = Stage.pivot.y - 150;
@@ -44,6 +47,23 @@ const FX = {
   },
   hitPause(f) { this.pause = Math.max(this.pause, f); },
   flash(col, amt) { this.flashCol = col; this.flashAmt = Math.max(this.flashAmt, amt); },
+  /** Lunge the camera toward (x, y) and zoom in by amt, then ease back. It
+      rides the shake setting: anyone who turned shake off wants a still view. */
+  kick(x, y, amt) {
+    const k = Math.min(1, Settings.get("shakeAmount"));
+    if (k <= 0) return;
+    if (amt * k >= this.kickAmt) { this.kickX = x; this.kickY = y; }
+    this.kickAmt = Math.min(0.3, Math.max(this.kickAmt, amt * k));
+  },
+  /** Slow the simulation for this many steps (offline only; see Game.timeScale). */
+  slowmo(steps) { this.slow = Math.max(this.slow, steps); },
+  /** "3 HIT COMBO!" over whoever is on the receiving end. */
+  combo(x, y, n, color) {
+    for (const t of this.texts) if (t.combo) t.life = Math.min(t.life, 6);   // only the latest count shows
+    this.texts.push({ x, y, vy: -0.8, life: 54, max: 54, text: `${n} HIT COMBO!`, color,
+                      combo: n });
+    Snd.tone(520 + n * 90, 0.08, "square", 0.1, 900 + n * 120);
+  },
   /** Kick the chromatic aberration. Heavy hits, KOs and supers. */
   punch(amt) { this.chroma = Math.min(1, this.chroma + amt); },
   banner(text, color) {
@@ -223,6 +243,8 @@ const FX = {
     this.chroma *= 0.80;
     if (this.chroma < 0.01) this.chroma = 0;
     if (this.bannerTimer > 0) this.bannerTimer--;
+    this.kickAmt *= 0.9;
+    if (this.kickAmt < 0.002) this.kickAmt = 0;
 
     this.updateCamera(fighters);
   },
@@ -279,9 +301,14 @@ const FX = {
   /** Camera transform, interpolated between fixed steps for smooth motion. */
   applyCamera(g, alpha) {
     const c = this.cam;
-    const x = lerp(c.px, c.x, alpha);
-    const y = lerp(c.py, c.y, alpha);
-    const z = lerp(c.pz, c.zoom, alpha);
+    let x = lerp(c.px, c.x, alpha);
+    let y = lerp(c.py, c.y, alpha);
+    let z = lerp(c.pz, c.zoom, alpha);
+    if (this.kickAmt > 0) {
+      const k = Math.min(0.6, this.kickAmt * 2.4);
+      x = lerp(x, this.kickX, k); y = lerp(y, this.kickY, k);
+      z *= 1 + this.kickAmt;
+    }
     g.translate(W / 2 + this.shakeX, H / 2 + this.shakeY);
     g.scale(z, z);
     g.translate(-x, -y);
@@ -451,6 +478,14 @@ const FX = {
     for (const t of this.texts) {
       const a = Math.min(1, t.life / t.max * 1.8);
       g.globalAlpha = a;
+      if (t.combo) {
+        // pops in big, then settles
+        const age = t.max - t.life;
+        const pop = age < 6 ? 1.5 - age * 0.08 : 1;
+        g.font = `900 ${Math.round((22 + Math.min(t.combo, 8) * 2) * pop)}px ${FONT_DISPLAY}`;
+        outlineText(g, t.text, t.x, t.y, t.color, 7);
+        continue;
+      }
       g.font = t.small ? `900 12px ${FONT_MONO}`
                        : `900 ${20 + (1 - t.life / t.max) * 6}px ${FONT_DISPLAY}`;
       outlineText(g, t.text, t.x, t.y, t.color, t.small ? 4 : 5);

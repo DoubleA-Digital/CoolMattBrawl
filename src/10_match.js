@@ -3,7 +3,8 @@
    ========================================================================== */
 
 class Match {
-  /** opts.teams turns on 2v2: each slot's team field picks its side. */
+  /** opts.teams turns on 2v2: each slot's team field picks its side.
+      opts.items: false keeps power-ups from dropping. */
   constructor(slots, stageDef, opts) {
     Match.current = this;
     Stage.select(stageDef);
@@ -15,6 +16,7 @@ class Match {
                                      this.teams ? (s.team || 0) : null, s));
     });
     Entities.reset();
+    Items.reset(!opts || opts.items !== false);
     FX.reset();
     this.countdown = 170;
     this.over = false; this.endTimer = 0;
@@ -83,6 +85,7 @@ class Match {
       }
     }
     Entities.reset();
+    Items.list.length = 0;
     this.suddenDeath = true; this.frenzy = false;
     this.timeLeft = CFG.suddenDeathSeconds * 60;
     FX.banner("SUDDEN DEATH", "#ff2e88");
@@ -105,6 +108,7 @@ class Match {
   update() {
     // Hit pause freezes the simulation but keeps FX alive. Inputs are not
     // polled here, so a press during the freeze still lands on the next frame.
+    if (FX.slow > 0) FX.slow--;
     if (FX.pause > 0) { FX.pause--; FX.update(this.fighters); return; }
 
     if (this.countdown > 0) {
@@ -141,6 +145,7 @@ class Match {
     for (const f of this.fighters) f.update(this);
     Combat.resolve(this.fighters);
     Entities.update(this.fighters);
+    Items.update(this.fighters);
     Stage.update(this.fighters);
     FX.update(this.fighters);
   }
@@ -151,6 +156,7 @@ class Match {
     const cam = FX.applyCamera(g, alpha);
     drawStage(alpha);
     Entities.draw(g);
+    Items.draw(g);
     for (const f of this.fighters) drawFighter(f, alpha);
     FX.drawWorld(g);
     g.restore();

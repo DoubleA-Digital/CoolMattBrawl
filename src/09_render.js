@@ -583,6 +583,20 @@ function drawFighter(f, alpha) {
     g.restore();
   }
 
+  /* Danger: past 100% one clean hit can take the stock. A red pulse behind
+     the body says so without anyone having to read the HUD, and it beats
+     faster the closer they are to flying. */
+  if (f.percent >= 100 && f.state !== ST.RESPAWN) {
+    const k = clamp((f.percent - 100) / 80, 0, 1);
+    const rr = ch.hurt * (1.7 + k * 0.5);
+    g.save(); g.globalCompositeOperation = "lighter";
+    g.globalAlpha = (0.2 + 0.18 * k) * (0.55 + 0.45 * Math.sin(f.animTime * (0.1 + k * 0.12)));
+    const q = g.createRadialGradient(rx, ry, rr * 0.25, rx, ry, rr);
+    q.addColorStop(0, "#ff2e4f"); q.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = q; g.beginPath(); g.arc(rx, ry, rr, 0, 7); g.fill();
+    g.restore();
+  }
+
   // --- anim context handed to the character's own draw() ---
   const atk = f.attack;
   const A = {
@@ -622,7 +636,7 @@ function drawFighter(f, alpha) {
   const breathe = (f.state === ST.IDLE && f.grounded) ? 1 + Math.sin(f.animTime * 0.055) * 0.015 : 1;
   g.scale(f.facing, squash * stretch * breathe);
 
-  if (f.intangible()) g.globalAlpha = 0.42;
+  if (f.intangible() && f.buff !== "star") g.globalAlpha = 0.42;
   /* Shade's Fade: nearly gone. Online, her own player still sees her
      clearly enough to play; on a shared screen everyone sees the shimmer. */
   if (f.stealthT > 0) {
@@ -634,6 +648,7 @@ function drawFighter(f, alpha) {
   g.restore();
 
   drawStatus(f, rx, ry);
+  drawBuff(f, rx, ry);
 
   /* ---- world-space overlays ---- */
   if (f.shielding()) {

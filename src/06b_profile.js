@@ -315,11 +315,14 @@ function freshProfile() {
   return {
     v: 1, coins: 0,
     stats: { matches: 0, wins: 0, kos: 0, falls: 0, damage: 0, supers: 0, bestHit: 0,
-             tourneys: 0, tourneyWins: 0, earned: 0, online: 0 },
+             tourneys: 0, tourneyWins: 0, earned: 0, online: 0,
+             items: 0, smashes: 0, bestCombo: 0, dailies: 0 },
     chars: {},              // id -> { p: played, w: won, k: KOs }
     favs: [],               // fighter ids, most favourite first
     owned: [],              // cosmetic ids
     equip: { skin: {}, hat: "", trail: "" },
+    ach: [],                // achievement ids unlocked
+    daily: null,            // { day, prog: [n,n,n], done: [0|1,...] } (see 06c_goals)
   };
 }
 
@@ -348,6 +351,11 @@ function normProfile(d) {
   }
   if (p.owned.includes(e.hat) && COS_BY_ID[e.hat].kind === "hat") p.equip.hat = e.hat;
   if (p.owned.includes(e.trail) && COS_BY_ID[e.trail].kind === "trail") p.equip.trail = e.trail;
+  if (Array.isArray(d.ach)) p.ach = [...new Set(d.ach.filter(id => ACH_BY_ID[id]))];
+  const dl = d.daily;
+  if (dl && typeof dl.day === "string" && Array.isArray(dl.prog) && Array.isArray(dl.done))
+    p.daily = { day: dl.day.slice(0, 10), prog: [0, 1, 2].map(i => num(dl.prog[i])),
+                done: [0, 1, 2].map(i => dl.done[i] ? 1 : 0) };
   return p;
 }
 
@@ -387,6 +395,7 @@ const Profile = {
 
   /** Write locally now; push to the account shortly after (changes batch). */
   persist() {
+    Goals.sweep(this.d);       // lifetime milestones can unlock from anywhere
     try {
       if (this.signedIn) localStorage.setItem("cmb_acct", JSON.stringify({ user: this.user, token: this.token, data: this.d }));
       else localStorage.setItem("cmb_guest", JSON.stringify(this.d));
@@ -535,6 +544,8 @@ const Profile = {
     st.damage = Math.round(st.damage + s.damageDealt);
     st.supers += s.supers;
     st.bestHit = Math.max(st.bestHit, Math.round(s.bestHit));
+    st.items += s.items || 0; st.smashes += s.smashes || 0;
+    st.bestCombo = Math.max(st.bestCombo, s.bestCombo || 0);
     if (Net.active) st.online++;
     const c = this.d.chars[me.ch.id] || (this.d.chars[me.ch.id] = { p: 0, w: 0, k: 0 });
     c.p++; if (won) c.w++; c.k += s.kos;
@@ -549,10 +560,19 @@ const Profile = {
     if (Net.active) lines.push(["ONLINE", 5]);
     if (extra) lines.push(...extra);
 
-    const total = lines.reduce((n, l) => n + l[1], 0);
+    let total = lines.reduce((n, l) => n + l[1], 0);
     this.d.coins += total; st.earned += total;
+    // daily challenges and achievements pay on top (onMatch credits them itself)
+    const bonus = Goals.onMatch(this.d, {
+      won, charId: me.ch.id, stage: Stage.def.id, teams: !!match.teams, size: match.fighters.length,
+      kos: s.kos, falls: s.falls, damage: s.damageDealt, supers: s.supers, bestHit: s.bestHit,
+      smashes: s.smashes || 0, bestCombo: s.bestCombo || 0, items: s.items || 0,
+      lastStock: won && me.stocks === 1 && s.falls >= CFG.stocks - 1,
+      secs: match.frames / 60, sudden: !!match.suddenDeath,
+    });
+    total += bonus.reduce((n, b) => n + b.coins, 0);
     this.persist();
-    match._reward = { total, lines, won };
+    match._reward = { total, lines, won, bonus };
     return match._reward;
   },
 

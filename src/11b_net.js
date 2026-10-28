@@ -395,7 +395,7 @@ const Net = {
         return [s.charId, s.mode, s.team || 0, lk.cos, lk.name];
       }),
       seats: [0, 1, 2, 3].map(i => this.seatOf(i)),
-      teams: Game.teams, stage: Game.stageIndex,
+      teams: Game.teams, stage: Game.stageIndex, items: Game.items,
       setup: this.phase === "lobby" ? null : this.setup,
     };
   },
@@ -417,6 +417,7 @@ const Net = {
                                                     this.seatLook(s, i))),
       stage: Game.stageIndex,
       teams: Game.teams,
+      items: Game.items,
     };
     this.phase = "match";
     this.frame = 0;
@@ -500,6 +501,7 @@ const Net = {
     this.seated = true;
     Game.teams = !!r.teams;
     Game.stageIndex = r.stage;
+    this.roomItems = r.items !== false;
     Game.slots = r.slots.map(([charId, mode, team, cos, name], i) => {
       cos = Cosmetics.clean(cos); name = cleanName(name);
       // keep our own optimistic pick until the host has caught up with it
@@ -536,7 +538,7 @@ const Net = {
                                          cos: Cosmetics.clean(s.cos), name: cleanName(s.name) }));
     Game.stageIndex = setup.stage;
     Game.teams = !!setup.teams;
-    Game.match = new Match(Game.slots, STAGES[setup.stage], { teams: setup.teams });
+    Game.match = new Match(Game.slots, STAGES[setup.stage], { teams: setup.teams, items: setup.items !== false });
     Game.screen = "match";
     this.snapCur = this.lastSeen = null;
     this.snapAt = performance.now();
@@ -674,6 +676,8 @@ const Net = {
                                   e.dir || 0, e.landed ? 1 : 0, e.storm ? 1 : 0, e.max || 0,
                                   e.w || 0]),
       ev: this.events.length ? this.events.slice() : undefined,
+      it: Items.list.map(i => [i.id, ITEM_IDS.indexOf(i.kind), Math.round(i.x), Math.round(i.y),
+                               i.landed ? 1 : 0, i.life, i.t]),
       fs: m.fighters.map(f => ({
         s: f.slot,
         x: r2(f.x), y: r2(f.y), vx: r2(f.vx), vy: r2(f.vy),
@@ -692,9 +696,11 @@ const Net = {
         sq: f.squatHeld ? 1 : 0, rd: f.rollDir || 0, lh: f.attack ? f.attack.lastHitFrame : 0,
         // status effects: [chill, frozen, curse, root, stealth, echo, ambush]
         fx: [f.slowT, f.frozenT, f.curseT, f.rootT, f.stealthT, f.echoT, f.ambushT,
-             f.burnT, f.markT, f.markBy ? f.markBy.slot : -1],
+             f.burnT, f.markT, f.markBy ? f.markBy.slot : -1,
+             BUFF_IDS.indexOf(f.buff), f.buffT],
         cv: f.v,
-        sx: [f.stats.kos, f.stats.falls, r2(f.stats.damageDealt), f.stats.supers, r2(f.stats.bestHit)],
+        sx: [f.stats.kos, f.stats.falls, r2(f.stats.damageDealt), f.stats.supers, r2(f.stats.bestHit),
+             f.stats.smashes, f.stats.bestCombo, f.stats.items],
       })),
     };
   },
@@ -753,6 +759,19 @@ const Net = {
       kind: ENT_KINDS[e[0]], owner: bySlot(e[1]), x: e[2], y: e[3], r: e[4],
       life: e[5], dir: e[6], landed: !!e[7], storm: !!e[8], max: e[9], w: e[10], hitIds: [],
     })).filter(e => e.owner && e.kind);
+
+    // ---- items: also rebuilt; one that vanished early was picked up ----
+    if (fresh) {
+      const was = new Map(Items.list.map(i => [i.id, i]));
+      Items.list = (snap.it || []).map(([id, k, x, y, landed, life, t]) =>
+        ({ id, kind: ITEM_IDS[k] || "heart", x, y, landed: !!landed, life, t, vy: 0 }));
+      for (const i of Items.list) was.delete(i.id);
+      for (const i of was.values()) if (i.life > 8) {
+        FX.ring(i.x, i.y - 18, 8, 90, ITEMS[i.kind].color, 4);
+        FX.burst(i.x, i.y - 18, 18, ITEMS[i.kind].color, 6);
+        Snd.tone(660, 0.07, "square", 0.12, 1320);
+      }
+    } else for (const i of Items.list) { i.t++; if (i.life > 0) i.life--; }
 
     // ---- banners the host raised (a predicted special already showed its own) ----
     if (fresh && snap.ev) for (const [text, color] of snap.ev)
@@ -816,11 +835,13 @@ const Net = {
     f.stealthT = s[4] || 0; f.echoT = s[5] || 0; f.ambushT = s[6] || 0;
     f.burnT = s[7] || 0; f.markT = s[8] || 0;
     f.markBy = s[9] >= 0 && Game.match ? Game.match.fighters.find(o => o.slot === s[9]) || null : null;
+    f.buff = BUFF_IDS[s[10]] || ""; f.buffT = s[11] || 0;
     if (fd.cv) f.v = fd.cv;
   },
   applyStats(f, fd) {
     f.stats.kos = fd.sx[0]; f.stats.falls = fd.sx[1]; f.stats.damageDealt = fd.sx[2];
     f.stats.supers = fd.sx[3]; f.stats.bestHit = fd.sx[4];
+    f.stats.smashes = fd.sx[5] || 0; f.stats.bestCombo = fd.sx[6] || 0; f.stats.items = fd.sx[7] || 0;
   },
   /** The renderer, and the predicted physics, need the floor a grounded fighter is on. */
   findGround(f) {

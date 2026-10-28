@@ -27,7 +27,8 @@ class Fighter {
     this.team = team == null ? null : team;
     this.pad = new Pad(slot);
     this.tint = this.team == null ? PLAYER_TINT[slot] : TEAM_TINT[this.team];
-    this.stats = { kos: 0, damageDealt: 0, falls: 0, supers: 0, bestHit: 0 };
+    this.stats = { kos: 0, damageDealt: 0, falls: 0, supers: 0, bestHit: 0,
+                   smashes: 0, bestCombo: 0, items: 0 };
     this.reset(true);
   }
 
@@ -62,6 +63,8 @@ class Fighter {
     this.echoDmg = 0; this.echoBy = null;
     this.burnT = 0; this.burnBy = null;   // Magma: on fire, takes damage over time
     this.markT = 0; this.markBy = null;   // a generic "marked" status a fighter can own
+    this.buff = ""; this.buffT = 0;       // an item's timed power-up (see 08f_items)
+    this.comboN = 0; this.comboKey = null; // hits landed on this fighter in one string
     /* Scratch state the third wave of fighters keeps on themselves (charge,
        combo count, polarity...). Small and flat: it ships in every snapshot. */
     if (full || !this.v) this.v = {};
@@ -88,7 +91,12 @@ class Fighter {
   get feetY() { return this.y + this.h * 0.5; }
   get meterFull() { return this.meter >= CFG.meter.max; }
   /** Ground and air speed: chilled is slower, stealthed is a little faster. */
-  get moveMul() { return (this.slowT > 0 ? 0.55 : 1) * (this.stealthT > 0 ? 1.15 : 1); }
+  get moveMul() {
+    return (this.slowT > 0 ? 0.55 : 1) * (this.stealthT > 0 ? 1.15 : 1)
+         * (this.buff === "boost" ? ITEM_CFG.boostMul : 1);
+  }
+  /** A BOOST item puts a little extra spring in every jump too. */
+  get jumpMul() { return this.buff === "boost" ? 1.12 : 1; }
 
   /* ----------------------------------------------------- status effects */
   tickStatus() {
@@ -114,6 +122,7 @@ class Fighter {
       if (this.burnT === 0) this.burnBy = null;
     }
     if (this.markT > 0 && --this.markT === 0) this.markBy = null;
+    if (this.buffT > 0 && --this.buffT === 0) this.buff = "";
     if (this.echoT > 0 && --this.echoT === 0) this.echoBack();
     if (this.ch.recall) {
       this.posHist.push({ x: this.x, y: this.y, p: this.percent });
@@ -291,7 +300,7 @@ class Fighter {
   updateJumpSquat(inp) {
     this.squatHeld = this.squatHeld && inp.held("up");
     if (--this.stateTimer <= 0) {
-      this.vy = -this.ch.jump * (this.squatHeld ? 1 : CFG.shortHopMul) * (this.slowT > 0 ? 0.86 : 1);
+      this.vy = -this.ch.jump * (this.squatHeld ? 1 : CFG.shortHopMul) * (this.slowT > 0 ? 0.86 : 1) * this.jumpMul;
       this.grounded = false; this.groundSeg = null;
       this.setState(ST.AIR); this.fastFalling = false;
       Snd.jump();
@@ -310,7 +319,7 @@ class Fighter {
 
     if (inp.hit("up") && this.airJumps > 0) {
       this.airJumps--;
-      this.vy = -ch.jump * 0.94;
+      this.vy = -ch.jump * 0.94 * this.jumpMul;
       this.vx += inp.ax * ch.airSpeed * 0.5;
       this.fastFalling = false;
       Snd.jump();
@@ -792,6 +801,7 @@ class Fighter {
     this.slowT = this.frozenT = this.curseT = this.rootT = 0;
     this.stealthT = this.ambushT = this.echoT = 0; this.echoDmg = 0; this.posHist.length = 0;
     this.burnT = this.markT = 0; this.burnBy = this.markBy = null;
+    this.buff = ""; this.buffT = 0; this.comboN = 0;
     if (this.grabTarget) this.releaseGrab();
     if (this.grabbedBy) this.grabbedBy.releaseGrab();
     match.onKO(this);
@@ -840,7 +850,7 @@ class Fighter {
   }
 
   intangible() {
-    if (this.invuln > 0) return true;
+    if (this.invuln > 0 || this.buff === "star") return true;
     if (this.state === ST.AIRDODGE || this.state === ST.ROLL || this.state === ST.SPOTDODGE) {
       const total = this.state === ST.ROLL ? CFG.rollFrames
                   : this.state === ST.SPOTDODGE ? CFG.spotDodgeFrames : CFG.airDodgeFrames;

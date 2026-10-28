@@ -140,6 +140,7 @@ const CFG = {
     musicOn:     true,
     sfxOn:       true,
     postFx:      1.0,   // bloom, chromatic aberration and vignette; 0 disables
+    items:       true,  // power-ups drop onto the stage during a match
   },
 };
 

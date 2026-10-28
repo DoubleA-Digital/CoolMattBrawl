@@ -177,6 +177,7 @@ const CFG = {
     musicOn:     true,
     sfxOn:       true,
     postFx:      1.0,   // bloom, chromatic aberration and vignette; 0 disables
+    items:       true,  // power-ups drop onto the stage during a match
   },
 };
 
@@ -7697,6 +7698,8 @@ const FX = {
   flashCol: null, flashAmt: 0,
   chroma: 0,                 // red/blue separation, decays every frame
   bannerText: "", bannerTimer: 0, bannerColor: "#fff",
+  slow: 0,                   // sim steps of slow motion left (a match-ending SMASH)
+  kickAmt: 0, kickX: 0, kickY: 0,   // a quick camera lunge toward a big hit
 
   cam: {
     x: 800, y: 440, zoom: 0.9,
@@ -7711,6 +7714,7 @@ const FX = {
     this.cracks.length = 0; this.glyphs.length = 0;
     this.shakeMag = 0; this.pause = 0; this.bannerTimer = 0;
     this.flashAmt = 0; this.chroma = 0;
+    this.slow = 0; this.kickAmt = 0;
     const c = this.cam;
     c.x = c.px = Stage.pivot.x;
     c.y = c.py = Stage.pivot.y - 150;
@@ -7725,6 +7729,23 @@ const FX = {
   },
   hitPause(f) { this.pause = Math.max(this.pause, f); },
   flash(col, amt) { this.flashCol = col; this.flashAmt = Math.max(this.flashAmt, amt); },
+  /** Lunge the camera toward (x, y) and zoom in by amt, then ease back. It
+      rides the shake setting: anyone who turned shake off wants a still view. */
+  kick(x, y, amt) {
+    const k = Math.min(1, Settings.get("shakeAmount"));
+    if (k <= 0) return;
+    if (amt * k >= this.kickAmt) { this.kickX = x; this.kickY = y; }
+    this.kickAmt = Math.min(0.3, Math.max(this.kickAmt, amt * k));
+  },
+  /** Slow the simulation for this many steps (offline only; see Game.timeScale). */
+  slowmo(steps) { this.slow = Math.max(this.slow, steps); },
+  /** "3 HIT COMBO!" over whoever is on the receiving end. */
+  combo(x, y, n, color) {
+    for (const t of this.texts) if (t.combo) t.life = Math.min(t.life, 6);   // only the latest count shows
+    this.texts.push({ x, y, vy: -0.8, life: 54, max: 54, text: `${n} HIT COMBO!`, color,
+                      combo: n });
+    Snd.tone(520 + n * 90, 0.08, "square", 0.1, 900 + n * 120);
+  },
   /** Kick the chromatic aberration. Heavy hits, KOs and supers. */
   punch(amt) { this.chroma = Math.min(1, this.chroma + amt); },
   banner(text, color) {
@@ -7904,6 +7925,8 @@ const FX = {
     this.chroma *= 0.80;
     if (this.chroma < 0.01) this.chroma = 0;
     if (this.bannerTimer > 0) this.bannerTimer--;
+    this.kickAmt *= 0.9;
+    if (this.kickAmt < 0.002) this.kickAmt = 0;
 
     this.updateCamera(fighters);
   },
@@ -7960,9 +7983,14 @@ const FX = {
   /** Camera transform, interpolated between fixed steps for smooth motion. */
   applyCamera(g, alpha) {
     const c = this.cam;
-    const x = lerp(c.px, c.x, alpha);
-    const y = lerp(c.py, c.y, alpha);
-    const z = lerp(c.pz, c.zoom, alpha);
+    let x = lerp(c.px, c.x, alpha);
+    let y = lerp(c.py, c.y, alpha);
+    let z = lerp(c.pz, c.zoom, alpha);
+    if (this.kickAmt > 0) {
+      const k = Math.min(0.6, this.kickAmt * 2.4);
+      x = lerp(x, this.kickX, k); y = lerp(y, this.kickY, k);
+      z *= 1 + this.kickAmt;
+    }
     g.translate(W / 2 + this.shakeX, H / 2 + this.shakeY);
     g.scale(z, z);
     g.translate(-x, -y);
@@ -8132,6 +8160,14 @@ const FX = {
     for (const t of this.texts) {
       const a = Math.min(1, t.life / t.max * 1.8);
       g.globalAlpha = a;
+      if (t.combo) {
+        // pops in big, then settles
+        const age = t.max - t.life;
+        const pop = age < 6 ? 1.5 - age * 0.08 : 1;
+        g.font = `900 ${Math.round((22 + Math.min(t.combo, 8) * 2) * pop)}px ${FONT_DISPLAY}`;
+        outlineText(g, t.text, t.x, t.y, t.color, 7);
+        continue;
+      }
       g.font = t.small ? `900 12px ${FONT_MONO}`
                        : `900 ${20 + (1 - t.life / t.max) * 6}px ${FONT_DISPLAY}`;
       outlineText(g, t.text, t.x, t.y, t.color, t.small ? 4 : 5);
@@ -8471,11 +8507,14 @@ function freshProfile() {
   return {
     v: 1, coins: 0,
     stats: { matches: 0, wins: 0, kos: 0, falls: 0, damage: 0, supers: 0, bestHit: 0,
-             tourneys: 0, tourneyWins: 0, earned: 0, online: 0 },
+             tourneys: 0, tourneyWins: 0, earned: 0, online: 0,
+             items: 0, smashes: 0, bestCombo: 0, dailies: 0 },
     chars: {},              // id -> { p: played, w: won, k: KOs }
     favs: [],               // fighter ids, most favourite first
     owned: [],              // cosmetic ids
     equip: { skin: {}, hat: "", trail: "" },
+    ach: [],                // achievement ids unlocked
+    daily: null,            // { day, prog: [n,n,n], done: [0|1,...] } (see 06c_goals)
   };
 }
 
@@ -8504,6 +8543,11 @@ function normProfile(d) {
   }
   if (p.owned.includes(e.hat) && COS_BY_ID[e.hat].kind === "hat") p.equip.hat = e.hat;
   if (p.owned.includes(e.trail) && COS_BY_ID[e.trail].kind === "trail") p.equip.trail = e.trail;
+  if (Array.isArray(d.ach)) p.ach = [...new Set(d.ach.filter(id => ACH_BY_ID[id]))];
+  const dl = d.daily;
+  if (dl && typeof dl.day === "string" && Array.isArray(dl.prog) && Array.isArray(dl.done))
+    p.daily = { day: dl.day.slice(0, 10), prog: [0, 1, 2].map(i => num(dl.prog[i])),
+                done: [0, 1, 2].map(i => dl.done[i] ? 1 : 0) };
   return p;
 }
 
@@ -8543,6 +8587,7 @@ const Profile = {
 
   /** Write locally now; push to the account shortly after (changes batch). */
   persist() {
+    Goals.sweep(this.d);       // lifetime milestones can unlock from anywhere
     try {
       if (this.signedIn) localStorage.setItem("cmb_acct", JSON.stringify({ user: this.user, token: this.token, data: this.d }));
       else localStorage.setItem("cmb_guest", JSON.stringify(this.d));
@@ -8691,6 +8736,8 @@ const Profile = {
     st.damage = Math.round(st.damage + s.damageDealt);
     st.supers += s.supers;
     st.bestHit = Math.max(st.bestHit, Math.round(s.bestHit));
+    st.items += s.items || 0; st.smashes += s.smashes || 0;
+    st.bestCombo = Math.max(st.bestCombo, s.bestCombo || 0);
     if (Net.active) st.online++;
     const c = this.d.chars[me.ch.id] || (this.d.chars[me.ch.id] = { p: 0, w: 0, k: 0 });
     c.p++; if (won) c.w++; c.k += s.kos;
@@ -8705,10 +8752,19 @@ const Profile = {
     if (Net.active) lines.push(["ONLINE", 5]);
     if (extra) lines.push(...extra);
 
-    const total = lines.reduce((n, l) => n + l[1], 0);
+    let total = lines.reduce((n, l) => n + l[1], 0);
     this.d.coins += total; st.earned += total;
+    // daily challenges and achievements pay on top (onMatch credits them itself)
+    const bonus = Goals.onMatch(this.d, {
+      won, charId: me.ch.id, stage: Stage.def.id, teams: !!match.teams, size: match.fighters.length,
+      kos: s.kos, falls: s.falls, damage: s.damageDealt, supers: s.supers, bestHit: s.bestHit,
+      smashes: s.smashes || 0, bestCombo: s.bestCombo || 0, items: s.items || 0,
+      lastStock: won && me.stocks === 1 && s.falls >= CFG.stocks - 1,
+      secs: match.frames / 60, sudden: !!match.suddenDeath,
+    });
+    total += bonus.reduce((n, b) => n + b.coins, 0);
     this.persist();
-    match._reward = { total, lines, won };
+    match._reward = { total, lines, won, bonus };
     return match._reward;
   },
 
@@ -8762,6 +8818,220 @@ const TextIn = {
 };
 
 
+/* ===== src/06c_goals.js ===== */
+/* ==========================================================================
+   6c. GOALS — daily challenges, achievements, and the toasts that announce them
+
+   Three challenges a day, picked from the date so everyone gets the same
+   three, each paying coins once. Achievements are one-off badges for
+   milestones and stand-out matches. Both live in the profile blob, so an
+   account carries them between devices like everything else.
+
+   Everything is checked from Profile: after every match (with that match's
+   numbers) and on every save (lifetime milestones only, which is how a
+   tournament win or a shop purchase unlocks one).
+   ========================================================================== */
+
+/* m is the match summary built in Profile.recordMatch; p is the challenge's
+   parameter (a fighter or stage id) when it has one. */
+const DAILY_POOL = [
+  { id: "win",      n: 3,   coins: 60, text: n => `Win ${n} matches`,            add: m => m.won ? 1 : 0 },
+  { id: "play",     n: 4,   coins: 40, text: n => `Play ${n} matches`,           add: () => 1 },
+  { id: "kos",      n: 8,   coins: 60, text: n => `Land ${n} KOs`,               add: m => m.kos },
+  { id: "dmg",      n: 600, coins: 50, text: n => `Deal ${n}% damage`,           add: m => Math.round(m.damage) },
+  { id: "supers",   n: 3,   coins: 50, text: n => `Land ${n} supers`,            add: m => m.supers },
+  { id: "items",    n: 6,   coins: 50, text: n => `Grab ${n} items`,             add: m => m.items },
+  { id: "smash",    n: 8,   coins: 50, text: n => `Land ${n} SMASH hits`,        add: m => m.smashes },
+  { id: "combo",    n: 1,   coins: 60, text: () => "Land a 3-hit combo",         add: m => m.bestCombo >= 3 ? 1 : 0 },
+  { id: "flawless", n: 1,   coins: 80, text: () => "Win without losing a stock", add: m => m.won && m.falls === 0 ? 1 : 0 },
+  { id: "team",     n: 1,   coins: 50, text: () => "Win a 2v2 match",            add: m => m.won && m.teams ? 1 : 0 },
+  { id: "char",     n: 1,   coins: 70, param: "fighter",
+    text: (n, p) => `Win a match as ${CHAR_BY_ID[p].name}`,  add: (m, p) => m.won && m.charId === p ? 1 : 0 },
+  { id: "stage",    n: 2,   coins: 40, param: "stage",
+    text: (n, p) => `Play ${n} matches on ${(STAGES.find(s => s.id === p) || STAGES[0]).name}`,
+    add: (m, p) => m.stage === p ? 1 : 0 },
+];
+const DAILY_COUNT = 3;
+
+/* test(st, d, m): st is lifetime stats, d the whole profile, m this match's
+   summary or null when checking outside a match. */
+const ACHIEVEMENTS = [
+  { id: "FIRST_WIN", name: "FIRST BLOOD",    coins: 25,  desc: "Win your first match",           test: st => st.wins >= 1 },
+  { id: "WINS_10",   name: "CONTENDER",      coins: 50,  desc: "Win 10 matches",                 test: st => st.wins >= 10 },
+  { id: "WINS_50",   name: "CHAMPION",       coins: 150, desc: "Win 50 matches",                 test: st => st.wins >= 50 },
+  { id: "PLAY_25",   name: "REGULAR",        coins: 40,  desc: "Play 25 matches",                test: st => st.matches >= 25 },
+  { id: "PLAY_100",  name: "LIFER",          coins: 120, desc: "Play 100 matches",               test: st => st.matches >= 100 },
+  { id: "KO_25",     name: "KNOCKOUT ARTIST", coins: 40, desc: "Land 25 KOs",                    test: st => st.kos >= 25 },
+  { id: "KO_250",    name: "WRECKING BALL",  coins: 150, desc: "Land 250 KOs",                   test: st => st.kos >= 250 },
+  { id: "DMG_5K",    name: "HEAVY HITTER",   coins: 60,  desc: "Deal 5,000% damage in total",    test: st => st.damage >= 5000 },
+  { id: "SUPER_25",  name: "SUPERNOVA",      coins: 60,  desc: "Land 25 supers",                 test: st => st.supers >= 25 },
+  { id: "ITEMS_25",  name: "SCAVENGER",      coins: 40,  desc: "Grab 25 items",                  test: st => st.items >= 25 },
+  { id: "FLAWLESS",  name: "UNTOUCHABLE",    coins: 40,  desc: "Win without losing a stock",     test: (st, d, m) => m && m.won && m.falls === 0 },
+  { id: "TRIPLE",    name: "HAT TRICK",      coins: 30,  desc: "Land 3 KOs in one match",        test: (st, d, m) => m && m.kos >= 3 },
+  { id: "COMBO5",    name: "COMBO KING",     coins: 60,  desc: "Land a 5-hit combo",             test: (st, d, m) => m && m.bestCombo >= 5 },
+  { id: "BIGHIT",    name: "HAYMAKER",       coins: 40,  desc: "Deal 30% or more in one hit",    test: (st, d, m) => m && m.bestHit >= 30 },
+  { id: "CLUTCH",    name: "CLUTCH",         coins: 40,  desc: "Win on your last stock",         test: (st, d, m) => m && m.won && m.lastStock },
+  { id: "SPEED",     name: "SPEEDRUN",       coins: 50,  desc: "Win a match in under a minute",  test: (st, d, m) => m && m.won && m.secs < 60 },
+  { id: "SUDDEN",    name: "SURVIVOR",       coins: 40,  desc: "Win in Sudden Death",            test: (st, d, m) => m && m.won && m.sudden },
+  { id: "FFA4",      name: "LAST ONE UP",    coins: 50,  desc: "Win a 4-fighter free-for-all",   test: (st, d, m) => m && m.won && !m.teams && m.size >= 4 },
+  { id: "TEAM",      name: "TEAMWORK",       coins: 30,  desc: "Win a 2v2 match",                test: (st, d, m) => m && m.won && m.teams },
+  { id: "LOOT",      name: "POWER HUNGRY",   coins: 40,  desc: "Grab 5 items in one match",      test: (st, d, m) => m && m.items >= 5 },
+  { id: "ONLINE",    name: "CONNECTED",      coins: 30,  desc: "Play a match online",            test: st => st.online >= 1 },
+  { id: "TROPHY",    name: "TROPHY",         coins: 100, desc: "Win a tournament",               test: st => st.tourneyWins >= 1 },
+  { id: "DYNASTY",   name: "DYNASTY",        coins: 250, desc: "Win 5 tournaments",              test: st => st.tourneyWins >= 5 },
+  { id: "ROSTER10",  name: "EXPLORER",       coins: 50,  desc: "Play 10 different fighters",     test: (st, d) => Object.keys(d.chars).length >= 10 },
+  { id: "ROSTERALL", name: "FULL ROSTER",    coins: 200, desc: `Play every fighter`,            test: (st, d) => Object.keys(d.chars).length >= ROSTER.length },
+  { id: "COLLECTOR", name: "COLLECTOR",      coins: 60,  desc: "Own 5 cosmetics",                test: (st, d) => d.owned.length >= 5 },
+  { id: "SAVER",     name: "BIG SAVER",      coins: 50,  desc: "Hold 1,000 coins at once",       test: (st, d) => d.coins >= 1000 },
+  { id: "DAILY10",   name: "DEDICATED",      coins: 100, desc: "Complete 10 daily challenges",   test: st => st.dailies >= 10 },
+];
+const ACH_BY_ID = Object.fromEntries(ACHIEVEMENTS.map(a => [a.id, a]));
+
+/** The local calendar day, as YYYY-MM-DD. Challenges turn over at midnight. */
+function dayKey(t) {
+  const d = t ? new Date(t) : new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+/** A small seeded generator, so a given day always deals the same challenges. */
+function seededRng(str) {
+  let h = 1779033703 ^ str.length;
+  for (let i = 0; i < str.length; i++) { h = Math.imul(h ^ str.charCodeAt(i), 3432918353); h = (h << 13) | (h >>> 19); }
+  return () => {
+    h = Math.imul(h ^ (h >>> 16), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909);
+    return ((h ^= h >>> 16) >>> 0) / 4294967296;
+  };
+}
+
+const Daily = {
+  /** Today's three challenges: [{ def, p, n, text }]. Same for everyone. */
+  deal(day) {
+    const rng = seededRng("cmb-" + day);
+    const pool = DAILY_POOL.slice(), out = [];
+    while (out.length < DAILY_COUNT && pool.length) {
+      const def = pool.splice(Math.floor(rng() * pool.length), 1)[0];
+      let p = null;
+      if (def.param === "fighter") p = ROSTER[Math.floor(rng() * ROSTER.length)].id;
+      if (def.param === "stage") p = STAGES[Math.floor(rng() * STAGES.length)].id;
+      out.push({ def, p, n: def.n, text: def.text(def.n, p) });
+    }
+    return out;
+  },
+  /** Today's challenges with this profile's progress, rolling over at midnight. */
+  today(d) {
+    const day = dayKey();
+    if (!d.daily || d.daily.day !== day) d.daily = { day, prog: [0, 0, 0], done: [0, 0, 0] };
+    if (this._for !== day) { this._for = day; this._list = this.deal(day); }
+    return this._list.map((c, i) => Object.assign({}, c, { prog: d.daily.prog[i] || 0, done: !!d.daily.done[i] }));
+  },
+  /** Milliseconds until the next set. */
+  msLeft() {
+    const now = new Date(), next = new Date(now);
+    next.setHours(24, 0, 0, 0);
+    return next - now;
+  },
+};
+
+const Goals = {
+  busy: false,
+
+  /** After a match: advance today's challenges and check every achievement.
+      Credits the coins and returns what paid, for the results screen. */
+  onMatch(d, m) {
+    const paid = [];
+    const list = Daily.today(d);
+    list.forEach((c, i) => {
+      if (c.done) return;
+      const add = c.def.add(m, c.p) || 0;
+      if (!add) return;
+      d.daily.prog[i] = Math.min(c.n, (d.daily.prog[i] || 0) + add);
+      if (d.daily.prog[i] >= c.n) {
+        d.daily.done[i] = 1;
+        d.stats.dailies++;
+        paid.push({ kind: "daily", label: c.text, coins: c.def.coins });
+        Toast.push("DAILY CHALLENGE COMPLETE", c.text, "#b6ff3b", c.def.coins);
+      }
+    });
+    paid.push(...this.unlock(d, m));
+    for (const p of paid) { d.coins += p.coins; d.stats.earned += p.coins; }
+    return paid;
+  },
+
+  /** Anything newly earned. Pays for itself when called outside a match. */
+  unlock(d, m, pay) {
+    const got = [];
+    for (const a of ACHIEVEMENTS) {
+      if (d.ach.includes(a.id)) continue;
+      let hit = false;
+      try { hit = !!a.test(d.stats, d, m); } catch (e) { hit = false; }
+      if (!hit) continue;
+      d.ach.push(a.id);
+      got.push({ kind: "ach", label: a.name, coins: a.coins });
+      Toast.push("ACHIEVEMENT UNLOCKED", a.name, "#ffc83d", a.coins);
+      if (pay) { d.coins += a.coins; d.stats.earned += a.coins; }
+    }
+    return got;
+  },
+
+  /** On every save: lifetime milestones only (a tournament win, a purchase,
+      a pile of coins). Guarded, since paying out saves again. */
+  sweep(d) {
+    if (this.busy) return false;
+    this.busy = true;
+    const got = this.unlock(d, null, true);
+    this.busy = false;
+    return got.length > 0;
+  },
+};
+
+/* ------------------------------------------------------------- toasts
+   A small card that slides down at the top right of any screen, so an unlock is
+   seen wherever it happened. */
+const Toast = {
+  list: [],
+  push(title, text, color, coins) {
+    if (this.list.length > 6) return;
+    this.list.push({ title, text, color, coins, at: null });
+    Snd.uiBig();
+  },
+  draw(g) {
+    if (!this.list.length) return;
+    const now = performance.now(), LIFE = 3800;
+    // one at a time, each waiting for the last to leave
+    const t = this.list[0];
+    if (t.at === null) t.at = now;
+    const age = now - t.at;
+    if (age > LIFE) { this.list.shift(); return; }
+    const k = Math.min(1, age / 260, (LIFE - age) / 260);
+    // top right, clear of the big centred titles on the results screen
+    const w = 400, h = 58, x = W - w - 20, y = -h + (h + 62) * easeOut(Math.max(0, k));
+    g.save();
+    panel(g, x, y, w, h, { cut: 10, fill: "#15112b", accent: t.color, accentA: 1, glow: 18, shadow: true });
+    g.textAlign = "left"; g.textBaseline = "middle";
+    // a trophy or a tick
+    g.save(); g.translate(x + 30, y + h / 2);
+    g.fillStyle = t.color; g.strokeStyle = INK; g.lineWidth = 2.5;
+    if (t.title.startsWith("ACH")) {
+      g.beginPath(); g.moveTo(-10, -12); g.lineTo(10, -12); g.lineTo(8, 0); g.quadraticCurveTo(0, 8, -8, 0); g.closePath();
+      g.stroke(); g.fill();
+      g.fillRect(-2, 4, 4, 6); g.fillRect(-7, 10, 14, 4);
+    } else {
+      g.lineWidth = 5; g.strokeStyle = t.color; g.lineCap = "round";
+      g.beginPath(); g.moveTo(-9, 0); g.lineTo(-3, 7); g.lineTo(10, -8); g.stroke();
+    }
+    g.restore();
+    g.font = `700 10px ${FONT_MONO}`; g.fillStyle = t.color;
+    g.fillText(t.title, x + 56, y + 19);
+    g.font = `900 17px ${FONT_DISPLAY}`; g.fillStyle = "#ffffff";
+    let text = t.text;
+    while (g.measureText(text).width > w - 150 && text.length > 4) text = text.slice(0, -2);
+    if (text !== t.text) text = text.trimEnd() + "…";
+    g.fillText(text, x + 56, y + 39);
+    if (t.coins) coinChip(g, t.coins, x + w - 14, y + 13, "right", "+");
+    g.restore();
+  },
+};
+
+
 /* ===== src/07_fighter.js ===== */
 /* ==========================================================================
    8. FIGHTER — state machine, movement, attacks, meter
@@ -8792,7 +9062,8 @@ class Fighter {
     this.team = team == null ? null : team;
     this.pad = new Pad(slot);
     this.tint = this.team == null ? PLAYER_TINT[slot] : TEAM_TINT[this.team];
-    this.stats = { kos: 0, damageDealt: 0, falls: 0, supers: 0, bestHit: 0 };
+    this.stats = { kos: 0, damageDealt: 0, falls: 0, supers: 0, bestHit: 0,
+                   smashes: 0, bestCombo: 0, items: 0 };
     this.reset(true);
   }
 
@@ -8827,6 +9098,8 @@ class Fighter {
     this.echoDmg = 0; this.echoBy = null;
     this.burnT = 0; this.burnBy = null;   // Magma: on fire, takes damage over time
     this.markT = 0; this.markBy = null;   // a generic "marked" status a fighter can own
+    this.buff = ""; this.buffT = 0;       // an item's timed power-up (see 08f_items)
+    this.comboN = 0; this.comboKey = null; // hits landed on this fighter in one string
     /* Scratch state the third wave of fighters keeps on themselves (charge,
        combo count, polarity...). Small and flat: it ships in every snapshot. */
     if (full || !this.v) this.v = {};
@@ -8853,7 +9126,12 @@ class Fighter {
   get feetY() { return this.y + this.h * 0.5; }
   get meterFull() { return this.meter >= CFG.meter.max; }
   /** Ground and air speed: chilled is slower, stealthed is a little faster. */
-  get moveMul() { return (this.slowT > 0 ? 0.55 : 1) * (this.stealthT > 0 ? 1.15 : 1); }
+  get moveMul() {
+    return (this.slowT > 0 ? 0.55 : 1) * (this.stealthT > 0 ? 1.15 : 1)
+         * (this.buff === "boost" ? ITEM_CFG.boostMul : 1);
+  }
+  /** A BOOST item puts a little extra spring in every jump too. */
+  get jumpMul() { return this.buff === "boost" ? 1.12 : 1; }
 
   /* ----------------------------------------------------- status effects */
   tickStatus() {
@@ -8879,6 +9157,7 @@ class Fighter {
       if (this.burnT === 0) this.burnBy = null;
     }
     if (this.markT > 0 && --this.markT === 0) this.markBy = null;
+    if (this.buffT > 0 && --this.buffT === 0) this.buff = "";
     if (this.echoT > 0 && --this.echoT === 0) this.echoBack();
     if (this.ch.recall) {
       this.posHist.push({ x: this.x, y: this.y, p: this.percent });
@@ -9056,7 +9335,7 @@ class Fighter {
   updateJumpSquat(inp) {
     this.squatHeld = this.squatHeld && inp.held("up");
     if (--this.stateTimer <= 0) {
-      this.vy = -this.ch.jump * (this.squatHeld ? 1 : CFG.shortHopMul) * (this.slowT > 0 ? 0.86 : 1);
+      this.vy = -this.ch.jump * (this.squatHeld ? 1 : CFG.shortHopMul) * (this.slowT > 0 ? 0.86 : 1) * this.jumpMul;
       this.grounded = false; this.groundSeg = null;
       this.setState(ST.AIR); this.fastFalling = false;
       Snd.jump();
@@ -9075,7 +9354,7 @@ class Fighter {
 
     if (inp.hit("up") && this.airJumps > 0) {
       this.airJumps--;
-      this.vy = -ch.jump * 0.94;
+      this.vy = -ch.jump * 0.94 * this.jumpMul;
       this.vx += inp.ax * ch.airSpeed * 0.5;
       this.fastFalling = false;
       Snd.jump();
@@ -9557,6 +9836,7 @@ class Fighter {
     this.slowT = this.frozenT = this.curseT = this.rootT = 0;
     this.stealthT = this.ambushT = this.echoT = 0; this.echoDmg = 0; this.posHist.length = 0;
     this.burnT = this.markT = 0; this.burnBy = this.markBy = null;
+    this.buff = ""; this.buffT = 0; this.comboN = 0;
     if (this.grabTarget) this.releaseGrab();
     if (this.grabbedBy) this.grabbedBy.releaseGrab();
     match.onKO(this);
@@ -9605,7 +9885,7 @@ class Fighter {
   }
 
   intangible() {
-    if (this.invuln > 0) return true;
+    if (this.invuln > 0 || this.buff === "star") return true;
     if (this.state === ST.AIRDODGE || this.state === ST.ROLL || this.state === ST.SPOTDODGE) {
       const total = this.state === ST.ROLL ? CFG.rollFrames
                   : this.state === ST.SPOTDODGE ? CFG.spotDodgeFrames : CFG.airDodgeFrames;
@@ -9928,6 +10208,8 @@ const Combat = {
     // Tempo: a hit that lands on the stage music's beat
     const onBeat = atk.ch.rhythm && this.onBeat();
     if (onBeat) { dmg *= 1.2; atk.addMeter(4); }
+    // a POWER item
+    if (atk.buff === "power") { dmg *= ITEM_CFG.powerMul; kbMul *= 1.1; }
 
     // ---------------- shield ----------------
     // Tempo's sound waves shatter a held shield outright
@@ -9949,6 +10231,12 @@ const Combat = {
       }
     }
 
+    /* ---- combo: a hit on someone still reeling from the last one ----
+       Counted per attack, not per hitbox frame, so one multi-hit move is one
+       link in the chain. */
+    const comboKey = atk.attack || move;
+    const chained = def.state === ST.HITSTUN && def.hitstun > 0 && def.lastHitBy === atk;
+
     // ---------------- knockback ----------------
     const base = move.base || 2, scale = move.scale || 0.5;
     const kb = CFG.kbBase + base + dmg * CFG.kbDamageScale
@@ -9957,6 +10245,14 @@ const Combat = {
     const rad = (move.angle != null ? move.angle : 45) * Math.PI / 180;
 
     def.applyKnockback(Math.cos(rad) * mag * dirX, -Math.sin(rad) * mag, dmg, mag, atk);
+    if (def.state === ST.HITSTUN) {
+      if (!chained) { def.comboN = 1; def.comboKey = comboKey; }
+      else if (def.comboKey !== comboKey) {
+        def.comboN++; def.comboKey = comboKey;
+        atk.stats.bestCombo = Math.max(atk.stats.bestCombo, def.comboN);
+        if (def.comboN >= 3) FX.combo(def.x, def.y - def.h * 0.9, def.comboN, atk.ch.accent);
+      }
+    }
     atk.stats.damageDealt += dmg;
     atk.stats.bestHit = Math.max(atk.stats.bestHit, dmg);
     // Vex: her hits heal her own damage
@@ -10011,6 +10307,16 @@ const Combat = {
       FX.damageText(hx, hy - 62, "SMASH!", "#ffffff");
       Snd.bigHit();
       def.launchFx = 40;
+      atk.stats.smashes++;
+      FX.kick(hx, hy, 0.09);
+      /* Possibly the hit that ends the match: their last stock, and nobody
+         else left to beat. Slow the world down and let everyone watch. */
+      const m = Match.current;
+      if (m && def.stocks === 1 && !m.over &&
+          m.sides().filter(side => side.some(f => f !== def && f.stocks > 0)).length <= 1) {
+        FX.slowmo(48);
+        FX.kick(def.x, def.y, 0.22);
+      }
     }
     if (dmg >= 13) { Snd.bigHit(); FX.flash(atk.ch.color, 0.12); FX.punch(0.5); }
     else if (dmg >= 7) FX.punch(0.22);
@@ -10087,6 +10393,21 @@ const CPU = {
     // Vex keeps her siphon going by holding the button
     if (f.ch.id === "VEX" && f.state === ST.ATTACK && f.attack && f.attack.kind === "special") {
       press("special"); return inp;
+    }
+
+    // --- grab a power-up lying nearby, unless someone is right on top of us ---
+    let item = null, id = 380;
+    for (const it of Items.list) {
+      if (!it.landed) continue;
+      const d = dist(f.x, f.y, it.x, it.y - 18);
+      if (d < id) { id = d; item = it; }
+    }
+    if (item && bd > 150) {
+      const ix = item.x - f.x, iy = item.y - 18 - f.y;
+      if (Math.abs(ix) > 8) { const dir = ix > 0 ? "right" : "left"; press(dir); inp.ax = ix > 0 ? 1 : -1; }
+      if (iy < -60 && f.grounded && ai.t % 24 < 2) press("up");
+      if (iy < -40 && !f.grounded && f.airJumps > 0 && ai.t % 20 < 2) press("up");
+      return inp;
     }
 
     // --- super when it's up and the target is worth it ---
@@ -11919,6 +12240,279 @@ CPU.think = function (f, match) {
 };
 
 
+/* ===== src/08f_items.js ===== */
+/* ==========================================================================
+   9b. ITEMS — power-ups that drop onto the stage mid-match
+
+   Every so often a capsule floats down onto a random platform. Touching it
+   uses it at once (there is no pick-up button to learn), so items change who
+   wins a scramble rather than adding inputs. They can be switched off on the
+   stage-select screen and in the online lobby.
+
+   Only the host simulates items. Guests get the list in every snapshot and
+   the buff on each fighter in its status array, so nothing here needs its
+   own network message.
+   ========================================================================== */
+
+const ITEMS = {
+  heart:  { name: "HEART",  color: "#ff4f7a", note: "Heals 35% damage on the spot." },
+  boost:  { name: "BOOST",  color: "#4fe8ff", note: "Run and jump faster for 8 seconds." },
+  power:  { name: "POWER",  color: "#ff8a1a", note: "Your hits do 30% more for 8 seconds." },
+  star:   { name: "STAR",   color: "#ffd23d", note: "Invincible for 6 seconds, and touching a foe hurts them." },
+  charge: { name: "CHARGE", color: "#b6ff3b", note: "Half a super meter, instantly." },
+  bomb:   { name: "BOMB",   color: "#ff2e88", note: "Lobbed at the nearest foe. It sticks, then blows." },
+};
+const ITEM_IDS = Object.keys(ITEMS);
+/* How often each one turns up. Star is the rare one. */
+const ITEM_WEIGHT = { heart: 2, boost: 2, power: 2, star: 1, charge: 2, bomb: 2 };
+/* Timed buffs ride on the fighter; index 0 is "none". Order is wire format. */
+const BUFF_IDS = ["", "boost", "power", "star"];
+
+const ITEM_CFG = {
+  first:  6 * 60,          // the first drop, after the countdown
+  gapMin: 8 * 60, gapMax: 13 * 60,
+  max:    2,               // never more than this many on the stage at once
+  life:   14 * 60,         // an ignored item fades away
+  fall:   2.6,             // capsules drift down under a little parachute
+  reach:  20,              // pick-up radius beyond the fighter's hurtbox
+  buff:   { boost: 8 * 60, power: 8 * 60, star: 6 * 60 },
+  heal:   35,
+  boostMul: 1.3,
+  powerMul: 1.3,
+};
+const ITEM_BOMB = { name: "Item Bomb", dmg: 14, base: 4.5, scale: 1.0, angle: 55, unblockable: true };
+const STAR_TOUCH = { name: "Star", dmg: 8, base: 5.2, scale: 0.75, angle: 48 };
+
+const Items = {
+  list: [],
+  on: true,
+  timer: 0,
+  nextId: 1,
+
+  reset(on) {
+    this.list.length = 0;
+    this.on = on !== false;
+    this.timer = ITEM_CFG.first;
+  },
+
+  pickKind() {
+    let total = 0;
+    for (const k of ITEM_IDS) total += ITEM_WEIGHT[k];
+    let r = Math.random() * total;
+    for (const k of ITEM_IDS) { r -= ITEM_WEIGHT[k]; if (r < 0) return k; }
+    return "heart";
+  },
+
+  /** Drop one over a random platform, from well above the camera's view. */
+  spawn() {
+    const segs = Stage.segs.filter(s => Math.abs(s.bx - s.ax) > 60);
+    if (!segs.length) return;
+    const s = pick(segs);
+    const x = lerp(s.ax, s.bx, rnd(0.15, 0.85));
+    const y = Math.min(s.ay, s.by) - 520;
+    this.list.push({ id: this.nextId++, kind: this.pickKind(), x, y, vy: 0,
+                     landed: false, life: ITEM_CFG.life, t: 0 });
+  },
+
+  update(fighters) {
+    if (!this.on) return;
+    if (this.list.length < ITEM_CFG.max && --this.timer <= 0) {
+      this.spawn();
+      this.timer = rndi(ITEM_CFG.gapMin, ITEM_CFG.gapMax);
+    }
+
+    for (let i = this.list.length - 1; i >= 0; i--) {
+      const it = this.list[i];
+      it.t++; it.life--;
+      // falls, or rides whatever it is sitting on (a lift, a drifting ledge)
+      const fl = Stage.floorBelow(it.x, it.y - 18);
+      if (fl !== null && it.y >= fl - 2 && it.y <= fl + 20) {
+        if (!it.landed) { FX.burst(it.x, fl, 6, ITEMS[it.kind].color, 2); Snd.land(); }
+        it.y = fl; it.vy = 0; it.landed = true;
+      } else {
+        it.landed = false;
+        it.vy = Math.min(it.vy + 0.12, ITEM_CFG.fall);
+        it.y += it.vy;
+        if (fl !== null && it.y > fl) { it.y = fl; it.vy = 0; it.landed = true; }
+      }
+      if (it.life <= 0 || it.y > Stage.blast.bottom) { this.list.splice(i, 1); continue; }
+
+      for (const f of fighters) {
+        if (!f.alive || f.state === ST.DEAD || f.state === ST.RESPAWN) continue;
+        // the capsule hangs 18 above the floor it sits on
+        if (dist(f.x, f.y, it.x, it.y - 18) > f.ch.hurt + ITEM_CFG.reach) continue;
+        this.list.splice(i, 1);
+        this.apply(f, it.kind, it.x, it.y - 18);
+        break;
+      }
+    }
+
+    // a star makes its holder a weapon: running into a foe hits them
+    for (const f of fighters) {
+      if (f.buff !== "star" || !f.alive || f.state === ST.DEAD) continue;
+      f._starHit = f._starHit || {};
+      for (const o of fighters) {
+        if (allies(o, f) || !o.alive || o.state === ST.DEAD || o.intangible()) continue;
+        if ((f._starHit[o.slot] || 0) > f.animTime) continue;
+        if (dist(f.x, f.y, o.x, o.y) > f.ch.hurt + o.ch.hurt) continue;
+        f._starHit[o.slot] = f.animTime + 40;
+        Combat.land(f, o, STAR_TOUCH, (f.x + o.x) / 2, (f.y + o.y) / 2);
+      }
+    }
+  },
+
+  /** f touched an item of this kind at (x, y). */
+  apply(f, kind, x, y) {
+    const def = ITEMS[kind];
+    f.stats.items = (f.stats.items || 0) + 1;
+    FX.ring(x, y, 8, 90, def.color, 4);
+    FX.burst(x, y, 18, def.color, 6);
+    FX.damageText(f.x, f.y - f.h * 0.7, def.name + "!", def.color);
+    Snd.tone(660, 0.07, "square", 0.12, 1320);
+    Snd.tone(990, 0.12, "triangle", 0.1, 1760, 0.06);
+
+    switch (kind) {
+      case "heart": {
+        const heal = Math.min(f.percent, ITEM_CFG.heal);
+        f.percent -= heal;
+        FX.damageText(f.x, f.y - f.h * 0.7 - 22, "-" + Math.round(heal) + "%", "#7dff9a");
+        break;
+      }
+      case "charge":
+        f.addMeter(CFG.meter.max * 0.5);
+        break;
+      case "bomb": {
+        const t = Combat.nearestFoe(f, 900);
+        const dir = t ? Math.sign(t.x - f.x) || f.facing : f.facing;
+        const dx = t ? Math.abs(t.x - f.x) : 260;
+        Entities.add("bomb", f, { x: f.x, y: f.y - 30, vx: dir * clamp(dx / 34, 5, 13), vy: -8,
+                                  r: 11, life: 150, move: ITEM_BOMB });
+        break;
+      }
+      default:                       // boost, power, star: a timed buff
+        f.buff = kind;
+        f.buffT = ITEM_CFG.buff[kind];
+        if (kind === "star") { FX.flash("#ffd23d", 0.18); f._starHit = {}; }
+    }
+  },
+
+  /* ------------------------------------------------------------ drawing */
+  draw(g) {
+    for (const it of this.list) {
+      // the last two seconds it blinks, so nobody walks to one that vanishes
+      if (it.life < 120 && Math.floor(it.life / 6) % 2 === 0) continue;
+      const bob = it.landed ? Math.sin(it.t * 0.08) * 3 : 0;
+      const y = it.y - 18 + bob;
+      g.save();
+      g.translate(it.x, y);
+      if (!it.landed) {
+        // a little parachute while it drifts in
+        g.strokeStyle = "rgba(255,255,255,.55)"; g.lineWidth = 1.5;
+        g.beginPath(); g.moveTo(-12, -6); g.lineTo(-20, -38); g.moveTo(12, -6); g.lineTo(20, -38); g.stroke();
+        g.fillStyle = hexA(ITEMS[it.kind].color, 0.85);
+        g.beginPath(); g.arc(0, -38, 24, Math.PI, 0); g.closePath(); g.fill();
+        g.strokeStyle = INK; g.lineWidth = 2.5; g.stroke();
+      }
+      itemIcon(g, it.kind, 0, 0, 1, it.t);
+      g.restore();
+    }
+  },
+};
+
+/** One item's capsule, centred on (x, y). Also used by the menus. */
+function itemIcon(g, kind, x, y, s, t) {
+  const def = ITEMS[kind], c = def.color;
+  t = t || 0;
+  g.save();
+  g.translate(x, y); g.scale(s, s);
+  // halo
+  g.save(); g.globalCompositeOperation = "lighter";
+  g.globalAlpha = 0.35 + Math.sin(t * 0.12) * 0.12;
+  const q = g.createRadialGradient(0, 0, 4, 0, 0, 30);
+  q.addColorStop(0, c); q.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = q; g.beginPath(); g.arc(0, 0, 30, 0, 7); g.fill();
+  g.restore();
+  // capsule
+  ink(g, () => { g.beginPath(); g.arc(0, 0, 16, 0, 7); }, vol(g, -16, 16, c, 0.3, -0.35));
+  g.fillStyle = "rgba(255,255,255,.35)";
+  g.beginPath(); g.ellipse(-5, -8, 7, 4, -0.5, 0, 7); g.fill();
+  // glyph
+  g.fillStyle = "#ffffff"; g.strokeStyle = INK; g.lineWidth = 2; g.lineJoin = "round";
+  switch (kind) {
+    case "heart":
+      g.beginPath();
+      g.moveTo(0, 8); g.bezierCurveTo(-12, -1, -7, -11, 0, -4);
+      g.bezierCurveTo(7, -11, 12, -1, 0, 8); g.closePath();
+      g.stroke(); g.fill(); break;
+    case "boost":
+      poly(g, [-8, -7, 0, 0, -8, 7, -4, 7, 4, 0, -4, -7]); g.stroke(); g.fill();
+      poly(g, [0, -7, 8, 0, 0, 7, 4, 7, 12, 0, 4, -7]); g.stroke(); g.fill(); break;
+    case "power":
+      g.beginPath(); roundRect(g, -8, -4, 16, 10, 3); g.stroke(); g.fill();
+      g.beginPath();
+      for (let i = 0; i < 3; i++) { g.rect(-8 + i * 5.5, -9, 4.5, 6); }
+      g.stroke(); g.fill(); break;
+    case "star": {
+      g.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 4.5 : 10;
+        g.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+      }
+      g.closePath(); g.stroke(); g.fill(); break;
+    }
+    case "charge":
+      poly(g, [2, -11, -7, 2, -1, 2, -3, 11, 7, -2, 1, -2]); g.stroke(); g.fill(); break;
+    case "bomb":
+      g.beginPath(); g.arc(0, 2, 7.5, 0, 7); g.stroke(); g.fill();
+      g.beginPath(); g.moveTo(3, -4); g.quadraticCurveTo(6, -10, 10, -9); g.stroke();
+      g.fillStyle = "#ffd23d"; g.beginPath(); g.arc(10, -9, 2.4, 0, 7); g.fill(); break;
+  }
+  g.restore();
+}
+
+/** What a timed buff looks like on whoever has it. */
+function drawBuff(f, rx, ry) {
+  if (!f.buff || f.buffT <= 0) return;
+  const c = ITEMS[f.buff].color, hurt = f.ch.hurt;
+  // the last two seconds flicker so the holder knows it is running out
+  if (f.buffT < 120 && Math.floor(f.buffT / 5) % 2 === 0) return;
+  g.save();
+  g.globalCompositeOperation = "lighter";
+  if (f.buff === "star") {
+    const hue = (f.animTime * 8) % 360;
+    g.globalAlpha = 0.5;
+    g.strokeStyle = `hsl(${hue},100%,65%)`; g.lineWidth = 4;
+    g.shadowColor = g.strokeStyle; g.shadowBlur = 22;
+    g.beginPath(); g.arc(rx, ry, hurt * 1.45, 0, 7); g.stroke();
+    for (let i = 0; i < 5; i++) {
+      const a = f.animTime * 0.09 + i * Math.PI * 0.4;
+      g.fillStyle = `hsl(${(hue + i * 72) % 360},100%,70%)`;
+      g.beginPath(); g.arc(rx + Math.cos(a) * hurt * 1.45, ry + Math.sin(a) * hurt * 1.45, 3, 0, 7); g.fill();
+    }
+  } else if (f.buff === "power") {
+    g.globalAlpha = 0.28 + Math.sin(f.animTime * 0.25) * 0.1;
+    const q = g.createRadialGradient(rx, ry, hurt * 0.4, rx, ry, hurt * 1.6);
+    q.addColorStop(0, hexA(c, 0.9)); q.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = q; g.beginPath(); g.arc(rx, ry, hurt * 1.6, 0, 7); g.fill();
+    // flames licking up off the shoulders
+    g.globalAlpha = 0.7; g.fillStyle = c;
+    for (let i = -1; i <= 1; i++) {
+      const fl = 8 + Math.sin(f.animTime * 0.4 + i * 2) * 5;
+      poly(g, [rx + i * 12 - 5, ry - f.h * 0.35, rx + i * 12, ry - f.h * 0.35 - fl, rx + i * 12 + 5, ry - f.h * 0.35]);
+      g.fill();
+    }
+  } else if (f.buff === "boost") {
+    g.globalAlpha = 0.55; g.strokeStyle = c; g.lineWidth = 2.5;
+    for (let i = 0; i < 3; i++) {
+      const yy = ry - 10 + i * 12, back = -Math.sign(f.vx || f.facing);
+      const len = 10 + Math.min(26, Math.abs(f.vx) * 3);
+      g.beginPath(); g.moveTo(rx + back * (hurt * 0.8), yy); g.lineTo(rx + back * (hurt * 0.8 + len), yy); g.stroke();
+    }
+  }
+  g.restore();
+}
+
+
 /* ===== src/09_render.js ===== */
 /* ==========================================================================
    10. RENDER — stage, fighters and HUD
@@ -12505,6 +13099,20 @@ function drawFighter(f, alpha) {
     g.restore();
   }
 
+  /* Danger: past 100% one clean hit can take the stock. A red pulse behind
+     the body says so without anyone having to read the HUD, and it beats
+     faster the closer they are to flying. */
+  if (f.percent >= 100 && f.state !== ST.RESPAWN) {
+    const k = clamp((f.percent - 100) / 80, 0, 1);
+    const rr = ch.hurt * (1.7 + k * 0.5);
+    g.save(); g.globalCompositeOperation = "lighter";
+    g.globalAlpha = (0.2 + 0.18 * k) * (0.55 + 0.45 * Math.sin(f.animTime * (0.1 + k * 0.12)));
+    const q = g.createRadialGradient(rx, ry, rr * 0.25, rx, ry, rr);
+    q.addColorStop(0, "#ff2e4f"); q.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = q; g.beginPath(); g.arc(rx, ry, rr, 0, 7); g.fill();
+    g.restore();
+  }
+
   // --- anim context handed to the character's own draw() ---
   const atk = f.attack;
   const A = {
@@ -12544,7 +13152,7 @@ function drawFighter(f, alpha) {
   const breathe = (f.state === ST.IDLE && f.grounded) ? 1 + Math.sin(f.animTime * 0.055) * 0.015 : 1;
   g.scale(f.facing, squash * stretch * breathe);
 
-  if (f.intangible()) g.globalAlpha = 0.42;
+  if (f.intangible() && f.buff !== "star") g.globalAlpha = 0.42;
   /* Shade's Fade: nearly gone. Online, her own player still sees her
      clearly enough to play; on a shared screen everyone sees the shimmer. */
   if (f.stealthT > 0) {
@@ -12556,6 +13164,7 @@ function drawFighter(f, alpha) {
   g.restore();
 
   drawStatus(f, rx, ry);
+  drawBuff(f, rx, ry);
 
   /* ---- world-space overlays ---- */
   if (f.shielding()) {
@@ -12956,7 +13565,8 @@ function drawDarkness(match, cam, alpha) {
    ========================================================================== */
 
 class Match {
-  /** opts.teams turns on 2v2: each slot's team field picks its side. */
+  /** opts.teams turns on 2v2: each slot's team field picks its side.
+      opts.items: false keeps power-ups from dropping. */
   constructor(slots, stageDef, opts) {
     Match.current = this;
     Stage.select(stageDef);
@@ -12968,6 +13578,7 @@ class Match {
                                      this.teams ? (s.team || 0) : null, s));
     });
     Entities.reset();
+    Items.reset(!opts || opts.items !== false);
     FX.reset();
     this.countdown = 170;
     this.over = false; this.endTimer = 0;
@@ -13036,6 +13647,7 @@ class Match {
       }
     }
     Entities.reset();
+    Items.list.length = 0;
     this.suddenDeath = true; this.frenzy = false;
     this.timeLeft = CFG.suddenDeathSeconds * 60;
     FX.banner("SUDDEN DEATH", "#ff2e88");
@@ -13058,6 +13670,7 @@ class Match {
   update() {
     // Hit pause freezes the simulation but keeps FX alive. Inputs are not
     // polled here, so a press during the freeze still lands on the next frame.
+    if (FX.slow > 0) FX.slow--;
     if (FX.pause > 0) { FX.pause--; FX.update(this.fighters); return; }
 
     if (this.countdown > 0) {
@@ -13094,6 +13707,7 @@ class Match {
     for (const f of this.fighters) f.update(this);
     Combat.resolve(this.fighters);
     Entities.update(this.fighters);
+    Items.update(this.fighters);
     Stage.update(this.fighters);
     FX.update(this.fighters);
   }
@@ -13104,6 +13718,7 @@ class Match {
     const cam = FX.applyCamera(g, alpha);
     drawStage(alpha);
     Entities.draw(g);
+    Items.draw(g);
     for (const f of this.fighters) drawFighter(f, alpha);
     FX.drawWorld(g);
     g.restore();
@@ -13290,6 +13905,15 @@ const Game = {
   teams: false,           // 2v2 team battle instead of free-for-all
   selIndex: 0,
 
+  /** How fast the simulation runs against the clock. A match-ending SMASH
+      slows it down for a moment; online play never does, since the host's
+      pace is everyone's pace. */
+  timeScale() {
+    return this.screen === "match" && !Net.active && FX.slow > 0 ? 0.3 : 1;
+  },
+  /** Items on or off for the next match (remembered per browser). */
+  get items() { return Settings.get("items") !== false; },
+
   /** Why a lineup cannot start yet, or null when it can. */
   startProblem(slots, teams) {
     const on = slots.filter(s => s.mode !== "off");
@@ -13307,7 +13931,7 @@ const Game = {
     // P1 is whoever owns this browser's profile, so they wear its cosmetics
     const slots = this.slots.map((s, i) => i === 0 && s.mode === "human"
       ? Object.assign({}, s, { cos: Profile.cosFor(s.charId), name: Profile.name }) : s);
-    this.match = new Match(slots, STAGES[this.stageIndex], { teams: this.teams });
+    this.match = new Match(slots, STAGES[this.stageIndex], { teams: this.teams, items: this.items });
     this.screen = "match";
     Snd.uiBig();
   },
@@ -13361,6 +13985,7 @@ const Game = {
       case "shop":     this.updateShop(); break;
       case "profile":  this.updateProfile(); break;
       case "account":  this.updateAccount(); break;
+      case "goals":    this.updateGoals(); break;
       case "match":
         /* Online play pauses nobody: the other player is still fighting, so
            Escape leaves the match instead of freezing a fight they can see. */
@@ -13410,10 +14035,12 @@ const Game = {
       case "shop":     this.drawShop(); break;
       case "profile":  this.drawProfile(); break;
       case "account":  this.drawAccount(); break;
+      case "goals":    this.drawGoals(); break;
       case "match":    this.match.draw(alpha); break;
       case "pause":    this.match.draw(alpha); this.drawPause(); break;
       case "results":  this.drawResults(); break;
     }
+    Toast.draw(g);
   },
 
   /* ================================================================ TITLE */
@@ -13505,10 +14132,22 @@ const Game = {
     if (btn(bx, 382, bw, 46, this.tourney ? "RESUME TOURNAMENT" : "TOURNAMENT",
             { color: "#ffc83d", font: `700 17px ${FONT_MONO}` }))
       { this.openTourney(); Snd.uiBig(); }
-    const hw = (bw - 6) / 2;
-    if (btn(bx, 436, hw, 40, "SHOP", { color: "#ffc83d", font: `700 14px ${FONT_MONO}` }))
+    const tw = (bw - 12) / 3;
+    if (btn(bx, 436, tw, 40, "SHOP", { color: "#ffc83d", font: `700 14px ${FONT_MONO}` }))
       { this.shopBack = "title"; this.openShop(); Snd.ui(); }
-    if (btn(bx + hw + 6, 436, hw, 40, "PROFILE", { color: "#00e5ff", font: `700 14px ${FONT_MONO}` }))
+    const left = Daily.today(Profile.d).filter(c => !c.done).length;
+    if (btn(bx + tw + 6, 436, tw, 40, "CHALLENGES", { color: "#b6ff3b", font: `700 13px ${FONT_MONO}` }))
+      this.openGoals("title");
+    if (left) {
+      // how many of today's are still open, as a badge on the corner
+      g.save();
+      g.fillStyle = "#ff2e88"; g.strokeStyle = UI.ink; g.lineWidth = 2.5;
+      g.beginPath(); g.arc(bx + tw * 2 + 2, 438, 10, 0, 7); g.fill(); g.stroke();
+      g.fillStyle = "#ffffff"; g.font = `700 12px ${FONT_MONO}`; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText(String(left), bx + tw * 2 + 2, 439);
+      g.restore();
+    }
+    if (btn(bx + (tw + 6) * 2, 436, tw, 40, "PROFILE", { color: "#00e5ff", font: `700 14px ${FONT_MONO}` }))
       this.openProfile();
 
     const sw = 96, sgap = 6, sy = 484;
@@ -13846,8 +14485,11 @@ const Game = {
       if (hov && Mouse.click) { this.stageIndex = i; Snd.ui(); }
     });
 
-    if (btn(W / 2 - 230, H - 66, 200, 48, "◀ FIGHTERS", { color: "#ff2e88" })) { this.screen = "select"; Snd.ui(); }
-    if (btn(W / 2 + 30, H - 66, 200, 48, "BRAWL ▶", { color: "#b6ff3b", font: `700 19px ${FONT_MONO}` }))
+    if (btn(W / 2 - 350, H - 66, 200, 48, "◀ FIGHTERS", { color: "#ff2e88" })) { this.screen = "select"; Snd.ui(); }
+    if (btn(W / 2 - 130, H - 66, 210, 48, this.items ? "ITEMS: ON" : "ITEMS: OFF",
+            { color: "#ff8a1a", active: this.items }))
+      { Settings.set("items", !this.items); Snd.ui(); }
+    if (btn(W / 2 + 100, H - 66, 250, 48, "BRAWL ▶", { color: "#b6ff3b", font: `700 19px ${FONT_MONO}` }))
       this.start();
   },
 
@@ -14073,14 +14715,14 @@ const Game = {
       ["w", "but that armour BREAKS under enough damage. A super can be contested, not just dodged."],
       ["", ""],
       ["h4", "STAGES"],
-      ["b", "Eight maps, not reskins — and their platforms do things. The Yard's side ledges drift in and out."],
-      ["b", "The Foundry's shelves go red-hot on a cycle and burn you; they flicker before they do."],
-      ["b", "The Drift's cloud islands sag and dissolve under your weight, then reform. Don't camp them."],
-      ["b", "The Vault's one shelf retracts on a timer, leaving the rails empty and nowhere to land."],
-      ["b", "The Spire's two lifts ride up and down the frame, out of step, so the high ground keeps moving."],
-      ["b", "The Rust Line's whole deck is a conveyor. It carries you, then reverses — arrows flash amber first."],
-      ["b", "The Hollow's mushroom caps past each ledge bounce you sky-high and give your jumps back."],
-      ["b", "The Peak's gusts sweep the deck, alternating sides. An arrow warns which way before each one."],
+      ["b", "Eight maps, and their platforms do things: drifting ledges, red-hot shelves, crumbling clouds,"],
+      ["b", "a retracting shelf, moving lifts, a reversing conveyor, bouncy mushroom caps and sweeping gusts."],
+      ["b", "Every hazard warns you first — a flicker, an arrow, a flash. Read the stage."],
+      ["", ""],
+      ["h5", "ITEMS"],
+      ["b", "Capsules float down mid-match — touch one to use it. HEART heals, BOOST speeds you up, POWER hits harder,"],
+      ["b", "STAR makes you invincible (and hurts anyone you run into), CHARGE fills half your meter, BOMB sticks to a foe."],
+      ["b", "Switch items off on the stage screen. Past 100% a fighter glows red — one clean SMASH can take that stock."],
     ];
     let y = 112;
     g.save();
@@ -14091,7 +14733,8 @@ const Game = {
       else if (k === "w") { g.font = `700 13px ${FONT_MONO}`; g.fillStyle = "#ff2e88"; }
       else {
         g.font = `700 16px ${FONT_MONO}`;
-        g.fillStyle = k === "h" ? "#ffffff" : k === "h2" ? "#b6ff3b" : k === "h3" ? "#ffc83d" : "#00e5ff";
+        g.fillStyle = k === "h" ? "#ffffff" : k === "h2" ? "#b6ff3b" : k === "h3" ? "#ffc83d"
+                    : k === "h5" ? "#ff8a1a" : "#00e5ff";
       }
       g.fillText(t, 150, y);
       y += (k === "b" || k === "w") ? 20 : 24;
@@ -14182,7 +14825,8 @@ const Game = {
       else if (k === "w") { g.font = `700 13px ${FONT_MONO}`; g.fillStyle = "#ff2e88"; }
       else {
         g.font = `700 16px ${FONT_MONO}`;
-        g.fillStyle = k === "h" ? "#ffffff" : k === "h2" ? "#b6ff3b" : k === "h3" ? "#ffc83d" : "#00e5ff";
+        g.fillStyle = k === "h" ? "#ffffff" : k === "h2" ? "#b6ff3b" : k === "h3" ? "#ffc83d"
+                    : k === "h5" ? "#ff8a1a" : "#00e5ff";
       }
       g.fillText(t, 150, y);
       y += (k === "b" || k === "w") ? 20 : 24;
@@ -14462,12 +15106,16 @@ const Game = {
     g.save();
     g.textAlign = "left"; g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#8e8bb2";
     g.fillText("MODE", 176, py + 24);
+    g.fillText("ITEMS", 410, py + 24);
     g.fillText("STAGE", 640, py + 24);
     g.restore();
     if (host) {
       if (btn(176, py + 34, 220, 40, this.teams ? "2v2 TEAMS" : "FREE-FOR-ALL",
           { active: this.teams, color: this.teams ? "#ff4f6a" : "#8a7fff" }))
         { Net.setTeams(!this.teams); Snd.ui(); }
+      if (btn(410, py + 34, 200, 40, this.items ? "ITEMS: ON" : "ITEMS: OFF",
+          { active: this.items, color: "#ff8a1a" }))
+        { Settings.set("items", !this.items); Net.dirty = true; Snd.ui(); }
       if (btn(640, py + 34, 44, 40, "◀", { color: "#00e5ff" }))
         { Net.setStage((this.stageIndex + STAGES.length - 1) % STAGES.length); Snd.ui(); }
       if (btn(906, py + 34, 44, 40, "▶", { color: "#00e5ff" }))
@@ -14476,6 +15124,8 @@ const Game = {
       g.save(); g.textAlign = "left"; g.font = `700 16px ${FONT_MONO}`;
       g.fillStyle = this.teams ? "#ff4f6a" : "#8a7fff";
       g.fillText(this.teams ? "2v2 TEAMS" : "FREE-FOR-ALL", 176, py + 60);
+      g.fillStyle = Net.roomItems === false ? "#8e8bb2" : "#ff8a1a";
+      g.fillText(Net.roomItems === false ? "ITEMS OFF" : "ITEMS ON", 410, py + 60);
       g.restore();
     }
     g.save();
@@ -14735,6 +15385,24 @@ const Game = {
     g.textAlign = "right"; g.fillStyle = "#aeabd4";
     g.fillText(`BALANCE ${Profile.d.coins.toLocaleString()}`, x + w - 16, y + h / 2 + 1);
     g.restore();
+
+    /* What this match completed: daily challenges and achievements, each a
+       chip of its own under the strip. */
+    if (rw.bonus && rw.bonus.length) {
+      let cx = x;
+      g.save();
+      g.font = `700 11px ${FONT_MONO}`; g.textBaseline = "middle"; g.textAlign = "left";
+      for (const b of rw.bonus) {
+        const col = b.kind === "daily" ? "#b6ff3b" : "#ffc83d";
+        const label = `${b.kind === "daily" ? "DAILY ✓" : "★ ACHIEVEMENT"}  ${b.label.toUpperCase()}  +${b.coins}`;
+        const cw = g.measureText(label).width + 28;
+        if (cx + cw > x + w) break;
+        panel(g, cx, y + h + 10, cw, 30, { cut: 8, fill: "#16112a", accent: col, accentA: 0.9, glow: 8 });
+        g.fillStyle = col; g.fillText(label, cx + 14, y + h + 26);
+        cx += cw + 10;
+      }
+      g.restore();
+    }
   },
 };
 
@@ -15470,7 +16138,7 @@ const Net = {
         return [s.charId, s.mode, s.team || 0, lk.cos, lk.name];
       }),
       seats: [0, 1, 2, 3].map(i => this.seatOf(i)),
-      teams: Game.teams, stage: Game.stageIndex,
+      teams: Game.teams, stage: Game.stageIndex, items: Game.items,
       setup: this.phase === "lobby" ? null : this.setup,
     };
   },
@@ -15492,6 +16160,7 @@ const Net = {
                                                     this.seatLook(s, i))),
       stage: Game.stageIndex,
       teams: Game.teams,
+      items: Game.items,
     };
     this.phase = "match";
     this.frame = 0;
@@ -15575,6 +16244,7 @@ const Net = {
     this.seated = true;
     Game.teams = !!r.teams;
     Game.stageIndex = r.stage;
+    this.roomItems = r.items !== false;
     Game.slots = r.slots.map(([charId, mode, team, cos, name], i) => {
       cos = Cosmetics.clean(cos); name = cleanName(name);
       // keep our own optimistic pick until the host has caught up with it
@@ -15611,7 +16281,7 @@ const Net = {
                                          cos: Cosmetics.clean(s.cos), name: cleanName(s.name) }));
     Game.stageIndex = setup.stage;
     Game.teams = !!setup.teams;
-    Game.match = new Match(Game.slots, STAGES[setup.stage], { teams: setup.teams });
+    Game.match = new Match(Game.slots, STAGES[setup.stage], { teams: setup.teams, items: setup.items !== false });
     Game.screen = "match";
     this.snapCur = this.lastSeen = null;
     this.snapAt = performance.now();
@@ -15749,6 +16419,8 @@ const Net = {
                                   e.dir || 0, e.landed ? 1 : 0, e.storm ? 1 : 0, e.max || 0,
                                   e.w || 0]),
       ev: this.events.length ? this.events.slice() : undefined,
+      it: Items.list.map(i => [i.id, ITEM_IDS.indexOf(i.kind), Math.round(i.x), Math.round(i.y),
+                               i.landed ? 1 : 0, i.life, i.t]),
       fs: m.fighters.map(f => ({
         s: f.slot,
         x: r2(f.x), y: r2(f.y), vx: r2(f.vx), vy: r2(f.vy),
@@ -15767,9 +16439,11 @@ const Net = {
         sq: f.squatHeld ? 1 : 0, rd: f.rollDir || 0, lh: f.attack ? f.attack.lastHitFrame : 0,
         // status effects: [chill, frozen, curse, root, stealth, echo, ambush]
         fx: [f.slowT, f.frozenT, f.curseT, f.rootT, f.stealthT, f.echoT, f.ambushT,
-             f.burnT, f.markT, f.markBy ? f.markBy.slot : -1],
+             f.burnT, f.markT, f.markBy ? f.markBy.slot : -1,
+             BUFF_IDS.indexOf(f.buff), f.buffT],
         cv: f.v,
-        sx: [f.stats.kos, f.stats.falls, r2(f.stats.damageDealt), f.stats.supers, r2(f.stats.bestHit)],
+        sx: [f.stats.kos, f.stats.falls, r2(f.stats.damageDealt), f.stats.supers, r2(f.stats.bestHit),
+             f.stats.smashes, f.stats.bestCombo, f.stats.items],
       })),
     };
   },
@@ -15828,6 +16502,19 @@ const Net = {
       kind: ENT_KINDS[e[0]], owner: bySlot(e[1]), x: e[2], y: e[3], r: e[4],
       life: e[5], dir: e[6], landed: !!e[7], storm: !!e[8], max: e[9], w: e[10], hitIds: [],
     })).filter(e => e.owner && e.kind);
+
+    // ---- items: also rebuilt; one that vanished early was picked up ----
+    if (fresh) {
+      const was = new Map(Items.list.map(i => [i.id, i]));
+      Items.list = (snap.it || []).map(([id, k, x, y, landed, life, t]) =>
+        ({ id, kind: ITEM_IDS[k] || "heart", x, y, landed: !!landed, life, t, vy: 0 }));
+      for (const i of Items.list) was.delete(i.id);
+      for (const i of was.values()) if (i.life > 8) {
+        FX.ring(i.x, i.y - 18, 8, 90, ITEMS[i.kind].color, 4);
+        FX.burst(i.x, i.y - 18, 18, ITEMS[i.kind].color, 6);
+        Snd.tone(660, 0.07, "square", 0.12, 1320);
+      }
+    } else for (const i of Items.list) { i.t++; if (i.life > 0) i.life--; }
 
     // ---- banners the host raised (a predicted special already showed its own) ----
     if (fresh && snap.ev) for (const [text, color] of snap.ev)
@@ -15891,11 +16578,13 @@ const Net = {
     f.stealthT = s[4] || 0; f.echoT = s[5] || 0; f.ambushT = s[6] || 0;
     f.burnT = s[7] || 0; f.markT = s[8] || 0;
     f.markBy = s[9] >= 0 && Game.match ? Game.match.fighters.find(o => o.slot === s[9]) || null : null;
+    f.buff = BUFF_IDS[s[10]] || ""; f.buffT = s[11] || 0;
     if (fd.cv) f.v = fd.cv;
   },
   applyStats(f, fd) {
     f.stats.kos = fd.sx[0]; f.stats.falls = fd.sx[1]; f.stats.damageDealt = fd.sx[2];
     f.stats.supers = fd.sx[3]; f.stats.bestHit = fd.sx[4];
+    f.stats.smashes = fd.sx[5] || 0; f.stats.bestCombo = fd.sx[6] || 0; f.stats.items = fd.sx[7] || 0;
   },
   /** The renderer, and the predicted physics, need the floor a grounded fighter is on. */
   findGround(f) {
@@ -16149,10 +16838,11 @@ function coinIcon(g, x, y, r) {
 }
 
 /** Coin balance chip. Returns its width. */
-function coinChip(g, n, x, y, align) {
+/** prefix goes in front of the number ("+" for a payout). */
+function coinChip(g, n, x, y, align, prefix) {
   g.save();
   g.font = `700 15px ${FONT_MONO}`;
-  const txt = Math.floor(n).toLocaleString();
+  const txt = (prefix || "") + Math.floor(n).toLocaleString();
   const w = g.measureText(txt).width + 46;
   const bx = align === "right" ? x - w : align === "center" ? x - w / 2 : x;
   panel(g, bx, y, w, 32, { cut: 8, fill: "#17122a", accent: "#ffc83d", accentA: 0.8, glow: 8 });
@@ -16400,7 +17090,7 @@ Object.assign(Game, {
   startTourneyMatch() {
     const cur = this.tourney && this.tourney.cur;
     if (!cur) return;
-    this.match = new Match(cur.slots, STAGES[cur.stage], { teams: false });
+    this.match = new Match(cur.slots, STAGES[cur.stage], { teams: false, items: this.items });
     cur.match = this.match;
     this.screen = "match";
     Snd.uiBig();
@@ -16920,6 +17610,115 @@ Object.assign(Game, {
     g.fillText("Don't reuse a password from another site. Passwords are stored hashed, never as text.", cx, H - 40);
     g.restore();
   },
+  /* ================================================================ GOALS
+     Today's three challenges across the top, every achievement underneath. */
+  openGoals(back) {
+    this.goalsBack = back || "title";
+    Daily.today(Profile.d);
+    this.screen = "goals";
+    Snd.ui();
+  },
+  updateGoals() {
+    if (Keys.pressed["Escape"]) { this.screen = this.goalsBack || "title"; Snd.ui(); }
+  },
+  drawGoals() {
+    Stage.def = STAGES[5];
+    drawBackground();
+    g.save(); g.fillStyle = "rgba(6,5,14,.84)"; g.fillRect(0, 0, W, H); g.restore();
+    screenTitleBar("COOL MATT GAMES", "CHALLENGES", "#b6ff3b");
+    const d = Profile.d, t = performance.now() / 16;
+
+    /* ---- today's challenges ---- */
+    const list = Daily.today(d);
+    const left = Daily.msLeft(), hh = Math.floor(left / 3600000), mm = Math.floor(left / 60000) % 60;
+    g.save();
+    g.textAlign = "left"; g.font = `700 12px ${FONT_MONO}`; g.fillStyle = "#b6ff3b";
+    g.fillText("TODAY'S CHALLENGES", 60, 126);
+    g.textAlign = "right"; g.fillStyle = "#aeabd4";
+    g.fillText(`NEW SET IN ${hh}h ${String(mm).padStart(2, "0")}m`, W - 60, 126);
+    g.restore();
+    const cw = (W - 120 - 40) / 3;
+    list.forEach((c, i) => {
+      const x = 60 + i * (cw + 20), y = 138, h = 104;
+      const col = c.done ? "#b6ff3b" : "#00e5ff";
+      panel(g, x, y, cw, h, { cut: 12, fill: c.done ? "#14221a" : "#110e24", accent: col,
+                               accentA: c.done ? 0.95 : 0.55, glow: c.done ? 12 : 0 });
+      g.save();
+      g.textAlign = "left"; g.textBaseline = "alphabetic";
+      g.font = `900 19px ${FONT_DISPLAY}`; g.fillStyle = "#ffffff";
+      const lines = wrapLines(g, c.text, cw - 130);
+      lines.slice(0, 2).forEach((ln, k) => g.fillText(ln, x + 18, y + 34 + k * 22));
+      g.restore();
+      coinChip(g, c.def.coins, x + cw - 14, y + 14, "right", "+");
+      // progress
+      const k = clamp(c.prog / c.n, 0, 1);
+      slot(g, x + 18, y + h - 30, cw - 36, 14, 4);
+      bar(g, x + 19, y + h - 29, cw - 38, 12, k, col, { glow: 8, r: 3 });
+      g.save();
+      g.textAlign = "right"; g.font = `700 11px ${FONT_MONO}`;
+      g.fillStyle = c.done ? "#b6ff3b" : "#d6d3ee";
+      g.fillText(c.done ? "✓ COMPLETE" : `${c.prog} / ${c.n}`, x + cw - 18, y + h - 38);
+      g.restore();
+    });
+
+    /* ---- achievements ---- */
+    const got = new Set(d.ach);
+    g.save();
+    g.textAlign = "left"; g.font = `700 12px ${FONT_MONO}`; g.fillStyle = "#ffc83d";
+    g.fillText(`ACHIEVEMENTS  ·  ${got.size} / ${ACHIEVEMENTS.length}`, 60, 276);
+    g.textAlign = "right"; g.fillStyle = "#aeabd4";
+    const worth = ACHIEVEMENTS.reduce((n, a) => n + (got.has(a.id) ? 0 : a.coins), 0);
+    g.fillText(worth ? `${worth.toLocaleString()} COINS STILL TO EARN` : "EVERY ACHIEVEMENT UNLOCKED", W - 60, 276);
+    g.restore();
+    const cols = 7, gap = 10, tw = (W - 120 - gap * (cols - 1)) / cols, th = 70;
+    let hover = null;
+    ACHIEVEMENTS.forEach((a, i) => {
+      const x = 60 + (i % cols) * (tw + gap), y = 288 + Math.floor(i / cols) * (th + gap);
+      const on = got.has(a.id);
+      const hov = Mouse.x > x && Mouse.x < x + tw && Mouse.y > y && Mouse.y < y + th;
+      if (hov) hover = a;
+      panel(g, x, y, tw, th, { cut: 9, fill: on ? "#221a0c" : "#0f0c1d", accent: on ? "#ffc83d" : "#3a3560",
+                                accentA: on ? 0.9 : hov ? 0.9 : 0.6, glow: on ? 8 : 0 });
+      g.save();
+      g.translate(x + 22, y + 26);
+      if (on) {
+        // a trophy
+        g.fillStyle = "#ffc83d"; g.strokeStyle = UI.ink; g.lineWidth = 2.5;
+        g.beginPath(); g.moveTo(-10, -12); g.lineTo(10, -12); g.lineTo(8, 0); g.quadraticCurveTo(0, 8, -8, 0); g.closePath();
+        g.stroke(); g.fill();
+        g.fillRect(-2, 4, 4, 6); g.fillRect(-7, 10, 14, 4);
+        g.fillStyle = "rgba(255,255,255,.5)"; g.fillRect(-6, -9, 3, 7);
+      } else {
+        // a padlock
+        g.strokeStyle = "#6e6b8c"; g.lineWidth = 3;
+        g.beginPath(); g.arc(0, -4, 6, Math.PI, 0); g.stroke();
+        g.fillStyle = "#6e6b8c"; g.fillRect(-9, -4, 18, 14);
+      }
+      g.restore();
+      g.save();
+      g.textAlign = "left";
+      g.font = `700 12px ${FONT_MONO}`; g.fillStyle = on ? "#ffffff" : "#aeabd4";
+      g.fillText(a.name, x + 42, y + 24);
+      g.font = `500 10px ${FONT_MONO}`; g.fillStyle = on ? "#ffe9a8" : "#8e8bb2";
+      wrapLines(g, a.desc, tw - 52).slice(0, 2).forEach((ln, k) => g.fillText(ln, x + 42, y + 40 + k * 12));
+      g.restore();
+      g.save();
+      g.textAlign = "right"; g.font = `700 10px ${FONT_MONO}`;
+      g.fillStyle = on ? "#b6ff3b" : "#ffc83d";
+      g.fillText(on ? "✓" : `+${a.coins}`, x + tw - 10, y + th - 10);
+      g.restore();
+    });
+
+    g.save();
+    g.textAlign = "center"; g.font = `500 12px ${FONT_MONO}`; g.fillStyle = "#d6d3ee";
+    g.fillText(hover ? `${hover.name} — ${hover.desc}  ·  ${got.has(hover.id) ? "UNLOCKED" : "+" + hover.coins + " COINS"}`
+                     : "Challenges and achievements pay coins the moment you earn them. Only P1's matches count.",
+               W / 2, 630);
+    g.restore();
+
+    if (btn(50, H - 72, 180, 48, "◀ BACK", { color: "#ff2e88" })) { this.screen = this.goalsBack || "title"; Snd.ui(); }
+    if (btn(W - 230, H - 72, 180, 48, "PLAY ▶", { color: "#b6ff3b" })) { this.screen = "select"; Snd.uiBig(); }
+  },
 });
 
 
@@ -16952,7 +17751,7 @@ function frame(now) {
   let dt = now - last;
   last = now;
   if (dt > 250) dt = STEP;        // tab was hidden; don't fast-forward
-  acc += dt;
+  acc += dt * Game.timeScale();
 
   let steps = 0;
   while (acc >= STEP && steps < CFG.maxFrameSkip) {

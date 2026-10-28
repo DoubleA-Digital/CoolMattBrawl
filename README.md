@@ -21,6 +21,12 @@ Canvas, vanilla JS, zero external assets.
   conveyor, Spore Hollow's mushroom caps bounce, and Howling Peak has gusts.
 - 3 stocks, damage-percent knockback, blast-zone KOs, shields, rolls, air
   dodges, grabs and throws. Hits strong enough to take a stock land as a SMASH.
+  Chained hits count up as combos, anyone past 100% glows red, and a SMASH
+  that could end the match plays out in slow motion.
+- **Items** (on by default, switchable): capsules float onto the stage —
+  HEART heals, BOOST speeds you up, POWER hits harder, STAR makes you
+  invincible and dangerous to touch, CHARGE fills half your meter, and BOMB
+  lobs a sticky bomb at the nearest foe.
 - The last 30 seconds are a **Frenzy** (meter fills twice as fast), and a
   time-out with the stocks level goes to **Sudden Death** at 150%.
 - Rebindable controls for all four players, gamepads, and CPU opponents.
@@ -30,6 +36,8 @@ Canvas, vanilla JS, zero external assets.
   fighters (your top favourite is P1's default). Every match pays coins for
   playing, winning, KOs, damage and supers. Play as a guest, or sign up so your
   progress follows you to any device.
+- **Daily challenges and achievements**: three new challenges every day
+  and 28 achievements, all paying coins.
 - **Cosmetics shop**: 9 skins (including an animated Prism), 8 hats and 5
   trails, bought with coins. Your look and username show to everyone online.
 

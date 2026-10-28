@@ -26,10 +26,11 @@ function coinIcon(g, x, y, r) {
 }
 
 /** Coin balance chip. Returns its width. */
-function coinChip(g, n, x, y, align) {
+/** prefix goes in front of the number ("+" for a payout). */
+function coinChip(g, n, x, y, align, prefix) {
   g.save();
   g.font = `700 15px ${FONT_MONO}`;
-  const txt = Math.floor(n).toLocaleString();
+  const txt = (prefix || "") + Math.floor(n).toLocaleString();
   const w = g.measureText(txt).width + 46;
   const bx = align === "right" ? x - w : align === "center" ? x - w / 2 : x;
   panel(g, bx, y, w, 32, { cut: 8, fill: "#17122a", accent: "#ffc83d", accentA: 0.8, glow: 8 });
@@ -277,7 +278,7 @@ Object.assign(Game, {
   startTourneyMatch() {
     const cur = this.tourney && this.tourney.cur;
     if (!cur) return;
-    this.match = new Match(cur.slots, STAGES[cur.stage], { teams: false });
+    this.match = new Match(cur.slots, STAGES[cur.stage], { teams: false, items: this.items });
     cur.match = this.match;
     this.screen = "match";
     Snd.uiBig();
@@ -796,5 +797,114 @@ Object.assign(Game, {
     g.textAlign = "center"; g.font = `500 11px ${FONT_MONO}`; g.fillStyle = "#7f7ca3";
     g.fillText("Don't reuse a password from another site. Passwords are stored hashed, never as text.", cx, H - 40);
     g.restore();
+  },
+  /* ================================================================ GOALS
+     Today's three challenges across the top, every achievement underneath. */
+  openGoals(back) {
+    this.goalsBack = back || "title";
+    Daily.today(Profile.d);
+    this.screen = "goals";
+    Snd.ui();
+  },
+  updateGoals() {
+    if (Keys.pressed["Escape"]) { this.screen = this.goalsBack || "title"; Snd.ui(); }
+  },
+  drawGoals() {
+    Stage.def = STAGES[5];
+    drawBackground();
+    g.save(); g.fillStyle = "rgba(6,5,14,.84)"; g.fillRect(0, 0, W, H); g.restore();
+    screenTitleBar("COOL MATT GAMES", "CHALLENGES", "#b6ff3b");
+    const d = Profile.d, t = performance.now() / 16;
+
+    /* ---- today's challenges ---- */
+    const list = Daily.today(d);
+    const left = Daily.msLeft(), hh = Math.floor(left / 3600000), mm = Math.floor(left / 60000) % 60;
+    g.save();
+    g.textAlign = "left"; g.font = `700 12px ${FONT_MONO}`; g.fillStyle = "#b6ff3b";
+    g.fillText("TODAY'S CHALLENGES", 60, 126);
+    g.textAlign = "right"; g.fillStyle = "#aeabd4";
+    g.fillText(`NEW SET IN ${hh}h ${String(mm).padStart(2, "0")}m`, W - 60, 126);
+    g.restore();
+    const cw = (W - 120 - 40) / 3;
+    list.forEach((c, i) => {
+      const x = 60 + i * (cw + 20), y = 138, h = 104;
+      const col = c.done ? "#b6ff3b" : "#00e5ff";
+      panel(g, x, y, cw, h, { cut: 12, fill: c.done ? "#14221a" : "#110e24", accent: col,
+                               accentA: c.done ? 0.95 : 0.55, glow: c.done ? 12 : 0 });
+      g.save();
+      g.textAlign = "left"; g.textBaseline = "alphabetic";
+      g.font = `900 19px ${FONT_DISPLAY}`; g.fillStyle = "#ffffff";
+      const lines = wrapLines(g, c.text, cw - 130);
+      lines.slice(0, 2).forEach((ln, k) => g.fillText(ln, x + 18, y + 34 + k * 22));
+      g.restore();
+      coinChip(g, c.def.coins, x + cw - 14, y + 14, "right", "+");
+      // progress
+      const k = clamp(c.prog / c.n, 0, 1);
+      slot(g, x + 18, y + h - 30, cw - 36, 14, 4);
+      bar(g, x + 19, y + h - 29, cw - 38, 12, k, col, { glow: 8, r: 3 });
+      g.save();
+      g.textAlign = "right"; g.font = `700 11px ${FONT_MONO}`;
+      g.fillStyle = c.done ? "#b6ff3b" : "#d6d3ee";
+      g.fillText(c.done ? "✓ COMPLETE" : `${c.prog} / ${c.n}`, x + cw - 18, y + h - 38);
+      g.restore();
+    });
+
+    /* ---- achievements ---- */
+    const got = new Set(d.ach);
+    g.save();
+    g.textAlign = "left"; g.font = `700 12px ${FONT_MONO}`; g.fillStyle = "#ffc83d";
+    g.fillText(`ACHIEVEMENTS  ·  ${got.size} / ${ACHIEVEMENTS.length}`, 60, 276);
+    g.textAlign = "right"; g.fillStyle = "#aeabd4";
+    const worth = ACHIEVEMENTS.reduce((n, a) => n + (got.has(a.id) ? 0 : a.coins), 0);
+    g.fillText(worth ? `${worth.toLocaleString()} COINS STILL TO EARN` : "EVERY ACHIEVEMENT UNLOCKED", W - 60, 276);
+    g.restore();
+    const cols = 7, gap = 10, tw = (W - 120 - gap * (cols - 1)) / cols, th = 70;
+    let hover = null;
+    ACHIEVEMENTS.forEach((a, i) => {
+      const x = 60 + (i % cols) * (tw + gap), y = 288 + Math.floor(i / cols) * (th + gap);
+      const on = got.has(a.id);
+      const hov = Mouse.x > x && Mouse.x < x + tw && Mouse.y > y && Mouse.y < y + th;
+      if (hov) hover = a;
+      panel(g, x, y, tw, th, { cut: 9, fill: on ? "#221a0c" : "#0f0c1d", accent: on ? "#ffc83d" : "#3a3560",
+                                accentA: on ? 0.9 : hov ? 0.9 : 0.6, glow: on ? 8 : 0 });
+      g.save();
+      g.translate(x + 22, y + 26);
+      if (on) {
+        // a trophy
+        g.fillStyle = "#ffc83d"; g.strokeStyle = UI.ink; g.lineWidth = 2.5;
+        g.beginPath(); g.moveTo(-10, -12); g.lineTo(10, -12); g.lineTo(8, 0); g.quadraticCurveTo(0, 8, -8, 0); g.closePath();
+        g.stroke(); g.fill();
+        g.fillRect(-2, 4, 4, 6); g.fillRect(-7, 10, 14, 4);
+        g.fillStyle = "rgba(255,255,255,.5)"; g.fillRect(-6, -9, 3, 7);
+      } else {
+        // a padlock
+        g.strokeStyle = "#6e6b8c"; g.lineWidth = 3;
+        g.beginPath(); g.arc(0, -4, 6, Math.PI, 0); g.stroke();
+        g.fillStyle = "#6e6b8c"; g.fillRect(-9, -4, 18, 14);
+      }
+      g.restore();
+      g.save();
+      g.textAlign = "left";
+      g.font = `700 12px ${FONT_MONO}`; g.fillStyle = on ? "#ffffff" : "#aeabd4";
+      g.fillText(a.name, x + 42, y + 24);
+      g.font = `500 10px ${FONT_MONO}`; g.fillStyle = on ? "#ffe9a8" : "#8e8bb2";
+      wrapLines(g, a.desc, tw - 52).slice(0, 2).forEach((ln, k) => g.fillText(ln, x + 42, y + 40 + k * 12));
+      g.restore();
+      g.save();
+      g.textAlign = "right"; g.font = `700 10px ${FONT_MONO}`;
+      g.fillStyle = on ? "#b6ff3b" : "#ffc83d";
+      g.fillText(on ? "✓" : `+${a.coins}`, x + tw - 10, y + th - 10);
+      g.restore();
+    });
+
+    g.save();
+    g.textAlign = "center"; g.font = `500 12px ${FONT_MONO}`; g.fillStyle = "#d6d3ee";
+    g.fillText(hover ? `${hover.name} — ${hover.desc}  ·  ${got.has(hover.id) ? "UNLOCKED" : "+" + hover.coins + " COINS"}`
+                     : "Challenges and achievements pay coins the moment you earn them. Only P1's matches count.",
+               W / 2, 630);
+    g.restore();
+
+    if (btn(50, H - 72, 180, 48, "◀ BACK", { color: "#ff2e88" })) { this.screen = this.goalsBack || "title"; Snd.ui(); }
+    if (btn(W - 230, H - 72, 180, 48, "PLAY ▶", { color: "#b6ff3b" })) { this.screen = "select"; Snd.uiBig(); }
   },
 });

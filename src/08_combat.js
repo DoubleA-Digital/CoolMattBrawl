@@ -307,6 +307,8 @@ const Combat = {
     // Tempo: a hit that lands on the stage music's beat
     const onBeat = atk.ch.rhythm && this.onBeat();
     if (onBeat) { dmg *= 1.2; atk.addMeter(4); }
+    // a POWER item
+    if (atk.buff === "power") { dmg *= ITEM_CFG.powerMul; kbMul *= 1.1; }
 
     // ---------------- shield ----------------
     // Tempo's sound waves shatter a held shield outright
@@ -328,6 +330,12 @@ const Combat = {
       }
     }
 
+    /* ---- combo: a hit on someone still reeling from the last one ----
+       Counted per attack, not per hitbox frame, so one multi-hit move is one
+       link in the chain. */
+    const comboKey = atk.attack || move;
+    const chained = def.state === ST.HITSTUN && def.hitstun > 0 && def.lastHitBy === atk;
+
     // ---------------- knockback ----------------
     const base = move.base || 2, scale = move.scale || 0.5;
     const kb = CFG.kbBase + base + dmg * CFG.kbDamageScale
@@ -336,6 +344,14 @@ const Combat = {
     const rad = (move.angle != null ? move.angle : 45) * Math.PI / 180;
 
     def.applyKnockback(Math.cos(rad) * mag * dirX, -Math.sin(rad) * mag, dmg, mag, atk);
+    if (def.state === ST.HITSTUN) {
+      if (!chained) { def.comboN = 1; def.comboKey = comboKey; }
+      else if (def.comboKey !== comboKey) {
+        def.comboN++; def.comboKey = comboKey;
+        atk.stats.bestCombo = Math.max(atk.stats.bestCombo, def.comboN);
+        if (def.comboN >= 3) FX.combo(def.x, def.y - def.h * 0.9, def.comboN, atk.ch.accent);
+      }
+    }
     atk.stats.damageDealt += dmg;
     atk.stats.bestHit = Math.max(atk.stats.bestHit, dmg);
     // Vex: her hits heal her own damage
@@ -390,6 +406,16 @@ const Combat = {
       FX.damageText(hx, hy - 62, "SMASH!", "#ffffff");
       Snd.bigHit();
       def.launchFx = 40;
+      atk.stats.smashes++;
+      FX.kick(hx, hy, 0.09);
+      /* Possibly the hit that ends the match: their last stock, and nobody
+         else left to beat. Slow the world down and let everyone watch. */
+      const m = Match.current;
+      if (m && def.stocks === 1 && !m.over &&
+          m.sides().filter(side => side.some(f => f !== def && f.stocks > 0)).length <= 1) {
+        FX.slowmo(48);
+        FX.kick(def.x, def.y, 0.22);
+      }
     }
     if (dmg >= 13) { Snd.bigHit(); FX.flash(atk.ch.color, 0.12); FX.punch(0.5); }
     else if (dmg >= 7) FX.punch(0.22);
@@ -466,6 +492,21 @@ const CPU = {
     // Vex keeps her siphon going by holding the button
     if (f.ch.id === "VEX" && f.state === ST.ATTACK && f.attack && f.attack.kind === "special") {
       press("special"); return inp;
+    }
+
+    // --- grab a power-up lying nearby, unless someone is right on top of us ---
+    let item = null, id = 380;
+    for (const it of Items.list) {
+      if (!it.landed) continue;
+      const d = dist(f.x, f.y, it.x, it.y - 18);
+      if (d < id) { id = d; item = it; }
+    }
+    if (item && bd > 150) {
+      const ix = item.x - f.x, iy = item.y - 18 - f.y;
+      if (Math.abs(ix) > 8) { const dir = ix > 0 ? "right" : "left"; press(dir); inp.ax = ix > 0 ? 1 : -1; }
+      if (iy < -60 && f.grounded && ai.t % 24 < 2) press("up");
+      if (iy < -40 && !f.grounded && f.airJumps > 0 && ai.t % 20 < 2) press("up");
+      return inp;
     }
 
     // --- super when it's up and the target is worth it ---

@@ -126,6 +126,15 @@ const Game = {
   teams: false,           // 2v2 team battle instead of free-for-all
   selIndex: 0,
 
+  /** How fast the simulation runs against the clock. A match-ending SMASH
+      slows it down for a moment; online play never does, since the host's
+      pace is everyone's pace. */
+  timeScale() {
+    return this.screen === "match" && !Net.active && FX.slow > 0 ? 0.3 : 1;
+  },
+  /** Items on or off for the next match (remembered per browser). */
+  get items() { return Settings.get("items") !== false; },
+
   /** Why a lineup cannot start yet, or null when it can. */
   startProblem(slots, teams) {
     const on = slots.filter(s => s.mode !== "off");
@@ -143,7 +152,7 @@ const Game = {
     // P1 is whoever owns this browser's profile, so they wear its cosmetics
     const slots = this.slots.map((s, i) => i === 0 && s.mode === "human"
       ? Object.assign({}, s, { cos: Profile.cosFor(s.charId), name: Profile.name }) : s);
-    this.match = new Match(slots, STAGES[this.stageIndex], { teams: this.teams });
+    this.match = new Match(slots, STAGES[this.stageIndex], { teams: this.teams, items: this.items });
     this.screen = "match";
     Snd.uiBig();
   },
@@ -197,6 +206,7 @@ const Game = {
       case "shop":     this.updateShop(); break;
       case "profile":  this.updateProfile(); break;
       case "account":  this.updateAccount(); break;
+      case "goals":    this.updateGoals(); break;
       case "match":
         /* Online play pauses nobody: the other player is still fighting, so
            Escape leaves the match instead of freezing a fight they can see. */
@@ -246,10 +256,12 @@ const Game = {
       case "shop":     this.drawShop(); break;
       case "profile":  this.drawProfile(); break;
       case "account":  this.drawAccount(); break;
+      case "goals":    this.drawGoals(); break;
       case "match":    this.match.draw(alpha); break;
       case "pause":    this.match.draw(alpha); this.drawPause(); break;
       case "results":  this.drawResults(); break;
     }
+    Toast.draw(g);
   },
 
   /* ================================================================ TITLE */
@@ -341,10 +353,22 @@ const Game = {
     if (btn(bx, 382, bw, 46, this.tourney ? "RESUME TOURNAMENT" : "TOURNAMENT",
             { color: "#ffc83d", font: `700 17px ${FONT_MONO}` }))
       { this.openTourney(); Snd.uiBig(); }
-    const hw = (bw - 6) / 2;
-    if (btn(bx, 436, hw, 40, "SHOP", { color: "#ffc83d", font: `700 14px ${FONT_MONO}` }))
+    const tw = (bw - 12) / 3;
+    if (btn(bx, 436, tw, 40, "SHOP", { color: "#ffc83d", font: `700 14px ${FONT_MONO}` }))
       { this.shopBack = "title"; this.openShop(); Snd.ui(); }
-    if (btn(bx + hw + 6, 436, hw, 40, "PROFILE", { color: "#00e5ff", font: `700 14px ${FONT_MONO}` }))
+    const left = Daily.today(Profile.d).filter(c => !c.done).length;
+    if (btn(bx + tw + 6, 436, tw, 40, "CHALLENGES", { color: "#b6ff3b", font: `700 13px ${FONT_MONO}` }))
+      this.openGoals("title");
+    if (left) {
+      // how many of today's are still open, as a badge on the corner
+      g.save();
+      g.fillStyle = "#ff2e88"; g.strokeStyle = UI.ink; g.lineWidth = 2.5;
+      g.beginPath(); g.arc(bx + tw * 2 + 2, 438, 10, 0, 7); g.fill(); g.stroke();
+      g.fillStyle = "#ffffff"; g.font = `700 12px ${FONT_MONO}`; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText(String(left), bx + tw * 2 + 2, 439);
+      g.restore();
+    }
+    if (btn(bx + (tw + 6) * 2, 436, tw, 40, "PROFILE", { color: "#00e5ff", font: `700 14px ${FONT_MONO}` }))
       this.openProfile();
 
     const sw = 96, sgap = 6, sy = 484;
@@ -682,8 +706,11 @@ const Game = {
       if (hov && Mouse.click) { this.stageIndex = i; Snd.ui(); }
     });
 
-    if (btn(W / 2 - 230, H - 66, 200, 48, "◀ FIGHTERS", { color: "#ff2e88" })) { this.screen = "select"; Snd.ui(); }
-    if (btn(W / 2 + 30, H - 66, 200, 48, "BRAWL ▶", { color: "#b6ff3b", font: `700 19px ${FONT_MONO}` }))
+    if (btn(W / 2 - 350, H - 66, 200, 48, "◀ FIGHTERS", { color: "#ff2e88" })) { this.screen = "select"; Snd.ui(); }
+    if (btn(W / 2 - 130, H - 66, 210, 48, this.items ? "ITEMS: ON" : "ITEMS: OFF",
+            { color: "#ff8a1a", active: this.items }))
+      { Settings.set("items", !this.items); Snd.ui(); }
+    if (btn(W / 2 + 100, H - 66, 250, 48, "BRAWL ▶", { color: "#b6ff3b", font: `700 19px ${FONT_MONO}` }))
       this.start();
   },
 
@@ -909,14 +936,14 @@ const Game = {
       ["w", "but that armour BREAKS under enough damage. A super can be contested, not just dodged."],
       ["", ""],
       ["h4", "STAGES"],
-      ["b", "Eight maps, not reskins — and their platforms do things. The Yard's side ledges drift in and out."],
-      ["b", "The Foundry's shelves go red-hot on a cycle and burn you; they flicker before they do."],
-      ["b", "The Drift's cloud islands sag and dissolve under your weight, then reform. Don't camp them."],
-      ["b", "The Vault's one shelf retracts on a timer, leaving the rails empty and nowhere to land."],
-      ["b", "The Spire's two lifts ride up and down the frame, out of step, so the high ground keeps moving."],
-      ["b", "The Rust Line's whole deck is a conveyor. It carries you, then reverses — arrows flash amber first."],
-      ["b", "The Hollow's mushroom caps past each ledge bounce you sky-high and give your jumps back."],
-      ["b", "The Peak's gusts sweep the deck, alternating sides. An arrow warns which way before each one."],
+      ["b", "Eight maps, and their platforms do things: drifting ledges, red-hot shelves, crumbling clouds,"],
+      ["b", "a retracting shelf, moving lifts, a reversing conveyor, bouncy mushroom caps and sweeping gusts."],
+      ["b", "Every hazard warns you first — a flicker, an arrow, a flash. Read the stage."],
+      ["", ""],
+      ["h5", "ITEMS"],
+      ["b", "Capsules float down mid-match — touch one to use it. HEART heals, BOOST speeds you up, POWER hits harder,"],
+      ["b", "STAR makes you invincible (and hurts anyone you run into), CHARGE fills half your meter, BOMB sticks to a foe."],
+      ["b", "Switch items off on the stage screen. Past 100% a fighter glows red — one clean SMASH can take that stock."],
     ];
     let y = 112;
     g.save();
@@ -927,7 +954,8 @@ const Game = {
       else if (k === "w") { g.font = `700 13px ${FONT_MONO}`; g.fillStyle = "#ff2e88"; }
       else {
         g.font = `700 16px ${FONT_MONO}`;
-        g.fillStyle = k === "h" ? "#ffffff" : k === "h2" ? "#b6ff3b" : k === "h3" ? "#ffc83d" : "#00e5ff";
+        g.fillStyle = k === "h" ? "#ffffff" : k === "h2" ? "#b6ff3b" : k === "h3" ? "#ffc83d"
+                    : k === "h5" ? "#ff8a1a" : "#00e5ff";
       }
       g.fillText(t, 150, y);
       y += (k === "b" || k === "w") ? 20 : 24;
@@ -1018,7 +1046,8 @@ const Game = {
       else if (k === "w") { g.font = `700 13px ${FONT_MONO}`; g.fillStyle = "#ff2e88"; }
       else {
         g.font = `700 16px ${FONT_MONO}`;
-        g.fillStyle = k === "h" ? "#ffffff" : k === "h2" ? "#b6ff3b" : k === "h3" ? "#ffc83d" : "#00e5ff";
+        g.fillStyle = k === "h" ? "#ffffff" : k === "h2" ? "#b6ff3b" : k === "h3" ? "#ffc83d"
+                    : k === "h5" ? "#ff8a1a" : "#00e5ff";
       }
       g.fillText(t, 150, y);
       y += (k === "b" || k === "w") ? 20 : 24;
@@ -1298,12 +1327,16 @@ const Game = {
     g.save();
     g.textAlign = "left"; g.font = `700 10px ${FONT_MONO}`; g.fillStyle = "#8e8bb2";
     g.fillText("MODE", 176, py + 24);
+    g.fillText("ITEMS", 410, py + 24);
     g.fillText("STAGE", 640, py + 24);
     g.restore();
     if (host) {
       if (btn(176, py + 34, 220, 40, this.teams ? "2v2 TEAMS" : "FREE-FOR-ALL",
           { active: this.teams, color: this.teams ? "#ff4f6a" : "#8a7fff" }))
         { Net.setTeams(!this.teams); Snd.ui(); }
+      if (btn(410, py + 34, 200, 40, this.items ? "ITEMS: ON" : "ITEMS: OFF",
+          { active: this.items, color: "#ff8a1a" }))
+        { Settings.set("items", !this.items); Net.dirty = true; Snd.ui(); }
       if (btn(640, py + 34, 44, 40, "◀", { color: "#00e5ff" }))
         { Net.setStage((this.stageIndex + STAGES.length - 1) % STAGES.length); Snd.ui(); }
       if (btn(906, py + 34, 44, 40, "▶", { color: "#00e5ff" }))
@@ -1312,6 +1345,8 @@ const Game = {
       g.save(); g.textAlign = "left"; g.font = `700 16px ${FONT_MONO}`;
       g.fillStyle = this.teams ? "#ff4f6a" : "#8a7fff";
       g.fillText(this.teams ? "2v2 TEAMS" : "FREE-FOR-ALL", 176, py + 60);
+      g.fillStyle = Net.roomItems === false ? "#8e8bb2" : "#ff8a1a";
+      g.fillText(Net.roomItems === false ? "ITEMS OFF" : "ITEMS ON", 410, py + 60);
       g.restore();
     }
     g.save();
@@ -1571,5 +1606,23 @@ const Game = {
     g.textAlign = "right"; g.fillStyle = "#aeabd4";
     g.fillText(`BALANCE ${Profile.d.coins.toLocaleString()}`, x + w - 16, y + h / 2 + 1);
     g.restore();
+
+    /* What this match completed: daily challenges and achievements, each a
+       chip of its own under the strip. */
+    if (rw.bonus && rw.bonus.length) {
+      let cx = x;
+      g.save();
+      g.font = `700 11px ${FONT_MONO}`; g.textBaseline = "middle"; g.textAlign = "left";
+      for (const b of rw.bonus) {
+        const col = b.kind === "daily" ? "#b6ff3b" : "#ffc83d";
+        const label = `${b.kind === "daily" ? "DAILY ✓" : "★ ACHIEVEMENT"}  ${b.label.toUpperCase()}  +${b.coins}`;
+        const cw = g.measureText(label).width + 28;
+        if (cx + cw > x + w) break;
+        panel(g, cx, y + h + 10, cw, 30, { cut: 8, fill: "#16112a", accent: col, accentA: 0.9, glow: 8 });
+        g.fillStyle = col; g.fillText(label, cx + 14, y + h + 26);
+        cx += cw + 10;
+      }
+      g.restore();
+    }
   },
 };

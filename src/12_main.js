@@ -26,7 +26,7 @@ function frame(now) {
   let dt = now - last;
   last = now;
   if (dt > 250) dt = STEP;        // tab was hidden; don't fast-forward
-  acc += dt;
+  acc += dt * Game.timeScale();
 
   let steps = 0;
   while (acc >= STEP && steps < CFG.maxFrameSkip) {
