@@ -793,6 +793,13 @@ function drawClock(framesLeft) {
     chip(g, `FRENZY · METER x${CFG.meter.frenzyMul}`, W - 16, 46, "#ffc83d", { align: "right" });
   if (m && m.teams)
     chip(g, "2v2 TEAMS", 16, 22, "#ffffff", { align: "left" });
+  /* A guest sees how it reaches the host: DIRECT is a straight link, RELAY
+     goes through the matchmaking server (slower, fewer updates). */
+  if (Net.isGuest && Net.active && Net.conn) {
+    const relay = !!Net.conn.relay;
+    chip(g, `${relay ? "RELAY" : "DIRECT"}${Net.ping ? " · " + Net.ping + " ms" : ""}`,
+         16, m && m.teams ? 46 : 22, relay ? "#ffc83d" : "#b6ff3b", { align: "left" });
+  }
   g.restore();
 }
 
