@@ -16600,6 +16600,9 @@ const Net = {
     m.winTeam = mt[7] >= 0 ? mt[7] : null;
     m.endedBy = mt[8]; m.frames = mt[9];
     this.hostPause = mt[10] || 0;
+    // frames of that hit-pause still to run, counted down on our own clock
+    if (fresh) this.pauseLeft = this.hostPause;
+    else if (this.pauseLeft > 0) this.pauseLeft--;
     m.darkT = mt[11] || 0;
 
     // ---- entities: rebuilt wholesale, they are only drawn here ----
@@ -16623,8 +16626,12 @@ const Net = {
       this.lagFrames = this.lagFrames == null ? rtt : lerp(this.lagFrames, rtt, 0.1);
     }
     const halfTrip = this.lagFrames != null && !relayed ? this.lagFrames / 2 : (this.ping || 0) / 33.3;
-    const age = clamp(halfTrip + (performance.now() - (this.snapAt || 0)) / 16.67, 0,
-                      relayed ? NET.projectMaxRelay : NET.projectMax);
+    const rawAge = clamp(halfTrip + (performance.now() - (this.snapAt || 0)) / 16.67, 0,
+                         relayed ? NET.projectMaxRelay : NET.projectMax);
+    /* The host spends the first hostPause of those frames frozen in a hit-
+       pause, so nothing moves for them: carrying everyone forward through the
+       pause slid them on, then snapped them back. */
+    const age = Math.max(0, rawAge - this.hostPause);
     this.ease = this.ease || {};
     /* Projectiles are carried forward like fighters. A snapshot only says
        where each one is, so its speed comes from where the same kind, from
@@ -16722,7 +16729,9 @@ const Net = {
       if (fd.al) {
         const spin = fd.gr && Math.abs(fd.vx) > 0.5 ? Math.abs(fd.vx) * 0.09 : 0;
         const wantT = fd.at + age, wantR = fd.rp + spin * age;
-        const nt = e.t == null ? wantT : e.t + 1, nr = e.r == null ? wantR : spin ? e.r + spin : e.r * 0.85;
+        const held = this.pauseLeft > 0;            // the host's clocks are stopped too
+        const nt = e.t == null ? wantT : held ? e.t : e.t + 1;
+        const nr = e.r == null ? wantR : held ? e.r : spin ? e.r + spin : e.r * 0.85;
         e.t = Math.abs(wantT - nt) > 20 ? wantT : nt + (wantT - nt) * 0.25;
         e.r = Math.abs(wantR - nr) > 6 ? wantR : nr + (wantR - nr) * 0.25;
         f.animTime = e.t; f.runPhase = e.r;
@@ -16835,10 +16844,17 @@ const Net = {
     if (f.attack && (f.attack.kind === "super" ||
         (f.attack.kind === "special" && !this.ownSpecialSafe()))) return false;
 
-    /* The host is frozen in a hit-pause: it is applying no inputs, so neither
-       does the prediction — the fighter holds where the host has it. */
-    if (this.hostPause > 0) {
-      if (fresh || !this.predicting) { f.px = f.x; f.py = f.y; this.loadOwn(f, fd); }
+    /* The host is frozen in a hit-pause: it applies no inputs, so neither
+       does the prediction. The fighter holds right where the prediction has
+       it — it used to jump back to the host's (older) position and then
+       forward again afterwards, which read as a stutter and as late controls.
+       Frames spent frozen are marked, so the replay after the pause skips
+       them the way the host's input queue drops them. */
+    if (this.pauseLeft > 0) {
+      if (!this.predicting) this.loadOwn(f, fd);
+      f.px = f.x; f.py = f.y;
+      const last = this.hist[this.hist.length - 1];
+      if (last && last[0] === this.seq) last[2] = 1;
       this.predicting = true;
       return true;
     }
@@ -16846,7 +16862,8 @@ const Net = {
     if (fresh || !this.predicting) {
       const ack = fd.aq || 0;
       // the host already ran rq frames past ack on our last input: skip those
-      const pending = this.hist.filter(e => e[0] > ack + (fd.rq || 0) && e[0] < this.seq);
+      const pending = this.hist.filter((e, i) => e[0] > ack + (fd.rq || 0) && e[0] < this.seq &&
+        !(e[2] && i > 0 && this.hist[i - 1][1] === e[1]));    // a frozen frame that changed nothing
       if (pending.length > NET.replayMax) return false;
       // rewind to what the host has, then catch up on what it has not seen
       this.loadOwn(f, fd);
